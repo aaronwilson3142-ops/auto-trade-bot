@@ -20,14 +20,9 @@ TestVaRScheduler                    — var_refresh job registered at 06:19 ET
 """
 from __future__ import annotations
 
-import dataclasses
 import datetime as dt
 from decimal import Decimal
-from typing import Any
 from unittest.mock import MagicMock, patch
-
-import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -252,7 +247,6 @@ class TestVaRServiceHistoricalVar:
         """99% VaR >= 95% VaR for any distribution."""
         from services.risk_engine.var_service import VaRService
         rets = _build_prices(252)
-        from services.risk_engine.var_service import VaRService as _
         r = VaRService.compute_returns(rets)
         var95 = VaRService.historical_var(r, 0.95)
         var99 = VaRService.historical_var(r, 0.99)
@@ -362,7 +356,7 @@ class TestVaRServiceComputeResult:
 
     def test_too_few_observations_returns_insufficient(self):
         """With fewer than MIN_OBSERVATIONS returns, result.insufficient_data=True."""
-        from services.risk_engine.var_service import VaRService, MIN_OBSERVATIONS
+        from services.risk_engine.var_service import MIN_OBSERVATIONS, VaRService
         positions, prices, equity = self._make_positions_and_prices(n=MIN_OBSERVATIONS - 5)
         result = VaRService.compute_var_result(positions, prices, equity)
         assert result.insufficient_data is True
@@ -396,7 +390,7 @@ class TestVaRServiceFilter:
     def _make_var_result(self, var_95_pct: float, insufficient: bool = False):
         from services.risk_engine.var_service import VaRResult
         return VaRResult(
-            computed_at=dt.datetime.now(dt.timezone.utc),
+            computed_at=dt.datetime.now(dt.UTC),
             portfolio_var_95_pct=var_95_pct,
             portfolio_var_99_pct=var_95_pct * 1.3,
             portfolio_cvar_95_pct=var_95_pct * 1.5,
@@ -591,7 +585,7 @@ class TestVaRRoutePortfolio:
     def _make_var_result(self, var_95=0.025, insufficient=False):
         from services.risk_engine.var_service import VaRResult
         return VaRResult(
-            computed_at=dt.datetime(2026, 3, 20, 6, 19, tzinfo=dt.timezone.utc),
+            computed_at=dt.datetime(2026, 3, 20, 6, 19, tzinfo=dt.UTC),
             portfolio_var_95_pct=var_95,
             portfolio_var_99_pct=var_95 * 1.4,
             portfolio_cvar_95_pct=var_95 * 1.6,
@@ -661,7 +655,7 @@ class TestVaRRouteTicker:
     def _make_var_result(self):
         from services.risk_engine.var_service import VaRResult
         return VaRResult(
-            computed_at=dt.datetime(2026, 3, 20, 6, 19, tzinfo=dt.timezone.utc),
+            computed_at=dt.datetime(2026, 3, 20, 6, 19, tzinfo=dt.UTC),
             portfolio_var_95_pct=0.025,
             portfolio_var_99_pct=0.035,
             portfolio_cvar_95_pct=0.040,

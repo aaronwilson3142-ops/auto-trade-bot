@@ -8,8 +8,6 @@ Phase 38 — Market Regime Detection + Regime-Adaptive Weight Profiles
 """
 from __future__ import annotations
 
-from typing import Optional
-
 import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -32,7 +30,7 @@ class RegimeSnapshot(Base, TimestampMixin):
     is_manual_override: Mapped[bool] = mapped_column(
         sa.Boolean, nullable=False, default=False, server_default=sa.false()
     )
-    override_reason: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
+    override_reason: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
     __table_args__ = (
         sa.Index("ix_regime_snapshot_regime",     "regime"),

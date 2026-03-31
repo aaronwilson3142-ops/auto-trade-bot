@@ -72,16 +72,28 @@ def _build_universe() -> list[str]:
 UNIVERSE_TICKERS: Final[list[str]] = _build_universe()
 
 # Map ticker → primary sector tag (used for ranking source reliability tags)
-TICKER_SECTOR: Final[dict[str, str]] = {
-    t: "technology" for t in MEGA_CAP_TECH + AI_INFRASTRUCTURE + SEMICONDUCTORS + CLOUD_SOFTWARE
-} | {
-    t: "healthcare" for t in HEALTHCARE
-} | {
-    t: "financials" for t in FINANCIALS
-} | {
-    t: "energy" for t in ENERGY
-} | {
-    t: "consumer" for t in CONSUMER
+TICKER_SECTOR: Final[dict[str, str]] = dict.fromkeys(MEGA_CAP_TECH + AI_INFRASTRUCTURE + SEMICONDUCTORS + CLOUD_SOFTWARE, "technology") | dict.fromkeys(HEALTHCARE, "healthcare") | dict.fromkeys(FINANCIALS, "financials") | dict.fromkeys(ENERGY, "energy") | dict.fromkeys(CONSUMER, "consumer")
+
+
+# Map ticker → primary investment theme (used for thematic concentration checks).
+# Where a ticker belongs to multiple themes, the most *specific* theme wins
+# (e.g. NVDA → "ai_infrastructure" rather than the broader "mega_cap_tech").
+# Tickers absent from this mapping fall into the "other" bucket at runtime.
+TICKER_THEME: Final[dict[str, str]] = {
+    # AI / compute infrastructure — most specific theme for these names
+    **dict.fromkeys(AI_INFRASTRUCTURE, "ai_infrastructure"),
+    # Semiconductors (non-AI-infra overlap)
+    **dict.fromkeys(SEMICONDUCTORS, "semiconductors"),
+    # Cloud software
+    **dict.fromkeys(CLOUD_SOFTWARE, "cloud_software"),
+    # Mega-cap tech not already captured by a more specific theme
+    **{t: "mega_cap_tech" for t in MEGA_CAP_TECH
+       if t not in AI_INFRASTRUCTURE and t not in CLOUD_SOFTWARE},
+    # Other sectors map to their sector name as theme (no overlap)
+    **dict.fromkeys(HEALTHCARE, "healthcare"),
+    **dict.fromkeys(FINANCIALS, "financials"),
+    **dict.fromkeys(ENERGY, "energy"),
+    **dict.fromkeys(CONSUMER, "consumer"),
 }
 
 

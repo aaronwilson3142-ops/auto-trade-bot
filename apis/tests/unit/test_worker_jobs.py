@@ -24,8 +24,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from apps.api.state import ApiAppState, get_app_state, reset_app_state
-from config.settings import OperatingMode, Settings
-
+from config.settings import Settings
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -55,7 +54,7 @@ def _make_portfolio_state(cash: float = 90_000.0) -> Any:
         quantity=Decimal("100"),
         avg_entry_price=Decimal("150.00"),
         current_price=Decimal("155.00"),
-        opened_at=dt.datetime(2026, 3, 17, tzinfo=dt.timezone.utc),
+        opened_at=dt.datetime(2026, 3, 17, tzinfo=dt.UTC),
     )
     return PortfolioState(
         cash=Decimal(str(cash)),
@@ -67,6 +66,7 @@ def _make_portfolio_state(cash: float = 90_000.0) -> Any:
 
 def _make_signal_output(ticker: str = "AAPL") -> Any:
     import uuid as _uuid
+
     from services.signal_engine.models import SignalOutput
 
     return SignalOutput(
@@ -750,7 +750,12 @@ class TestWorkerScheduler:
         "generate_improvement_proposals",
         "auto_execute_proposals",
         "paper_trading_cycle_morning",
+        "paper_trading_cycle_late_morning",
+        "paper_trading_cycle_late_morning_2",
         "paper_trading_cycle_midday",
+        "paper_trading_cycle_early_afternoon",
+        "paper_trading_cycle_afternoon",
+        "paper_trading_cycle_close",
         "broker_token_refresh",
         "var_refresh",
         "stress_test",
@@ -778,11 +783,11 @@ class TestWorkerScheduler:
         job_ids = {job.id for job in scheduler.get_jobs()}
         assert self._EXPECTED_JOB_IDS == job_ids
 
-    def test_scheduler_has_exactly_thirty_jobs(self):
+    def test_scheduler_has_expected_job_count(self):
         from apps.worker.main import build_scheduler
 
         scheduler = build_scheduler()
-        assert len(scheduler.get_jobs()) == 30
+        assert len(scheduler.get_jobs()) == 35
 
     def test_every_job_has_replace_existing_true(self):
         """Verify no duplicate job registration is possible."""

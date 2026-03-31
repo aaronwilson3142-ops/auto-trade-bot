@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import uuid
 from decimal import Decimal
-from typing import Optional
 
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
@@ -23,11 +22,11 @@ class Security(Base, TimestampMixin):
     ticker: Mapped[str] = mapped_column(sa.String, unique=True, nullable=False, index=True)
     name: Mapped[str] = mapped_column(sa.String, nullable=False)
     asset_type: Mapped[str] = mapped_column(sa.String, nullable=False)
-    exchange: Mapped[Optional[str]] = mapped_column(sa.String, nullable=True)
-    sector: Mapped[Optional[str]] = mapped_column(sa.String, nullable=True)
-    industry: Mapped[Optional[str]] = mapped_column(sa.String, nullable=True)
-    country: Mapped[Optional[str]] = mapped_column(sa.String, nullable=True)
-    currency: Mapped[Optional[str]] = mapped_column(sa.String, nullable=True)
+    exchange: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    sector: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    industry: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    country: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    currency: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     is_active: Mapped[bool] = mapped_column(sa.Boolean, default=True, nullable=False)
 
 
@@ -41,7 +40,7 @@ class Theme(Base, TimestampMixin):
     )
     theme_key: Mapped[str] = mapped_column(sa.String, unique=True, nullable=False)
     theme_name: Mapped[str] = mapped_column(sa.String, nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
 
 class SecurityTheme(Base, TimestampMixin):
@@ -59,7 +58,7 @@ class SecurityTheme(Base, TimestampMixin):
         PG_UUID(as_uuid=True), sa.ForeignKey("themes.id"), nullable=False
     )
     relationship_type: Mapped[str] = mapped_column(sa.String, nullable=False)
-    confidence_score: Mapped[Optional[Decimal]] = mapped_column(
+    confidence_score: Mapped[Decimal | None] = mapped_column(
         sa.Numeric(8, 4), nullable=True
     )
-    source_method: Mapped[Optional[str]] = mapped_column(sa.String, nullable=True)
+    source_method: Mapped[str | None] = mapped_column(sa.String, nullable=True)

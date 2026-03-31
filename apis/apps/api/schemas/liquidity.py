@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Optional
 
 from pydantic import BaseModel
 
@@ -20,7 +19,7 @@ class TickerLiquiditySchema(BaseModel):
 class LiquidityScreenResponse(BaseModel):
     """Full universe liquidity screen — all tickers with ADV data."""
 
-    computed_at: Optional[dt.datetime]
+    computed_at: dt.datetime | None
     min_liquidity_dollar_volume: float
     max_position_as_pct_of_adv: float
     ticker_count: int
@@ -33,11 +32,11 @@ class TickerLiquidityDetailResponse(BaseModel):
     """Single-ticker liquidity detail."""
 
     ticker: str
-    dollar_volume_20d: Optional[float]
-    is_liquid: Optional[bool]
-    adv_notional_cap_usd: Optional[float]
-    liquidity_tier: Optional[str]
+    dollar_volume_20d: float | None
+    is_liquid: bool | None
+    adv_notional_cap_usd: float | None
+    liquidity_tier: str | None
     min_liquidity_dollar_volume: float
     max_position_as_pct_of_adv: float
-    computed_at: Optional[dt.datetime]
+    computed_at: dt.datetime | None
     data_available: bool

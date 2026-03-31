@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
-from typing import Any, Optional
+from typing import Any
 
 from apps.api.state import ApiAppState
 from config.logging_config import get_logger
@@ -55,8 +55,8 @@ DEFAULT_STRATEGIES = [
 
 def run_signal_quality_update(
     app_state: ApiAppState,
-    settings: Optional[Settings] = None,
-    session_factory: Optional[Any] = None,
+    settings: Settings | None = None,
+    session_factory: Any | None = None,
 ) -> dict[str, Any]:
     """Match closed trades to strategy signals, persist outcomes, compute report.
 
@@ -70,7 +70,7 @@ def run_signal_quality_update(
         outcomes_total, computed_at, error.
     """
     cfg = settings or get_settings()  # noqa: F841
-    run_at = dt.datetime.now(dt.timezone.utc)
+    run_at = dt.datetime.now(dt.UTC)
 
     logger.info("signal_quality_update_starting")
 
@@ -152,7 +152,7 @@ def _run_with_db(
 
             # If no signals found, fall back to default strategies with NULL scores
             if not strategy_scores:
-                strategy_scores = {name: None for name in DEFAULT_STRATEGIES}
+                strategy_scores = dict.fromkeys(DEFAULT_STRATEGIES)
 
             for strategy_name, signal_score in strategy_scores.items():
                 # Check for existing row (upsert-safe: skip if already exists)
@@ -232,7 +232,7 @@ def _fetch_strategy_scores(
     session: Any,
     ticker: str,
     signal_date: dt.date,
-) -> dict[str, Optional[float]]:
+) -> dict[str, float | None]:
     """Return {strategy_name: signal_score} for ticker on signal_date.
 
     Queries SecuritySignal + SignalRun + Strategy + Security.
@@ -279,7 +279,7 @@ def _fetch_strategy_scores(
             .all()
         )
 
-        result: dict[str, Optional[float]] = {}
+        result: dict[str, float | None] = {}
         for sig, strat in sig_rows:
             score = float(sig.signal_score) if sig.signal_score is not None else None
             result[strat.strategy_name] = score

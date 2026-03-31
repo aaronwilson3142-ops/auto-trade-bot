@@ -66,13 +66,11 @@ import hmac
 import logging
 import time
 from threading import Lock
-from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException, Request, status
 from pydantic import BaseModel
 
 from apps.api.deps import AppStateDep, SettingsDep
-from config.settings import Environment
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +83,7 @@ _rate_limit_lock: Lock = Lock()
 _rate_limit_store: dict[str, collections.deque] = {}
 
 
-def _check_rate_limit(ip: Optional[str]) -> None:
+def _check_rate_limit(ip: str | None) -> None:
     """Raise HTTP 429 when the IP has exceeded the admin rate limit.
 
     The ``Retry-After`` header tells the caller how many seconds to wait.
@@ -136,9 +134,9 @@ class AdminEventResponse(BaseModel):
     event_timestamp: str
     event_type: str
     result: str
-    source_ip: Optional[str] = None
-    secret_name: Optional[str] = None
-    secret_backend: Optional[str] = None
+    source_ip: str | None = None
+    secret_name: str | None = None
+    secret_backend: str | None = None
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -161,7 +159,7 @@ def _extract_bearer(authorization: str | None) -> str:
     return parts[1].strip()
 
 
-def _get_client_ip(request: Request) -> Optional[str]:
+def _get_client_ip(request: Request) -> str | None:
     """Extract client IP from X-Forwarded-For header or direct connection."""
     forwarded_for = request.headers.get("x-forwarded-for")
     if forwarded_for:
@@ -174,10 +172,10 @@ def _get_client_ip(request: Request) -> Optional[str]:
 def _log_admin_event(
     event_type: str,
     result: str,
-    source_ip: Optional[str] = None,
-    secret_name: Optional[str] = None,
-    secret_backend: Optional[str] = None,
-    details: Optional[dict] = None,
+    source_ip: str | None = None,
+    secret_name: str | None = None,
+    secret_backend: str | None = None,
+    details: dict | None = None,
 ) -> None:
     """Write an admin audit event to the database.
 
@@ -190,7 +188,7 @@ def _log_admin_event(
 
         with _db_session() as db:
             event = AdminEvent(
-                event_timestamp=_dt.datetime.now(_dt.timezone.utc),
+                event_timestamp=_dt.datetime.now(_dt.UTC),
                 event_type=event_type,
                 result=result,
                 source_ip=source_ip,
@@ -295,7 +293,7 @@ def invalidate_secrets(
             "ok",
             source_ip=source_ip,
             secret_name=body.secret_name or secret_manager.secret_name,
-            secret_backend="aws",
+            secret_backend="aws",  # noqa: S106 — not a password; identifies backend type
         )
         return InvalidateSecretsResponse(
             status="ok",
@@ -304,7 +302,7 @@ def invalidate_secrets(
                 f"Next get() will re-fetch from AWS "
                 f"(secret='{body.secret_name or secret_manager.secret_name}')."
             ),
-            secret_backend="aws",
+            secret_backend="aws",  # noqa: S106 — not a password; identifies backend type
         )
 
     # EnvSecretManager — no cache; nothing to do
@@ -317,7 +315,7 @@ def invalidate_secrets(
         "skipped_env_backend",
         source_ip=source_ip,
         secret_name=body.secret_name or None,
-        secret_backend="env",
+        secret_backend="env",  # noqa: S106 — not a password; identifies backend type
     )
     return InvalidateSecretsResponse(
         status="skipped_env_backend",
@@ -326,7 +324,7 @@ def invalidate_secrets(
             "No in-memory cache exists; no action taken.  "
             "Restart the process to pick up new environment values."
         ),
-        secret_backend="env",
+        secret_backend="env",  # noqa: S106 — not a password; identifies backend type
     )
 
 
@@ -423,12 +421,12 @@ class KillSwitchStatusResponse(BaseModel):
     kill_switch_active: bool
     env_kill_switch: bool          # value of APIS_KILL_SWITCH env var
     effective: bool                # kill_switch_active OR env_kill_switch
-    activated_at: Optional[str]    # ISO-8601 or None
-    activated_by: Optional[str]    # source IP or "env" or None
+    activated_at: str | None    # ISO-8601 or None
+    activated_by: str | None    # source IP or "env" or None
     message: str
 
 
-def _persist_kill_switch(active: bool, activated_by: Optional[str] = None) -> None:
+def _persist_kill_switch(active: bool, activated_by: str | None = None) -> None:
     """Upsert kill switch state to system_state table.  Fire-and-forget."""
     import datetime as _now_dt
     try:
@@ -440,7 +438,7 @@ def _persist_kill_switch(active: bool, activated_by: Optional[str] = None) -> No
         )
         from infra.db.session import db_session as _db_session
 
-        now = _now_dt.datetime.now(_now_dt.timezone.utc)
+        now = _now_dt.datetime.now(_now_dt.UTC)
         with _db_session() as db:
             for key, value in (
                 (KEY_KILL_SWITCH_ACTIVE, "true" if active else "false"),
@@ -528,7 +526,7 @@ def set_kill_switch(
     prev_active = app_state.kill_switch_active
     app_state.kill_switch_active = body.active
     if body.active:
-        app_state.kill_switch_activated_at = _dt.datetime.now(_dt.timezone.utc)
+        app_state.kill_switch_activated_at = _dt.datetime.now(_dt.UTC)
         app_state.kill_switch_activated_by = source_ip
     else:
         app_state.kill_switch_activated_at = None

@@ -23,7 +23,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
 # =============================================================================
 # Helpers
 # =============================================================================
@@ -40,8 +39,8 @@ def _make_outcome(
     return SignalQualityService.build_outcome_dict(
         ticker=ticker,
         strategy_name=strategy_name,
-        trade_opened_at=dt.datetime(2026, 3, 1, tzinfo=dt.timezone.utc),
-        trade_closed_at=dt.datetime(2026, 3, 6, tzinfo=dt.timezone.utc),
+        trade_opened_at=dt.datetime(2026, 3, 1, tzinfo=dt.UTC),
+        trade_closed_at=dt.datetime(2026, 3, 6, tzinfo=dt.UTC),
         outcome_return_pct=outcome_return_pct,
         hold_days=hold_days,
         was_profitable=was_profitable,
@@ -60,8 +59,8 @@ def _make_closed_trade(
     trade.realized_pnl_pct = Decimal(str(realized_pnl_pct))
     trade.hold_duration_days = hold_duration_days
     trade.is_winner = is_winner
-    trade.opened_at = dt.datetime(2026, 3, 1, tzinfo=dt.timezone.utc)
-    trade.closed_at = dt.datetime(2026, 3, 6, tzinfo=dt.timezone.utc)
+    trade.opened_at = dt.datetime(2026, 3, 1, tzinfo=dt.UTC)
+    trade.closed_at = dt.datetime(2026, 3, 6, tzinfo=dt.UTC)
     return trade
 
 
@@ -120,7 +119,7 @@ class TestSignalQualityReport:
 
     def test_defaults(self):
         from services.signal_engine.signal_quality import SignalQualityReport
-        ts = dt.datetime.now(dt.timezone.utc)
+        ts = dt.datetime.now(dt.UTC)
         r = SignalQualityReport(computed_at=ts)
         assert r.total_outcomes_recorded == 0
         assert r.strategies_with_data == []
@@ -128,7 +127,7 @@ class TestSignalQualityReport:
 
     def test_populated_report(self):
         from services.signal_engine.signal_quality import SignalQualityReport, StrategyQualityResult
-        ts = dt.datetime.now(dt.timezone.utc)
+        ts = dt.datetime.now(dt.UTC)
         result = StrategyQualityResult(strategy_name="momentum", prediction_count=5)
         r = SignalQualityReport(
             computed_at=ts,
@@ -141,13 +140,13 @@ class TestSignalQualityReport:
 
     def test_computed_at_stored(self):
         from services.signal_engine.signal_quality import SignalQualityReport
-        ts = dt.datetime(2026, 3, 20, 17, 20, tzinfo=dt.timezone.utc)
+        ts = dt.datetime(2026, 3, 20, 17, 20, tzinfo=dt.UTC)
         r = SignalQualityReport(computed_at=ts)
         assert r.computed_at == ts
 
     def test_strategies_with_data_list(self):
         from services.signal_engine.signal_quality import SignalQualityReport
-        ts = dt.datetime.now(dt.timezone.utc)
+        ts = dt.datetime.now(dt.UTC)
         r = SignalQualityReport(computed_at=ts, strategies_with_data=["a", "b"])
         assert "a" in r.strategies_with_data
         assert "b" in r.strategies_with_data
@@ -298,14 +297,14 @@ class TestComputeQualityReport:
 
     def test_computed_at_defaults_to_now(self):
         from services.signal_engine.signal_quality import SignalQualityService
-        before = dt.datetime.now(dt.timezone.utc)
+        before = dt.datetime.now(dt.UTC)
         report = SignalQualityService.compute_quality_report([])
-        after = dt.datetime.now(dt.timezone.utc)
+        after = dt.datetime.now(dt.UTC)
         assert before <= report.computed_at <= after
 
     def test_computed_at_can_be_set(self):
         from services.signal_engine.signal_quality import SignalQualityService
-        ts = dt.datetime(2026, 3, 20, 17, 20, tzinfo=dt.timezone.utc)
+        ts = dt.datetime(2026, 3, 20, 17, 20, tzinfo=dt.UTC)
         report = SignalQualityService.compute_quality_report([], computed_at=ts)
         assert report.computed_at == ts
 
@@ -330,8 +329,8 @@ class TestBuildOutcomeDict:
         d = SignalQualityService.build_outcome_dict(
             ticker="AAPL",
             strategy_name="momentum",
-            trade_opened_at=dt.datetime(2026, 3, 1, tzinfo=dt.timezone.utc),
-            trade_closed_at=dt.datetime(2026, 3, 6, tzinfo=dt.timezone.utc),
+            trade_opened_at=dt.datetime(2026, 3, 1, tzinfo=dt.UTC),
+            trade_closed_at=dt.datetime(2026, 3, 6, tzinfo=dt.UTC),
             outcome_return_pct=0.05,
             hold_days=5,
             was_profitable=True,
@@ -349,8 +348,8 @@ class TestBuildOutcomeDict:
         d = SignalQualityService.build_outcome_dict(
             ticker="MSFT",
             strategy_name="valuation",
-            trade_opened_at=dt.datetime(2026, 3, 1, tzinfo=dt.timezone.utc),
-            trade_closed_at=dt.datetime(2026, 3, 6, tzinfo=dt.timezone.utc),
+            trade_opened_at=dt.datetime(2026, 3, 1, tzinfo=dt.UTC),
+            trade_closed_at=dt.datetime(2026, 3, 6, tzinfo=dt.UTC),
             outcome_return_pct=Decimal("0.1234"),
             hold_days=10,
             was_profitable=True,
@@ -363,8 +362,8 @@ class TestBuildOutcomeDict:
         d = SignalQualityService.build_outcome_dict(
             ticker="NVDA",
             strategy_name="sentiment",
-            trade_opened_at=dt.datetime(2026, 3, 1, tzinfo=dt.timezone.utc),
-            trade_closed_at=dt.datetime(2026, 3, 6, tzinfo=dt.timezone.utc),
+            trade_opened_at=dt.datetime(2026, 3, 1, tzinfo=dt.UTC),
+            trade_closed_at=dt.datetime(2026, 3, 6, tzinfo=dt.UTC),
             outcome_return_pct=-0.03,
             hold_days=3,
             was_profitable=False,
@@ -377,8 +376,8 @@ class TestBuildOutcomeDict:
         d = SignalQualityService.build_outcome_dict(
             ticker="X",
             strategy_name="momentum",
-            trade_opened_at=dt.datetime(2026, 3, 1, tzinfo=dt.timezone.utc),
-            trade_closed_at=dt.datetime(2026, 3, 6, tzinfo=dt.timezone.utc),
+            trade_opened_at=dt.datetime(2026, 3, 1, tzinfo=dt.UTC),
+            trade_closed_at=dt.datetime(2026, 3, 6, tzinfo=dt.UTC),
             outcome_return_pct=0.01,
             hold_days=1,
             was_profitable=1,  # truthy int
@@ -499,6 +498,7 @@ class TestSignalQualityAPINoData:
 
     def _client(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         return TestClient(app)
 
@@ -523,7 +523,7 @@ class TestSignalQualityAPINoData:
 
         reset_app_state()
         state = get_app_state()
-        ts = dt.datetime(2026, 3, 20, 17, 20, tzinfo=dt.timezone.utc)
+        ts = dt.datetime(2026, 3, 20, 17, 20, tzinfo=dt.UTC)
         state.latest_signal_quality = SignalQualityReport(
             computed_at=ts,
             total_outcomes_recorded=10,
@@ -559,7 +559,7 @@ class TestSignalQualityAPINoData:
         reset_app_state()
         state = get_app_state()
         state.latest_signal_quality = SignalQualityReport(
-            computed_at=dt.datetime.now(dt.timezone.utc),
+            computed_at=dt.datetime.now(dt.UTC),
             total_outcomes_recorded=4,
             strategies_with_data=["momentum", "sentiment"],
             strategy_results=[
@@ -580,6 +580,7 @@ class TestStrategyQualityDetailAPI:
 
     def _client(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         return TestClient(app)
 
@@ -597,7 +598,7 @@ class TestStrategyQualityDetailAPI:
         reset_app_state()
         state = get_app_state()
         state.latest_signal_quality = SignalQualityReport(
-            computed_at=dt.datetime.now(dt.timezone.utc),
+            computed_at=dt.datetime.now(dt.UTC),
             total_outcomes_recorded=5,
             strategies_with_data=["momentum"],
             strategy_results=[StrategyQualityResult(strategy_name="momentum", prediction_count=5)],
@@ -614,7 +615,7 @@ class TestStrategyQualityDetailAPI:
         reset_app_state()
         state = get_app_state()
         state.latest_signal_quality = SignalQualityReport(
-            computed_at=dt.datetime.now(dt.timezone.utc),
+            computed_at=dt.datetime.now(dt.UTC),
             total_outcomes_recorded=8,
             strategies_with_data=["sentiment"],
             strategy_results=[
@@ -645,7 +646,7 @@ class TestStrategyQualityDetailAPI:
         reset_app_state()
         state = get_app_state()
         state.latest_signal_quality = SignalQualityReport(
-            computed_at=dt.datetime.now(dt.timezone.utc),
+            computed_at=dt.datetime.now(dt.UTC),
             total_outcomes_recorded=3,
             strategies_with_data=["momentum"],
             strategy_results=[StrategyQualityResult(strategy_name="momentum", prediction_count=3)],
@@ -715,7 +716,7 @@ class TestDashboardSignalQualitySection:
 
         state = ApiAppState()
         state.latest_signal_quality = SignalQualityReport(
-            computed_at=dt.datetime(2026, 3, 20, 17, 20, tzinfo=dt.timezone.utc),
+            computed_at=dt.datetime(2026, 3, 20, 17, 20, tzinfo=dt.UTC),
             total_outcomes_recorded=12,
             strategies_with_data=["momentum", "sentiment"],
             strategy_results=[
@@ -739,7 +740,7 @@ class TestDashboardSignalQualitySection:
                 ),
             ],
         )
-        state.signal_quality_computed_at = dt.datetime(2026, 3, 20, 17, 20, tzinfo=dt.timezone.utc)
+        state.signal_quality_computed_at = dt.datetime(2026, 3, 20, 17, 20, tzinfo=dt.UTC)
         return state
 
     def test_renders_without_data(self):
@@ -770,6 +771,7 @@ class TestDashboardSignalQualitySection:
 
     def test_wired_into_main_dashboard(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import reset_app_state
 
@@ -780,12 +782,12 @@ class TestDashboardSignalQualitySection:
 
     def test_warn_class_for_low_win_rate(self):
         from apps.api.state import ApiAppState
-        from services.signal_engine.signal_quality import SignalQualityReport, StrategyQualityResult
         from apps.dashboard.router import _render_signal_quality_section
+        from services.signal_engine.signal_quality import SignalQualityReport, StrategyQualityResult
 
         state = ApiAppState()
         state.latest_signal_quality = SignalQualityReport(
-            computed_at=dt.datetime.now(dt.timezone.utc),
+            computed_at=dt.datetime.now(dt.UTC),
             total_outcomes_recorded=5,
             strategies_with_data=["valuation"],
             strategy_results=[
@@ -800,7 +802,7 @@ class TestDashboardSignalQualitySection:
                 )
             ],
         )
-        state.signal_quality_computed_at = dt.datetime.now(dt.timezone.utc)
+        state.signal_quality_computed_at = dt.datetime.now(dt.UTC)
         html = _render_signal_quality_section(state)
         assert 'class="warn"' in html
 

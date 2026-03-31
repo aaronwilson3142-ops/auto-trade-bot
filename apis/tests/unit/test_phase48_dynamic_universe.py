@@ -23,12 +23,10 @@ TestUniverseJobScheduled            — universe_refresh in scheduler (job count
 from __future__ import annotations
 
 import datetime as dt
-from decimal import Decimal
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -117,7 +115,7 @@ class TestUniverseOverrideRecord:
         assert ovr.expires_at is None
 
     def test_override_record_with_expiry(self):
-        exp = dt.datetime(2030, 1, 1, tzinfo=dt.timezone.utc)
+        exp = dt.datetime(2030, 1, 1, tzinfo=dt.UTC)
         ovr = _make_override("MSFT", "REMOVE", expires_at=exp)
         assert ovr.expires_at == exp
 
@@ -163,7 +161,7 @@ class TestUniverseManagementServiceBasic:
 
     def test_remove_override_expired_has_no_effect(self):
         from services.universe_management.service import UniverseManagementService
-        past = dt.datetime(2020, 1, 1, tzinfo=dt.timezone.utc)
+        past = dt.datetime(2020, 1, 1, tzinfo=dt.UTC)
         overrides = [_make_override("AAPL", "REMOVE", expires_at=past)]
         result = UniverseManagementService.get_active_universe(BASE, overrides)
         assert "AAPL" in result
@@ -194,7 +192,7 @@ class TestUniverseManagementServiceBasic:
 
     def test_not_yet_expired_override_is_active(self):
         from services.universe_management.service import UniverseManagementService
-        future = dt.datetime(2099, 1, 1, tzinfo=dt.timezone.utc)
+        future = dt.datetime(2099, 1, 1, tzinfo=dt.UTC)
         overrides = [_make_override("AAPL", "REMOVE", expires_at=future)]
         result = UniverseManagementService.get_active_universe(BASE, overrides)
         assert "AAPL" not in result
@@ -216,7 +214,7 @@ class TestUniverseManagementQuality:
 
     def test_quality_removal_low_score(self):
         from services.universe_management.service import UniverseManagementService
-        scores = {t: 0.10 for t in BASE}
+        scores = dict.fromkeys(BASE, 0.1)
         result = UniverseManagementService.get_active_universe(
             BASE, [],
             signal_quality_scores=scores,
@@ -264,7 +262,7 @@ class TestUniverseManagementSummary:
     def test_summary_no_changes(self):
         from services.universe_management.service import UniverseManagementService
         summary = UniverseManagementService.compute_universe_summary(
-            BASE, sorted(BASE), [], reference_dt=dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc)
+            BASE, sorted(BASE), [], reference_dt=dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
         )
         assert summary.base_count == 5
         assert summary.active_count == 5
@@ -469,6 +467,7 @@ class TestUniverseRefreshJob:
 class TestUniverseAPIList:
     def _get_client(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         return TestClient(app)
 
@@ -482,11 +481,11 @@ class TestUniverseAPIList:
         assert data["no_data"] is True
 
     def test_with_active_universe_returns_tickers(self):
-        from apps.api.state import reset_app_state, get_app_state
+        from apps.api.state import get_app_state, reset_app_state
         reset_app_state()
         state = get_app_state()
         state.active_universe = ["AAPL", "MSFT"]
-        state.universe_computed_at = dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc)
+        state.universe_computed_at = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
         client = self._get_client()
         resp = client.get("/api/v1/universe/tickers")
         assert resp.status_code == 200
@@ -495,11 +494,11 @@ class TestUniverseAPIList:
         assert "AAPL" in data["active_tickers"]
 
     def test_response_includes_counts(self):
-        from apps.api.state import reset_app_state, get_app_state
+        from apps.api.state import get_app_state, reset_app_state
         reset_app_state()
         state = get_app_state()
         state.active_universe = ["AAPL", "MSFT", "NVDA"]
-        state.universe_computed_at = dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc)
+        state.universe_computed_at = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
         client = self._get_client()
         resp = client.get("/api/v1/universe/tickers")
         data = resp.json()
@@ -513,6 +512,7 @@ class TestUniverseAPIList:
 class TestUniverseAPITicker:
     def _get_client(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         return TestClient(app)
 
@@ -525,11 +525,11 @@ class TestUniverseAPITicker:
         assert resp.json()["data_available"] is False
 
     def test_ticker_in_active_universe(self):
-        from apps.api.state import reset_app_state, get_app_state
+        from apps.api.state import get_app_state, reset_app_state
         reset_app_state()
         state = get_app_state()
         state.active_universe = ["AAPL", "MSFT"]
-        state.universe_computed_at = dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc)
+        state.universe_computed_at = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
         client = self._get_client()
         resp = client.get("/api/v1/universe/tickers/AAPL")
         assert resp.status_code == 200
@@ -538,22 +538,22 @@ class TestUniverseAPITicker:
         assert data["in_active_universe"] is True
 
     def test_ticker_not_in_active_universe(self):
-        from apps.api.state import reset_app_state, get_app_state
+        from apps.api.state import get_app_state, reset_app_state
         reset_app_state()
         state = get_app_state()
         state.active_universe = ["MSFT"]
-        state.universe_computed_at = dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc)
+        state.universe_computed_at = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
         client = self._get_client()
         resp = client.get("/api/v1/universe/tickers/AAPL")
         data = resp.json()
         assert data["in_active_universe"] is False
 
     def test_ticker_case_normalised(self):
-        from apps.api.state import reset_app_state, get_app_state
+        from apps.api.state import get_app_state, reset_app_state
         reset_app_state()
         state = get_app_state()
         state.active_universe = ["AAPL"]
-        state.universe_computed_at = dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc)
+        state.universe_computed_at = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
         client = self._get_client()
         resp = client.get("/api/v1/universe/tickers/aapl")
         assert resp.json()["ticker"] == "AAPL"
@@ -566,6 +566,7 @@ class TestUniverseAPITicker:
 class TestUniverseAPIOverridePost:
     def _get_client(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         return TestClient(app)
 
@@ -608,6 +609,7 @@ class TestUniverseAPIOverridePost:
 class TestUniverseAPIOverrideDelete:
     def _get_client(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         return TestClient(app)
 
@@ -636,7 +638,7 @@ class TestUniverseDashboard:
         state = ApiAppState()
         state.active_universe = active or []
         state.universe_override_count = override_count
-        state.universe_computed_at = dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc)
+        state.universe_computed_at = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
         return state
 
     def test_section_renders(self):

@@ -17,7 +17,6 @@ from __future__ import annotations
 import datetime as dt
 import statistics
 from decimal import Decimal
-from typing import Optional
 
 import structlog
 
@@ -98,7 +97,7 @@ class FillQualityService:
     @staticmethod
     def compute_fill_summary(
         records: list[FillQualityRecord],
-        computed_at: Optional[dt.datetime] = None,
+        computed_at: dt.datetime | None = None,
     ) -> FillQualitySummary:
         """Compute aggregate statistics over a list of FillQualityRecord objects.
 
@@ -106,7 +105,7 @@ class FillQualityService:
         """
         if not records:
             return FillQualitySummary(
-                computed_at=computed_at or dt.datetime.now(dt.timezone.utc),
+                computed_at=computed_at or dt.datetime.now(dt.UTC),
             )
 
         slippages_usd = [float(r.slippage_usd) for r in records]
@@ -138,7 +137,7 @@ class FillQualityService:
             worst_slippage_pct=Decimal(str(max(slippages_pct))).quantize(Decimal("0.000001")),
             avg_buy_slippage_usd=avg_buy,
             avg_sell_slippage_usd=avg_sell,
-            computed_at=computed_at or dt.datetime.now(dt.timezone.utc),
+            computed_at=computed_at or dt.datetime.now(dt.UTC),
             record_count=len(records),
             tickers_covered=tickers,
         )
@@ -220,7 +219,7 @@ class FillQualityService:
         cls,
         records: list,
         n_days: int = 5,
-        computed_at: Optional[dt.datetime] = None,
+        computed_at: dt.datetime | None = None,
     ) -> AlphaDecaySummary:
         """Compute aggregate alpha-decay statistics from enriched fill records.
 
@@ -238,7 +237,7 @@ class FillQualityService:
         if not enriched:
             return AlphaDecaySummary(
                 n_days=n_days,
-                computed_at=computed_at or dt.datetime.now(dt.timezone.utc),
+                computed_at=computed_at or dt.datetime.now(dt.UTC),
             )
 
         alpha_vals = [r.alpha_captured_pct for r in enriched]
@@ -258,5 +257,5 @@ class FillQualityService:
             positive_alpha_count=sum(1 for v in alpha_vals if v > 0),
             negative_alpha_count=sum(1 for v in alpha_vals if v <= 0),
             n_days=n_days,
-            computed_at=computed_at or dt.datetime.now(dt.timezone.utc),
+            computed_at=computed_at or dt.datetime.now(dt.UTC),
         )

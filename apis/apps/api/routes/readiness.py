@@ -110,6 +110,7 @@ async def get_readiness_history(
     """
     try:
         import sqlalchemy as sa
+
         from infra.db.models.readiness import ReadinessSnapshot
         from infra.db.session import SessionLocal
 

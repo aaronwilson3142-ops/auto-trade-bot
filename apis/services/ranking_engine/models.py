@@ -6,7 +6,6 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Optional
 
 
 @dataclass
@@ -33,13 +32,13 @@ class RankedResult:
     rank_position: int
     security_id: object                 # UUID
     ticker: str
-    composite_score: Optional[Decimal]
-    portfolio_fit_score: Optional[Decimal]
+    composite_score: Decimal | None
+    portfolio_fit_score: Decimal | None
     recommended_action: str             # "buy", "watch", "avoid"
     target_horizon: str
     thesis_summary: str                 # Gate B: explainability
     disconfirming_factors: str          # Gate B: explainability
-    sizing_hint_pct: Optional[Decimal]  # suggested position size as a pct of portfolio
+    sizing_hint_pct: Decimal | None  # suggested position size as a pct of portfolio
     source_reliability_tier: str        # Gate B: source tag
     contains_rumor: bool                # Gate B: rumor separation
     as_of: dt.datetime = field(default_factory=dt.datetime.utcnow)

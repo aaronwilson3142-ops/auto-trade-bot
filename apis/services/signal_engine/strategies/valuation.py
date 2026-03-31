@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import logging
 from decimal import Decimal, InvalidOperation
-from typing import Optional
 
 from services.feature_store.models import FeatureSet
 from services.signal_engine.models import (
@@ -81,7 +80,7 @@ def _normalise(value: float, best: float, worst: float) -> float:
     return _clamp((value - worst) / span)
 
 
-def _d(x: Optional[float]) -> Optional[Decimal]:
+def _d(x: float | None) -> Decimal | None:
     if x is None:
         return None
     try:
@@ -115,7 +114,7 @@ class ValuationStrategy:
         ticker = feature_set.ticker
 
         # ── Sub-scores ────────────────────────────────────────────────────────
-        sub_scores: dict[str, Optional[float]] = {}
+        sub_scores: dict[str, float | None] = {}
 
         # 1. Forward P/E
         fpe = feature_set.forward_pe

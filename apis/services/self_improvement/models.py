@@ -23,8 +23,7 @@ import uuid
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Optional
-
+from typing import Any
 
 # ── Allowed change scope ───────────────────────────────────────────────────────
 
@@ -78,7 +77,7 @@ class ImprovementProposal:
     # Filled automatically on creation
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     proposal_timestamp: dt.datetime = field(
-        default_factory=lambda: dt.datetime.now(dt.timezone.utc)
+        default_factory=lambda: dt.datetime.now(dt.UTC)
     )
     status: ProposalStatus = ProposalStatus.PENDING
 
@@ -112,7 +111,7 @@ class ProposalEvaluation:
     # Filled automatically
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     evaluation_timestamp: dt.datetime = field(
-        default_factory=lambda: dt.datetime.now(dt.timezone.utc)
+        default_factory=lambda: dt.datetime.now(dt.UTC)
     )
     result_status: str = "pending"          # "pass" | "fail" | "inconclusive"
 
@@ -149,13 +148,13 @@ class PromotionDecision:
     proposal_id: str
     accepted: bool
     decision_reason: str
-    promoted_version_label: Optional[str]   # filled only when accepted=True
-    rollback_reference: Optional[str]        # version to roll back to if needed
+    promoted_version_label: str | None   # filled only when accepted=True
+    rollback_reference: str | None        # version to roll back to if needed
 
     # Filled automatically
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     decision_timestamp: dt.datetime = field(
-        default_factory=lambda: dt.datetime.now(dt.timezone.utc)
+        default_factory=lambda: dt.datetime.now(dt.UTC)
     )
     component_type: str = ""
     component_key: str = ""

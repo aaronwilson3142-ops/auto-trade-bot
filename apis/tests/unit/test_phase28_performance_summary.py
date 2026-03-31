@@ -16,12 +16,9 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
-from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any, Optional
 
 import pytest
-
 
 # ── Shared helpers ─────────────────────────────────────────────────────────────
 
@@ -60,8 +57,8 @@ def _make_closed_trade(ticker="AAPL", pnl=Decimal("500")):
         realized_pnl=pnl,
         realized_pnl_pct=(pnl / (entry * qty)).quantize(Decimal("0.0001")),
         reason="not_in_buy_set",
-        opened_at=dt.datetime(2026, 3, 1, 10, 0, tzinfo=dt.timezone.utc),
-        closed_at=dt.datetime(2026, 3, 19, 15, 30, tzinfo=dt.timezone.utc),
+        opened_at=dt.datetime(2026, 3, 1, 10, 0, tzinfo=dt.UTC),
+        closed_at=dt.datetime(2026, 3, 19, 15, 30, tzinfo=dt.UTC),
         hold_duration_days=18,
     )
 
@@ -74,7 +71,7 @@ def _make_position(ticker="AAPL", qty=10, entry=200.0, current=210.0):
         quantity=Decimal(str(qty)),
         avg_entry_price=Decimal(str(entry)),
         current_price=Decimal(str(current)),
-        opened_at=dt.datetime(2026, 3, 10, 9, 30, tzinfo=dt.timezone.utc),
+        opened_at=dt.datetime(2026, 3, 10, 9, 30, tzinfo=dt.UTC),
     )
 
 
@@ -97,7 +94,7 @@ class TestPerformanceSummarySchema:
             total_unrealized_pnl=200.0,
             open_position_count=2,
             cash=50_000.0,
-            as_of=dt.datetime.now(tz=dt.timezone.utc),
+            as_of=dt.datetime.now(tz=dt.UTC),
         )
         assert r.equity == 100_000.0
         assert r.win_rate == pytest.approx(0.6667)
@@ -111,7 +108,7 @@ class TestPerformanceSummarySchema:
             realized_trade_count=0, win_count=0, loss_count=0,
             win_rate=None, total_unrealized_pnl=0.0,
             open_position_count=0, cash=100_000.0,
-            as_of=dt.datetime.now(tz=dt.timezone.utc),
+            as_of=dt.datetime.now(tz=dt.UTC),
         )
         assert r.win_rate is None
 
@@ -124,7 +121,7 @@ class TestPerformanceSummarySchema:
             realized_trade_count=0, win_count=0, loss_count=0,
             win_rate=None, total_unrealized_pnl=0.0,
             open_position_count=0, cash=50_000.0,
-            as_of=dt.datetime.now(tz=dt.timezone.utc),
+            as_of=dt.datetime.now(tz=dt.UTC),
         )
         assert r.high_water_mark is None
 
@@ -144,7 +141,7 @@ class TestTradeGradeSchemas:
 
     def test_trade_grade_history_distribution(self):
         from apps.api.schemas.portfolio import TradeGradeHistoryResponse, TradeGradeRecord
-        now = dt.datetime.now(tz=dt.timezone.utc)
+        now = dt.datetime.now(tz=dt.UTC)
         items = [
             TradeGradeRecord(ticker="A", strategy_key="", realized_pnl=100.0,
                              realized_pnl_pct=0.05, holding_days=3,
@@ -163,8 +160,9 @@ class TestTradeGradeSchemas:
 
 class TestPerformanceEndpointNoState:
     def test_returns_zeroes_when_no_portfolio(self):
-        from apps.api.routes.portfolio import get_performance_summary
         import asyncio
+
+        from apps.api.routes.portfolio import get_performance_summary
         state = _make_state()
         result = asyncio.run(get_performance_summary(state))
         assert result.equity == 0.0
@@ -173,8 +171,9 @@ class TestPerformanceEndpointNoState:
         assert result.high_water_mark is None
 
     def test_no_portfolio_win_count_zero(self):
-        from apps.api.routes.portfolio import get_performance_summary
         import asyncio
+
+        from apps.api.routes.portfolio import get_performance_summary
         state = _make_state()
         result = asyncio.run(get_performance_summary(state))
         assert result.win_count == 0
@@ -186,8 +185,9 @@ class TestPerformanceEndpointNoState:
 
 class TestPerformanceSummaryEquityMetrics:
     def test_daily_return_pct_positive(self):
-        from apps.api.routes.portfolio import get_performance_summary
         import asyncio
+
+        from apps.api.routes.portfolio import get_performance_summary
         ps = _make_portfolio_state(cash=Decimal("50000"))
         ps.start_of_day_equity = Decimal("50000")
         ps.cash = Decimal("51000")   # equity grows
@@ -197,8 +197,9 @@ class TestPerformanceSummaryEquityMetrics:
         assert result.daily_return_pct == pytest.approx(2.0, rel=1e-3)
 
     def test_daily_return_pct_negative(self):
-        from apps.api.routes.portfolio import get_performance_summary
         import asyncio
+
+        from apps.api.routes.portfolio import get_performance_summary
         ps = _make_portfolio_state(cash=Decimal("50000"))
         ps.start_of_day_equity = Decimal("50000")
         ps.cash = Decimal("49000")
@@ -207,8 +208,9 @@ class TestPerformanceSummaryEquityMetrics:
         assert result.daily_return_pct == pytest.approx(-2.0, rel=1e-3)
 
     def test_drawdown_from_hwm_positive(self):
-        from apps.api.routes.portfolio import get_performance_summary
         import asyncio
+
+        from apps.api.routes.portfolio import get_performance_summary
         ps = _make_portfolio_state(cash=Decimal("45000"))
         ps.high_water_mark = Decimal("50000")
         ps.start_of_day_equity = Decimal("48000")
@@ -218,8 +220,9 @@ class TestPerformanceSummaryEquityMetrics:
         assert result.drawdown_from_hwm_pct == pytest.approx(10.0, rel=1e-3)
 
     def test_drawdown_clamped_to_zero_when_above_hwm(self):
-        from apps.api.routes.portfolio import get_performance_summary
         import asyncio
+
+        from apps.api.routes.portfolio import get_performance_summary
         ps = _make_portfolio_state(cash=Decimal("55000"))
         ps.high_water_mark = Decimal("50000")
         ps.start_of_day_equity = Decimal("50000")
@@ -229,8 +232,9 @@ class TestPerformanceSummaryEquityMetrics:
 
     def test_sod_zero_safe(self):
         """start_of_day_equity=0 should not cause ZeroDivisionError."""
-        from apps.api.routes.portfolio import get_performance_summary
         import asyncio
+
+        from apps.api.routes.portfolio import get_performance_summary
         ps = _make_portfolio_state(cash=Decimal("100"))
         ps.start_of_day_equity = Decimal("0")
         state = _make_state(portfolio_state=ps)
@@ -242,8 +246,9 @@ class TestPerformanceSummaryEquityMetrics:
 
 class TestPerformanceSummaryRealizedPnl:
     def test_total_realized_pnl_sum(self):
-        from apps.api.routes.portfolio import get_performance_summary
         import asyncio
+
+        from apps.api.routes.portfolio import get_performance_summary
         ps = _make_portfolio_state()
         ct1 = _make_closed_trade("AAPL", pnl=Decimal("300"))
         ct2 = _make_closed_trade("NVDA", pnl=Decimal("200"))
@@ -252,8 +257,9 @@ class TestPerformanceSummaryRealizedPnl:
         assert result.total_realized_pnl == pytest.approx(500.0, rel=1e-3)
 
     def test_win_loss_counts(self):
-        from apps.api.routes.portfolio import get_performance_summary
         import asyncio
+
+        from apps.api.routes.portfolio import get_performance_summary
         ps = _make_portfolio_state()
         ct1 = _make_closed_trade("AAPL", pnl=Decimal("300"))   # winner
         ct2 = _make_closed_trade("NVDA", pnl=Decimal("-100"))  # loser
@@ -264,8 +270,9 @@ class TestPerformanceSummaryRealizedPnl:
         assert result.loss_count == 1
 
     def test_win_rate_calculation(self):
-        from apps.api.routes.portfolio import get_performance_summary
         import asyncio
+
+        from apps.api.routes.portfolio import get_performance_summary
         ps = _make_portfolio_state()
         trades = [
             _make_closed_trade("A", pnl=Decimal("100")),
@@ -278,8 +285,9 @@ class TestPerformanceSummaryRealizedPnl:
         assert result.win_rate == pytest.approx(0.5, rel=1e-3)
 
     def test_win_rate_none_when_no_trades(self):
-        from apps.api.routes.portfolio import get_performance_summary
         import asyncio
+
+        from apps.api.routes.portfolio import get_performance_summary
         ps = _make_portfolio_state()
         state = _make_state(portfolio_state=ps)
         result = asyncio.run(get_performance_summary(state))
@@ -290,8 +298,9 @@ class TestPerformanceSummaryRealizedPnl:
 
 class TestPerformanceSummaryUnrealized:
     def test_unrealized_pnl_from_positions(self):
-        from apps.api.routes.portfolio import get_performance_summary
         import asyncio
+
+        from apps.api.routes.portfolio import get_performance_summary
         ps = _make_portfolio_state()
         # AAPL: 10 shares, entry=200, current=210 → unrealized = 100
         # NVDA: 5 shares, entry=500, current=490 → unrealized = -50
@@ -302,8 +311,9 @@ class TestPerformanceSummaryUnrealized:
         assert result.total_unrealized_pnl == pytest.approx(50.0, rel=1e-2)
 
     def test_open_position_count(self):
-        from apps.api.routes.portfolio import get_performance_summary
         import asyncio
+
+        from apps.api.routes.portfolio import get_performance_summary
         ps = _make_portfolio_state()
         ps.positions["AAPL"] = _make_position("AAPL")
         ps.positions["NVDA"] = _make_position("NVDA")
@@ -312,8 +322,9 @@ class TestPerformanceSummaryUnrealized:
         assert result.open_position_count == 2
 
     def test_no_positions_unrealized_zero(self):
-        from apps.api.routes.portfolio import get_performance_summary
         import asyncio
+
+        from apps.api.routes.portfolio import get_performance_summary
         ps = _make_portfolio_state()
         state = _make_state(portfolio_state=ps)
         result = asyncio.run(get_performance_summary(state))
@@ -338,16 +349,18 @@ class TestTradeGradeEndpoint:
         )
 
     def test_empty_grades_returns_empty(self):
-        from apps.api.routes.portfolio import get_trade_grades
         import asyncio
+
+        from apps.api.routes.portfolio import get_trade_grades
         state = _make_state()
         result = asyncio.run(get_trade_grades(limit=50, ticker=None, state=state))
         assert result.count == 0
         assert result.items == []
 
     def test_grades_returned_most_recent_first(self):
-        from apps.api.routes.portfolio import get_trade_grades
         import asyncio
+
+        from apps.api.routes.portfolio import get_trade_grades
         grades = [
             self._make_grade("AAPL", "A"),
             self._make_grade("NVDA", "B"),
@@ -360,8 +373,9 @@ class TestTradeGradeEndpoint:
         assert result.items[-1].ticker == "AAPL"
 
     def test_ticker_filter_case_insensitive(self):
-        from apps.api.routes.portfolio import get_trade_grades
         import asyncio
+
+        from apps.api.routes.portfolio import get_trade_grades
         grades = [
             self._make_grade("AAPL", "A"),
             self._make_grade("NVDA", "B"),
@@ -372,16 +386,18 @@ class TestTradeGradeEndpoint:
         assert result.items[0].ticker == "AAPL"
 
     def test_limit_respected(self):
-        from apps.api.routes.portfolio import get_trade_grades
         import asyncio
+
+        from apps.api.routes.portfolio import get_trade_grades
         grades = [self._make_grade(f"T{i}", "C") for i in range(20)]
         state = _make_state(trade_grades=grades)
         result = asyncio.run(get_trade_grades(limit=5, ticker=None, state=state))
         assert result.count == 5
 
     def test_grade_distribution_counts(self):
-        from apps.api.routes.portfolio import get_trade_grades
         import asyncio
+
+        from apps.api.routes.portfolio import get_trade_grades
         grades = [
             self._make_grade("A1", "A"), self._make_grade("A2", "A"),
             self._make_grade("B1", "B"),
@@ -400,6 +416,7 @@ class TestTradeGradeEndpoint:
 class TestPaperCycleGradeIntegration:
     def _make_ranked(self, ticker, score="0.80"):
         from decimal import Decimal
+
         from services.ranking_engine.models import RankedResult
         return RankedResult(
             rank_position=1,
@@ -447,7 +464,7 @@ class TestPaperCycleGradeIntegration:
                 quantity=bp.quantity,
                 avg_entry_price=bp.average_entry_price,
                 current_price=bp.current_price,
-                opened_at=dt.datetime(2026, 3, 1, 9, 35, tzinfo=dt.timezone.utc),
+                opened_at=dt.datetime(2026, 3, 1, 9, 35, tzinfo=dt.UTC),
             )
         app_state.portfolio_state = ps
         app_state.broker_adapter = broker
@@ -502,9 +519,10 @@ class TestPaperCycleGradeIntegration:
 
 class TestPrometheusMetricsPhase28:
     def _scrape(self, state, settings=None):
+        import asyncio
+
         from apps.api.routes.metrics import prometheus_metrics
         from config.settings import Settings
-        import asyncio
         cfg = settings or Settings()
         return asyncio.run(
             prometheus_metrics(state=state, settings=cfg)

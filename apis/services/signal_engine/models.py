@@ -11,7 +11,7 @@ import datetime as dt
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 
 class HorizonClassification(str, Enum):
@@ -49,11 +49,11 @@ class SignalOutput:
     ticker: str
     strategy_key: str
     signal_type: str
-    signal_score: Optional[Decimal]       # directional strength 0–1
-    confidence_score: Optional[Decimal]   # confidence in signal quality 0–1
-    risk_score: Optional[Decimal]         # downside risk intensity 0–1
-    catalyst_score: Optional[Decimal]     # presence of near-term catalyst 0–1
-    liquidity_score: Optional[Decimal]    # liquidity quality 0–1
+    signal_score: Decimal | None       # directional strength 0–1
+    confidence_score: Decimal | None   # confidence in signal quality 0–1
+    risk_score: Decimal | None         # downside risk intensity 0–1
+    catalyst_score: Decimal | None     # presence of near-term catalyst 0–1
+    liquidity_score: Decimal | None    # liquidity quality 0–1
     horizon_classification: str = HorizonClassification.UNKNOWN.value
     explanation_dict: dict[str, Any] = field(default_factory=dict)
     source_reliability_tier: str = "secondary_verified"   # Gate B: source tagged

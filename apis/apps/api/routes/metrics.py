@@ -27,8 +27,6 @@ Spec references
 from __future__ import annotations
 
 import datetime as dt
-from decimal import Decimal
-from typing import Any
 
 from fastapi import APIRouter
 from fastapi.responses import PlainTextResponse
@@ -65,7 +63,7 @@ async def prometheus_metrics(
     Use ``prometheus.io/scrape: "true"`` in your Kubernetes or Grafana config.
     """
     lines: list[str] = []
-    now_ts = int(dt.datetime.now(dt.timezone.utc).timestamp() * 1000)
+    now_ts = int(dt.datetime.now(dt.UTC).timestamp() * 1000)
 
     def emit(help_text: str, metric_type: str, name: str, value: float | int,
              labels: dict[str, str] | None = None) -> None:

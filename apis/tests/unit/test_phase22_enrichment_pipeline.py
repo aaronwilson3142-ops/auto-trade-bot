@@ -14,16 +14,12 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
-from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from apps.api.state import ApiAppState, reset_app_state
-from services.feature_store.models import FeatureSet, ComputedFeature
-
+from services.feature_store.models import ComputedFeature, FeatureSet
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
@@ -48,7 +44,7 @@ def _make_feature_set(ticker: str = "AAPL") -> FeatureSet:
     return FeatureSet(
         security_id=uuid.uuid4(),
         ticker=ticker,
-        as_of_timestamp=dt.datetime.now(dt.timezone.utc),
+        as_of_timestamp=dt.datetime.now(dt.UTC),
         features=[],
     )
 
@@ -60,13 +56,15 @@ def _make_policy_signal(
     regime: str | None = None,  # noqa: ARG001
 ) -> Any:
     from services.macro_policy_engine.models import (
-        MacroRegime, MacroRegimeIndicator, PolicyEvent, PolicyEventType, PolicySignal,
+        PolicyEvent,
+        PolicyEventType,
+        PolicySignal,
     )
     event = PolicyEvent(
         event_id="evt-1",
         headline="Government announces stimulus package",
         event_type=PolicyEventType.FISCAL_POLICY,
-        published_at=dt.datetime.now(dt.timezone.utc),
+        published_at=dt.datetime.now(dt.UTC),
     )
     return PolicySignal(
         event=event,
@@ -75,7 +73,7 @@ def _make_policy_signal(
         affected_sectors=["technology"],
         affected_themes=["ai_infrastructure"],
         implication_summary="Fiscal stimulus positive for equities",
-        generated_at=dt.datetime.now(dt.timezone.utc),
+        generated_at=dt.datetime.now(dt.UTC),
     )
 
 
@@ -86,12 +84,15 @@ def _make_news_insight(
     contains_rumor: bool = False,
 ) -> Any:
     from services.news_intelligence.models import (
-        CredibilityTier, NewsInsight, NewsItem, SentimentLabel,
+        CredibilityTier,
+        NewsInsight,
+        NewsItem,
+        SentimentLabel,
     )
     item = NewsItem(
         source_id="news-1",
         headline="Apple reports strong earnings",
-        published_at=dt.datetime.now(dt.timezone.utc),
+        published_at=dt.datetime.now(dt.UTC),
         credibility_tier=CredibilityTier.PRIMARY_VERIFIED,
         tickers_mentioned=[ticker],
     )
@@ -109,13 +110,14 @@ def _make_news_insight(
         affected_themes=["ai_infrastructure"],
         market_implication="Positive earnings beat",
         contains_rumor=contains_rumor,
-        processed_at=dt.datetime.now(dt.timezone.utc),
+        processed_at=dt.datetime.now(dt.UTC),
     )
 
 
 def _make_fill_record(matched: bool = True) -> Any:
     from services.reporting.models import (
-        FillReconciliationRecord, ReconciliationStatus,
+        FillReconciliationRecord,
+        ReconciliationStatus,
     )
     return FillReconciliationRecord(
         idempotency_key="key-1",
@@ -216,7 +218,7 @@ class TestFeatureEnrichmentServiceEnrich:
             feature_key="return_1m",
             feature_group="momentum",
             value=Decimal("0.05"),
-            as_of_timestamp=dt.datetime.now(dt.timezone.utc),
+            as_of_timestamp=dt.datetime.now(dt.UTC),
         )
         fs.features = [cf]
         result = self.svc.enrich(fs)
@@ -393,7 +395,7 @@ class TestAssessMacroRegime:
                 event_id=f"evt-{i}",
                 headline="New tariffs imposed",
                 event_type=PolicyEventType.TARIFF,
-                published_at=dt.datetime.now(dt.timezone.utc),
+                published_at=dt.datetime.now(dt.UTC),
             )
             events.append(PolicySignal(
                 event=event,
@@ -402,7 +404,7 @@ class TestAssessMacroRegime:
                 affected_sectors=["technology"],
                 affected_themes=[],
                 implication_summary="Tariffs hurt tech",
-                generated_at=dt.datetime.now(dt.timezone.utc),
+                generated_at=dt.datetime.now(dt.UTC),
             ))
         regime = self.svc.assess_macro_regime(events)
         assert regime in {"RISK_OFF", "STAGFLATION", "NEUTRAL"}

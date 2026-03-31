@@ -30,7 +30,7 @@ Design rules
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any, Optional
+from typing import Any
 
 from config.logging_config import get_logger
 from config.settings import Settings, get_settings
@@ -40,11 +40,11 @@ logger = get_logger(__name__)
 
 def run_intel_feed_ingestion(
     app_state: Any,
-    settings: Optional[Settings] = None,
-    policy_engine: Optional[Any] = None,
-    news_service: Optional[Any] = None,
-    policy_seed_service: Optional[Any] = None,
-    news_seed_service: Optional[Any] = None,
+    settings: Settings | None = None,
+    policy_engine: Any | None = None,
+    news_service: Any | None = None,
+    policy_seed_service: Any | None = None,
+    news_seed_service: Any | None = None,
 ) -> dict[str, Any]:
     """Ingest daily macro policy events and news items into app_state.
 
@@ -70,7 +70,7 @@ def run_intel_feed_ingestion(
         errors, run_at.
     """
     _settings = settings or get_settings()
-    run_at = dt.datetime.now(dt.timezone.utc)
+    run_at = dt.datetime.now(dt.UTC)
     errors: list[str] = []
 
     logger.info("intel_feed_ingestion_starting", run_at=run_at.isoformat())

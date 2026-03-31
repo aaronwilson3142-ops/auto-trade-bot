@@ -22,7 +22,6 @@ TestPhase20Integration              — end-to-end integration scenarios
 """
 from __future__ import annotations
 
-import asyncio
 import datetime as dt
 import json
 import os
@@ -33,13 +32,12 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
 # ---------------------------------------------------------------------------
 
 def _make_app_state(**kwargs) -> Any:
-    from apps.api.state import ApiAppState, reset_app_state
+    from apps.api.state import reset_app_state
     reset_app_state()
     from apps.api.state import get_app_state
     state = get_app_state()
@@ -66,6 +64,7 @@ def _make_portfolio_state(
     drawdown_pct: float = 0.01,
 ) -> Any:
     from decimal import Decimal
+
     from services.portfolio_engine.models import PortfolioState
     ps = PortfolioState(
         cash=Decimal(str(cash)),
@@ -76,8 +75,9 @@ def _make_portfolio_state(
 
 
 def _make_scorecard(equity: float = 100_000.0) -> Any:
-    from decimal import Decimal
     import datetime as dt
+    from decimal import Decimal
+
     from services.evaluation_engine.models import DailyScorecard
     return DailyScorecard(
         scorecard_date=dt.date.today(),
@@ -303,7 +303,7 @@ class TestContinuityServiceTakeSnapshot:
     def test_take_snapshot_last_paper_cycle_set(self):
         from services.continuity.service import ContinuityService
         svc = ContinuityService()
-        ts = dt.datetime(2026, 3, 20, 9, 30, tzinfo=dt.timezone.utc)
+        ts = dt.datetime(2026, 3, 20, 9, 30, tzinfo=dt.UTC)
         app_state = _make_app_state(last_paper_cycle_at=ts, paper_cycle_count=1)
         settings = _make_settings()
         snap = svc.take_snapshot(app_state, settings)
@@ -473,7 +473,6 @@ class TestContinuityServiceSessionContext:
 
 class TestPersistPortfolioSnapshot:
     def test_persist_calls_db_add(self):
-        from apps.worker.jobs.paper_trading import _persist_portfolio_snapshot
 
         mock_snap_class = MagicMock()
         mock_db = MagicMock()
@@ -618,7 +617,7 @@ class TestPortfolioSnapshotSchemas:
         from apps.api.schemas.portfolio import PortfolioSnapshotRecord
         rec = PortfolioSnapshotRecord(
             id=str(uuid.uuid4()),
-            snapshot_timestamp=dt.datetime.now(dt.timezone.utc),
+            snapshot_timestamp=dt.datetime.now(dt.UTC),
             mode="PAPER",
             cash_balance=95_000.0,
             gross_exposure=5_000.0,
@@ -633,7 +632,7 @@ class TestPortfolioSnapshotSchemas:
         from apps.api.schemas.portfolio import PortfolioSnapshotRecord
         rec = PortfolioSnapshotRecord(
             id=str(uuid.uuid4()),
-            snapshot_timestamp=dt.datetime.now(dt.timezone.utc),
+            snapshot_timestamp=dt.datetime.now(dt.UTC),
             mode="RESEARCH",
         )
         assert rec.cash_balance is None
@@ -647,7 +646,7 @@ class TestPortfolioSnapshotSchemas:
         items = [
             PortfolioSnapshotRecord(
                 id=str(uuid.uuid4()),
-                snapshot_timestamp=dt.datetime.now(dt.timezone.utc),
+                snapshot_timestamp=dt.datetime.now(dt.UTC),
                 mode="PAPER",
                 equity_value=100_000.0,
             )
@@ -671,7 +670,7 @@ class TestEvaluationRunSchemas:
         from apps.api.schemas.evaluation import EvaluationRunRecord
         rec = EvaluationRunRecord(
             id=str(uuid.uuid4()),
-            run_timestamp=dt.datetime.now(dt.timezone.utc),
+            run_timestamp=dt.datetime.now(dt.UTC),
             mode="PAPER",
             status="complete",
             evaluation_period_start=dt.date.today(),
@@ -685,7 +684,7 @@ class TestEvaluationRunSchemas:
         from apps.api.schemas.evaluation import EvaluationRunRecord
         rec = EvaluationRunRecord(
             id=str(uuid.uuid4()),
-            run_timestamp=dt.datetime.now(dt.timezone.utc),
+            run_timestamp=dt.datetime.now(dt.UTC),
             mode="RESEARCH",
             status="complete",
             metrics={},
@@ -700,7 +699,7 @@ class TestEvaluationRunSchemas:
         items = [
             EvaluationRunRecord(
                 id=str(uuid.uuid4()),
-                run_timestamp=dt.datetime.now(dt.timezone.utc),
+                run_timestamp=dt.datetime.now(dt.UTC),
                 mode="PAPER",
                 status="complete",
                 metrics={"equity": 100_000.0},
@@ -713,7 +712,7 @@ class TestEvaluationRunSchemas:
         from apps.api.schemas.evaluation import EvaluationRunRecord
         rec = EvaluationRunRecord(
             id=str(uuid.uuid4()),
-            run_timestamp=dt.datetime.now(dt.timezone.utc),
+            run_timestamp=dt.datetime.now(dt.UTC),
             mode="PAPER",
             status="complete",
             metrics={},
@@ -730,7 +729,7 @@ class TestPortfolioSnapshotsRoute:
     def _make_db_snapshot(self, equity: float = 100_000.0):
         row = MagicMock()
         row.id = uuid.uuid4()
-        row.snapshot_timestamp = dt.datetime.now(dt.timezone.utc)
+        row.snapshot_timestamp = dt.datetime.now(dt.UTC)
         row.mode = "PAPER"
         row.cash_balance = Decimal("95000")
         row.gross_exposure = Decimal("5000")
@@ -741,6 +740,7 @@ class TestPortfolioSnapshotsRoute:
 
     def _client(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         return TestClient(app, raise_server_exceptions=False)
 
@@ -811,7 +811,7 @@ class TestEvaluationRunsRoute:
     def _make_db_run(self, mode: str = "PAPER"):
         run = MagicMock()
         run.id = uuid.uuid4()
-        run.run_timestamp = dt.datetime.now(dt.timezone.utc)
+        run.run_timestamp = dt.datetime.now(dt.UTC)
         run.mode = mode
         run.status = "complete"
         run.evaluation_period_start = dt.date.today()
@@ -827,6 +827,7 @@ class TestEvaluationRunsRoute:
 
     def _client(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         return TestClient(app, raise_server_exceptions=False)
 
@@ -896,7 +897,7 @@ class TestAppStateSnapshotFields:
     def test_last_snapshot_fields_settable(self):
         from apps.api.state import ApiAppState
         state = ApiAppState()
-        ts = dt.datetime.now(dt.timezone.utc)
+        ts = dt.datetime.now(dt.UTC)
         state.last_snapshot_at = ts
         state.last_snapshot_equity = 100_000.0
         assert state.last_snapshot_at == ts
@@ -910,11 +911,11 @@ class TestAppStateSnapshotFields:
 class TestLoadPersistedStateSnapshot:
     def test_load_persisted_state_restores_equity(self):
         from apps.api.main import _load_persisted_state
-        from apps.api.state import reset_app_state, get_app_state
+        from apps.api.state import get_app_state, reset_app_state
         reset_app_state()
 
         mock_snap = MagicMock()
-        mock_snap.snapshot_timestamp = dt.datetime.now(dt.timezone.utc)
+        mock_snap.snapshot_timestamp = dt.datetime.now(dt.UTC)
         mock_snap.equity_value = Decimal("102000")
 
         mock_db = MagicMock()
@@ -952,7 +953,7 @@ class TestLoadPersistedStateSnapshot:
 
     def test_load_persisted_state_handles_missing_snapshot(self):
         from apps.api.main import _load_persisted_state
-        from apps.api.state import reset_app_state, get_app_state
+        from apps.api.state import get_app_state, reset_app_state
         reset_app_state()
 
         call_count = [0]
@@ -1059,8 +1060,8 @@ class TestPhase20Integration:
 
     def test_paper_trading_cycle_calls_persist_snapshot(self):
         """run_paper_trading_cycle should call _persist_portfolio_snapshot on success."""
-        from apps.worker.jobs.paper_trading import run_paper_trading_cycle
         from apps.api.state import ApiAppState
+        from apps.worker.jobs.paper_trading import run_paper_trading_cycle
 
         app_state = ApiAppState()
         # Provide a pre-populated ranking so the cycle proceeds
@@ -1111,8 +1112,8 @@ class TestPhase20Integration:
 
     def test_evaluation_job_calls_persist_evaluation_run(self):
         """run_daily_evaluation should call _persist_evaluation_run on success."""
-        from apps.worker.jobs.evaluation import run_daily_evaluation
         from apps.api.state import ApiAppState
+        from apps.worker.jobs.evaluation import run_daily_evaluation
 
         app_state = ApiAppState()
         called_with = []

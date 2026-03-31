@@ -19,9 +19,10 @@ import datetime as dt
 import json
 import logging
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Callable, Optional
+from typing import Any
 
 from services.backtest.config import BacktestConfig
 from services.backtest.engine import BacktestEngine
@@ -41,8 +42,8 @@ class StrategyRunResult:
 
     strategy_name: str
     result: BacktestResult
-    run_id: Optional[str] = None
-    error: Optional[str] = None
+    run_id: str | None = None
+    error: str | None = None
 
 
 # Ordered list of (strategy_name, strategy_instance) for per-strategy runs
@@ -71,8 +72,8 @@ class BacktestComparisonService:
 
     def __init__(
         self,
-        engine_factory: Optional[Callable[[list], BacktestEngine]] = None,
-        session_factory: Optional[Any] = None,
+        engine_factory: Callable[[list], BacktestEngine] | None = None,
+        session_factory: Any | None = None,
     ) -> None:
         self._engine_factory = engine_factory or (
             lambda strategies: BacktestEngine(strategies=strategies)

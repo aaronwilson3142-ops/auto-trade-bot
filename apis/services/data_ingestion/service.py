@@ -14,13 +14,12 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-from typing import Optional
 
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from infra.db.models import Security, DailyMarketBar
+from infra.db.models import DailyMarketBar, Security
 from services.data_ingestion.adapters.yfinance_adapter import YFinanceAdapter
 from services.data_ingestion.models import (
     BarRecord,
@@ -42,7 +41,7 @@ class DataIngestionService:
                  ``YFinanceAdapter()``.
     """
 
-    def __init__(self, adapter: Optional[object] = None) -> None:
+    def __init__(self, adapter: object | None = None) -> None:
         self._adapter: YFinanceAdapter = adapter or YFinanceAdapter()
 
     # ------------------------------------------------------------------
@@ -87,8 +86,8 @@ class DataIngestionService:
         session: Session,
         ticker: str,
         period: str = "1y",
-        start_date: Optional[dt.date] = None,
-        end_date: Optional[dt.date] = None,
+        start_date: dt.date | None = None,
+        end_date: dt.date | None = None,
     ) -> TickerResult:
         """Convenience method: ingest one ticker and return its TickerResult."""
         bars = self._adapter.fetch_bars(
@@ -118,10 +117,10 @@ class DataIngestionService:
 
         # Attempt to pull basic metadata from yfinance (best-effort)
         name = ticker
-        sector: Optional[str] = None
-        industry: Optional[str] = None
-        exchange: Optional[str] = None
-        currency: Optional[str] = "USD"
+        sector: str | None = None
+        industry: str | None = None
+        exchange: str | None = None
+        currency: str | None = "USD"
 
         try:
             import yfinance as yf

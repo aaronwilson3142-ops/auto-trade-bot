@@ -1,4 +1,4 @@
-"""
+r"""
 E2E Tests — Schwab Paper Account Integration.
 
 These tests exercise the APIS SchwabBrokerAdapter against the Charles Schwab
@@ -63,7 +63,7 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from decimal import Decimal
 
 import pytest

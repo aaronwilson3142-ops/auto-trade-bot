@@ -1,8 +1,6 @@
 """Phase 49 — Portfolio Rebalancing Engine schemas."""
 from __future__ import annotations
 
-from typing import List, Optional
-
 from pydantic import BaseModel, Field
 
 
@@ -21,10 +19,10 @@ class RebalanceStatusResponse(BaseModel):
     """Response for GET /portfolio/rebalance-status."""
 
     rebalance_enabled: bool
-    computed_at: Optional[str] = None
+    computed_at: str | None = None
     target_n_positions: int
     total_equity: float
-    drift_entries: List[DriftEntrySchema]
+    drift_entries: list[DriftEntrySchema]
     trim_count: int
     open_count: int
     hold_count: int

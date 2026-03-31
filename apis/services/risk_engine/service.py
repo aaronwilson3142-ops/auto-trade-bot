@@ -11,9 +11,20 @@ Rules enforced (in order inside validate_action):
   3. max_single_name_pct      — no single-name overconcentration
   4. daily_loss_limit_pct     — halt new opens if today's loss limit is hit
   5. weekly_drawdown_limit    — halt new opens if drawdown exceeds weekly cap
+  6. monthly_drawdown_limit   — halt new opens if MTD loss exceeds monthly cap
+  7. max_new_positions_per_day — halt new opens once daily open limit is reached
+  8. max_sector_pct           — halt opens that would push any sector over its cap
+  9. max_thematic_pct         — halt opens that would push any theme over its cap
 
 CLOSE actions are not blocked by position-count limits; they can always proceed
 (subject to kill switch and drawdown limits).
+
+Kill switch sources (both are checked):
+  - settings.kill_switch      — env-var flag, set at process start
+  - kill_switch_fn()          — optional callable injected at construction time
+                                 that returns the runtime app_state.kill_switch_active
+                                 flag (toggled via POST /api/v1/admin/kill-switch
+                                 without requiring a process restart)
 
 Spec references:
   - API_AND_SERVICE_BOUNDARIES_SPEC.md § 3.11
@@ -22,8 +33,9 @@ Spec references:
 from __future__ import annotations
 
 import datetime as dt
-from decimal import Decimal, ROUND_DOWN
-from typing import Any, Optional
+from collections.abc import Callable
+from decimal import ROUND_DOWN, Decimal
+from typing import Any
 
 import structlog
 
@@ -40,9 +52,9 @@ log = structlog.get_logger(__name__)
 
 
 def update_position_peak_prices(
-    positions: "dict[str, Any]",
-    peak_prices: "dict[str, float]",
-) -> "dict[str, float]":
+    positions: dict[str, Any],
+    peak_prices: dict[str, float],
+) -> dict[str, float]:
     """Update the peak price dict from current position prices.
 
     For each open position, sets peak_prices[ticker] to max(current, existing_peak).
@@ -73,8 +85,25 @@ class RiskEngineService:
     is_hard_blocked == True the action must not proceed to execution.
     """
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        kill_switch_fn: Callable[[], bool] | None = None,
+    ) -> None:
+        """Initialise the risk engine.
+
+        Args:
+            settings:       Application settings (provides env-var kill_switch and
+                            all risk-limit thresholds).
+            kill_switch_fn: Optional zero-argument callable that returns True when
+                            the *runtime* kill switch is active (e.g.
+                            ``lambda: app_state.kill_switch_active``).  When None,
+                            only the env-var kill_switch is checked.  When provided,
+                            the effective kill switch is
+                            ``settings.kill_switch OR kill_switch_fn()``.
+        """
         self._settings = settings
+        self._kill_switch_fn = kill_switch_fn
         self._log = log.bind(service="risk_engine")
 
     # ── Master validator ──────────────────────────────────────────────────────
@@ -97,6 +126,10 @@ class RiskEngineService:
             self.check_portfolio_limits(action, portfolio_state),
             self.check_daily_loss_limit(portfolio_state),
             self.check_drawdown(portfolio_state),
+            self.check_monthly_drawdown(portfolio_state),
+            self.check_daily_position_cap(action, portfolio_state),
+            self.check_sector_concentration(action, portfolio_state),
+            self.check_thematic_concentration(action, portfolio_state),
         ]
 
         for result in checks:
@@ -128,14 +161,24 @@ class RiskEngineService:
     # ── Individual checks ─────────────────────────────────────────────────────
 
     def check_kill_switch(self) -> RiskCheckResult:
-        """Block all activity when the kill switch is active."""
-        if self._settings.kill_switch:
+        """Block all activity when the kill switch is active.
+
+        Checks both the env-var kill_switch (settings.kill_switch) and the
+        runtime kill_switch_fn (if provided at construction).  Either source
+        being True is sufficient to hard-block the action.
+        """
+        runtime_active = self._kill_switch_fn() if self._kill_switch_fn is not None else False
+        effective_kill = self._settings.kill_switch or runtime_active
+
+        if effective_kill:
+            source = "env+runtime" if (self._settings.kill_switch and runtime_active) \
+                else ("runtime" if runtime_active else "env")
             return RiskCheckResult(
                 passed=False,
                 violations=[
                     RiskViolation(
                         rule_name="kill_switch",
-                        reason="Kill switch is active — no orders permitted.",
+                        reason=f"Kill switch is active ({source}) — no orders permitted.",
                         severity=RiskSeverity.HARD_BLOCK,
                     )
                 ],
@@ -256,13 +299,184 @@ class RiskEngineService:
             )
         return RiskCheckResult(passed=True)
 
+    def check_monthly_drawdown(
+        self,
+        portfolio_state: PortfolioState,
+    ) -> RiskCheckResult:
+        """Block new OPEN actions when the month-to-date loss exceeds the monthly cap.
+
+        If start_of_month_equity is not set, this check is skipped (insufficient data).
+        Only fires when the month's P&L is a loss exceeding monthly_drawdown_limit_pct.
+        """
+        if portfolio_state.start_of_month_equity is None:
+            return RiskCheckResult(
+                passed=True,
+                warnings=["monthly_drawdown: no start_of_month_equity; check skipped."],
+            )
+
+        monthly_pnl = portfolio_state.monthly_pnl_pct
+        limit = Decimal(str(self._settings.monthly_drawdown_limit_pct))
+
+        # monthly_pnl is negative when losing money
+        if monthly_pnl < -limit:
+            return RiskCheckResult(
+                passed=False,
+                violations=[
+                    RiskViolation(
+                        rule_name="monthly_drawdown_limit",
+                        reason=(
+                            f"Month-to-date loss {abs(monthly_pnl):.4%} exceeds monthly limit "
+                            f"{limit:.4%}. No new opens permitted this month."
+                        ),
+                        severity=RiskSeverity.HARD_BLOCK,
+                    )
+                ],
+            )
+        return RiskCheckResult(passed=True)
+
+    def check_daily_position_cap(
+        self,
+        action: PortfolioAction,
+        portfolio_state: PortfolioState,
+    ) -> RiskCheckResult:
+        """Block new OPEN actions once the daily new-position limit is reached.
+
+        Only applies to OPEN actions.  CLOSE and TRIM actions are never affected.
+
+        The caller is responsible for incrementing portfolio_state.daily_opens_count
+        after each successful OPEN fill, and resetting it to 0 at the start of each
+        trading day.
+        """
+        if action.action_type != ActionType.OPEN:
+            return RiskCheckResult(passed=True)
+
+        limit = self._settings.max_new_positions_per_day
+        if portfolio_state.daily_opens_count >= limit:
+            return RiskCheckResult(
+                passed=False,
+                violations=[
+                    RiskViolation(
+                        rule_name="max_new_positions_per_day",
+                        reason=(
+                            f"Daily new-position limit reached: "
+                            f"{portfolio_state.daily_opens_count}/{limit} opens today. "
+                            f"No further opens permitted until tomorrow."
+                        ),
+                        severity=RiskSeverity.HARD_BLOCK,
+                    )
+                ],
+            )
+        return RiskCheckResult(passed=True)
+
+    def check_sector_concentration(
+        self,
+        action: PortfolioAction,
+        portfolio_state: PortfolioState,
+    ) -> RiskCheckResult:
+        """Block OPEN actions that would push any GICS sector above max_sector_pct.
+
+        Only applies to OPEN actions.  CLOSE and TRIM are never affected.
+        Uses SectorExposureService.projected_sector_weight() to compute the
+        post-trade sector weight before any order is submitted.
+
+        Gracefully passes (with a warning) when the sector mapping is unavailable.
+        """
+        if action.action_type != ActionType.OPEN:
+            return RiskCheckResult(passed=True)
+
+        try:
+            from services.risk_engine.sector_exposure import SectorExposureService  # noqa: PLC0415
+
+            projected = SectorExposureService.projected_sector_weight(
+                ticker=action.ticker,
+                notional=action.target_notional,
+                positions=portfolio_state.positions,
+                equity=portfolio_state.equity,
+            )
+            limit = self._settings.max_sector_pct
+
+            if projected > limit:
+                sector = SectorExposureService.get_sector(action.ticker)
+                return RiskCheckResult(
+                    passed=False,
+                    violations=[
+                        RiskViolation(
+                            rule_name="max_sector_pct",
+                            reason=(
+                                f"Opening {action.ticker} would push '{sector}' sector "
+                                f"to {projected:.1%}, exceeding limit {limit:.1%}."
+                            ),
+                            severity=RiskSeverity.HARD_BLOCK,
+                        )
+                    ],
+                )
+        except Exception as exc:  # noqa: BLE001
+            return RiskCheckResult(
+                passed=True,
+                warnings=[f"sector_concentration: check skipped due to error — {exc}"],
+            )
+
+        return RiskCheckResult(passed=True)
+
+    def check_thematic_concentration(
+        self,
+        action: PortfolioAction,
+        portfolio_state: PortfolioState,
+    ) -> RiskCheckResult:
+        """Block OPEN actions that would push any investment theme above max_thematic_pct.
+
+        Only applies to OPEN actions.  CLOSE and TRIM are never affected.
+        Uses ThematicExposureService.projected_thematic_weight() to compute the
+        post-trade theme weight before any order is submitted.
+
+        Gracefully passes (with a warning) when the theme mapping is unavailable.
+        """
+        if action.action_type != ActionType.OPEN:
+            return RiskCheckResult(passed=True)
+
+        try:
+            from services.risk_engine.thematic_exposure import (
+                ThematicExposureService,  # noqa: PLC0415
+            )
+
+            projected = ThematicExposureService.projected_thematic_weight(
+                ticker=action.ticker,
+                notional=action.target_notional,
+                positions=portfolio_state.positions,
+                equity=portfolio_state.equity,
+            )
+            limit = self._settings.max_thematic_pct
+
+            if projected > limit:
+                theme = ThematicExposureService.get_theme(action.ticker)
+                return RiskCheckResult(
+                    passed=False,
+                    violations=[
+                        RiskViolation(
+                            rule_name="max_thematic_pct",
+                            reason=(
+                                f"Opening {action.ticker} would push '{theme}' theme "
+                                f"to {projected:.1%}, exceeding limit {limit:.1%}."
+                            ),
+                            severity=RiskSeverity.HARD_BLOCK,
+                        )
+                    ],
+                )
+        except Exception as exc:  # noqa: BLE001
+            return RiskCheckResult(
+                passed=True,
+                warnings=[f"thematic_concentration: check skipped due to error — {exc}"],
+            )
+
+        return RiskCheckResult(passed=True)
+
     def evaluate_exits(
         self,
-        positions: "dict[str, PortfolioPosition]",
-        ranked_scores: "Optional[dict[str, Decimal]]" = None,
-        reference_dt: "Optional[dt.datetime]" = None,
-        peak_prices: "Optional[dict[str, float]]" = None,
-    ) -> "list[PortfolioAction]":
+        positions: dict[str, PortfolioPosition],
+        ranked_scores: dict[str, Decimal] | None = None,
+        reference_dt: dt.datetime | None = None,
+        peak_prices: dict[str, float] | None = None,
+    ) -> list[PortfolioAction]:
         """Evaluate open positions against five exit triggers.
 
         Triggers checked in priority order (first match fires the exit):
@@ -286,14 +500,14 @@ class RiskEngineService:
         Returns:
             CLOSE PortfolioActions for all triggered positions.
         """
-        now = reference_dt or dt.datetime.now(dt.timezone.utc)
+        now = reference_dt or dt.datetime.now(dt.UTC)
         stop_loss = Decimal(str(self._settings.stop_loss_pct))
         max_age_days = self._settings.max_position_age_days
         score_threshold = Decimal(str(self._settings.exit_score_threshold))
         exit_actions: list[PortfolioAction] = []
 
         for ticker, position in positions.items():
-            trigger_reason: Optional[str] = None
+            trigger_reason: str | None = None
 
             # ── 1. Stop-loss ─────────────────────────────────────────────────
             if position.unrealized_pnl_pct < -stop_loss:
@@ -334,7 +548,7 @@ class RiskEngineService:
             if trigger_reason is None:
                 opened_at = position.opened_at
                 if opened_at.tzinfo is None and now.tzinfo is not None:
-                    opened_at = opened_at.replace(tzinfo=dt.timezone.utc)
+                    opened_at = opened_at.replace(tzinfo=dt.UTC)
                 age_days = (now - opened_at).days
                 if age_days > max_age_days:
                     trigger_reason = (
@@ -376,7 +590,7 @@ class RiskEngineService:
     def evaluate_trims(
         self,
         portfolio_state: PortfolioState,
-    ) -> "list[PortfolioAction]":
+    ) -> list[PortfolioAction]:
         """Generate TRIM actions for positions that exceed max_single_name_pct.
 
         Fires when a held position's market value has drifted above the single-name
@@ -394,7 +608,8 @@ class RiskEngineService:
             Pre-approved TRIM PortfolioActions for all overconcentrated positions.
             Returns an empty list if the kill switch is active or equity is zero.
         """
-        if self._settings.kill_switch:
+        runtime_active = self._kill_switch_fn() if self._kill_switch_fn is not None else False
+        if self._settings.kill_switch or runtime_active:
             return []
 
         if portfolio_state.equity <= Decimal("0"):

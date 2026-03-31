@@ -25,13 +25,9 @@ import pytest
 
 from services.feature_store.models import ComputedFeature, FeatureSet
 from services.ranking_engine.service import RankingEngineService
-from services.signal_engine.models import HorizonClassification, SignalType
 from services.signal_engine.service import SignalEngineService
 from services.signal_engine.strategies.macro_tailwind import MacroTailwindStrategy
-from services.signal_engine.strategies.momentum import MomentumStrategy
-from services.signal_engine.strategies.sentiment import SentimentStrategy
 from services.signal_engine.strategies.theme_alignment import ThemeAlignmentStrategy
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

@@ -17,7 +17,7 @@ Design rules
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any, Optional
+from typing import Any
 
 from config.logging_config import get_logger
 from config.settings import Settings, get_settings
@@ -27,7 +27,7 @@ logger = get_logger(__name__)
 
 def run_universe_refresh(
     app_state: Any,
-    settings: Optional[Settings] = None,
+    settings: Settings | None = None,
     session_factory: Any = None,
 ) -> dict:
     """Compute and persist the active universe to app_state.
@@ -41,7 +41,7 @@ def run_universe_refresh(
         Dict with status, active_count, override_count.
     """
     cfg = settings or get_settings()
-    run_at = dt.datetime.now(dt.timezone.utc)
+    run_at = dt.datetime.now(dt.UTC)
 
     try:
         from config.universe import UNIVERSE_TICKERS

@@ -15,8 +15,8 @@ Design
 from __future__ import annotations
 
 import datetime as dt
-from dataclasses import dataclass, field
-from typing import Any, Optional
+from dataclasses import dataclass
+from typing import Any
 
 import structlog
 
@@ -28,10 +28,10 @@ class OverrideRecord:
     """Lightweight DTO built from a UniverseOverride ORM row."""
     ticker: str
     action: str          # "ADD" or "REMOVE"
-    reason: Optional[str]
-    operator_id: Optional[str]
+    reason: str | None
+    operator_id: str | None
     active: bool
-    expires_at: Optional[dt.datetime]
+    expires_at: dt.datetime | None
 
 
 @dataclass(frozen=True)
@@ -40,10 +40,10 @@ class UniverseTickerStatus:
     ticker: str
     in_base_universe: bool
     in_active_universe: bool
-    override_action: Optional[str]     # "ADD", "REMOVE", or None
-    override_reason: Optional[str]
+    override_action: str | None     # "ADD", "REMOVE", or None
+    override_reason: str | None
     quality_removed: bool              # True if removed due to low signal quality
-    signal_quality_score: Optional[float]
+    signal_quality_score: float | None
 
 
 @dataclass(frozen=True)
@@ -96,7 +96,7 @@ class UniverseManagementService:
         Returns:
             Sorted list of tickers in the active universe.
         """
-        now = reference_dt or dt.datetime.now(dt.timezone.utc)
+        now = reference_dt or dt.datetime.now(dt.UTC)
 
         # Separate active-and-unexpired overrides by action
         add_tickers: set[str] = set()
@@ -108,7 +108,7 @@ class UniverseManagementService:
             if ovr.expires_at is not None:
                 exp = ovr.expires_at
                 if exp.tzinfo is None:
-                    exp = exp.replace(tzinfo=dt.timezone.utc)
+                    exp = exp.replace(tzinfo=dt.UTC)
                 if exp <= now:
                     continue  # expired
             if ovr.action == "ADD":
@@ -164,7 +164,7 @@ class UniverseManagementService:
         reference_dt: dt.datetime | None = None,
     ) -> UniverseSummary:
         """Build a full summary of active universe state for API/dashboard."""
-        now = reference_dt or dt.datetime.now(dt.timezone.utc)
+        now = reference_dt or dt.datetime.now(dt.UTC)
 
         base_set = {t.upper() for t in base_tickers}
         active_set = {t.upper() for t in active_tickers}
@@ -181,7 +181,7 @@ class UniverseManagementService:
                 if ovr.expires_at is not None:
                     exp = ovr.expires_at
                     if exp.tzinfo is None:
-                        exp = exp.replace(tzinfo=dt.timezone.utc)
+                        exp = exp.replace(tzinfo=dt.UTC)
                     if exp <= now:
                         continue
                 override_map[ovr.ticker.upper()] = ovr
@@ -235,10 +235,11 @@ class UniverseManagementService:
         """
         if session_factory is None:
             return []
-        now = reference_dt or dt.datetime.now(dt.timezone.utc)
+        now = reference_dt or dt.datetime.now(dt.UTC)
         try:
-            from infra.db.models.universe_override import UniverseOverride
             import sqlalchemy as sa
+
+            from infra.db.models.universe_override import UniverseOverride
 
             with session_factory() as db:
                 rows = (

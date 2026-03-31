@@ -29,7 +29,6 @@ from __future__ import annotations
 import datetime as dt
 import math
 from dataclasses import dataclass, field
-from typing import Optional
 
 import structlog
 
@@ -82,7 +81,7 @@ class FactorExposureResult:
     position_count: int = 0
     total_market_value: float = 0.0
     computed_at: dt.datetime = field(
-        default_factory=lambda: dt.datetime.now(dt.timezone.utc)
+        default_factory=lambda: dt.datetime.now(dt.UTC)
     )
 
     def top_tickers_by_factor(self, factor: str, n: int = 5) -> list[TickerFactorScores]:
@@ -122,14 +121,14 @@ class FactorExposureService:
     # ── Per-factor score computation ────────────────────────────────────────
 
     @staticmethod
-    def _score_momentum(composite_score: Optional[float]) -> float:
+    def _score_momentum(composite_score: float | None) -> float:
         """MOMENTUM score from ranking composite score (already [0, 1])."""
         if composite_score is None:
             return 0.5
         return float(max(0.0, min(1.0, composite_score)))
 
     @staticmethod
-    def _score_value(pe_ratio: Optional[float]) -> float:
+    def _score_value(pe_ratio: float | None) -> float:
         """VALUE score — low P/E → high score.
 
         Score = max(0, 1 - pe_ratio / PE_MAX).
@@ -140,7 +139,7 @@ class FactorExposureService:
         return float(max(0.0, 1.0 - pe_ratio / _VALUE_PE_MAX))
 
     @staticmethod
-    def _score_growth(eps_growth: Optional[float]) -> float:
+    def _score_growth(eps_growth: float | None) -> float:
         """GROWTH score — high EPS growth → high score.
 
         Score = clamp(0.5 + eps_growth * SCALE, 0, 1).
@@ -152,7 +151,7 @@ class FactorExposureService:
         return float(max(0.0, min(1.0, raw)))
 
     @staticmethod
-    def _score_quality(dollar_volume_20d: Optional[float]) -> float:
+    def _score_quality(dollar_volume_20d: float | None) -> float:
         """QUALITY score — high ADV (large liquid names) → high score.
 
         Uses log10 scale: $1 M ADV → ~0.52; $5 B ADV → 1.0.
@@ -163,7 +162,7 @@ class FactorExposureService:
         return float(max(0.0, min(1.0, log_adv / _QUALITY_ADV_MAX_LOG)))
 
     @staticmethod
-    def _score_low_vol(volatility_20d: Optional[float]) -> float:
+    def _score_low_vol(volatility_20d: float | None) -> float:
         """LOW_VOL score — low annualised vol → high score.
 
         Score = max(0, 1 - vol / VOL_MAX).
@@ -216,11 +215,10 @@ class FactorExposureService:
         Returns:
             FactorExposureResult with portfolio_factor_weights and ticker_scores.
         """
-        from decimal import Decimal  # noqa: PLC0415
 
         ticker_records: list[TickerFactorScores] = []
         total_mv: float = 0.0
-        weighted_sums: dict[str, float] = {f: 0.0 for f in FACTORS}
+        weighted_sums: dict[str, float] = dict.fromkeys(FACTORS, 0.0)
 
         for ticker, pos in positions.items():
             mv_raw = getattr(pos, "market_value", None)
@@ -230,7 +228,7 @@ class FactorExposureService:
             if mv <= 0.0:
                 continue
 
-            scores = ticker_scores.get(ticker) or {f: 0.5 for f in FACTORS}
+            scores = ticker_scores.get(ticker) or dict.fromkeys(FACTORS, 0.5)
             ticker_records.append(TickerFactorScores(
                 ticker=ticker,
                 scores=scores,
@@ -247,7 +245,7 @@ class FactorExposureService:
                 for f in FACTORS
             }
         else:
-            portfolio_weights = {f: 0.5 for f in FACTORS}
+            portfolio_weights = dict.fromkeys(FACTORS, 0.5)
 
         dominant = max(portfolio_weights, key=lambda f: portfolio_weights[f]) if portfolio_weights else "UNKNOWN"
 

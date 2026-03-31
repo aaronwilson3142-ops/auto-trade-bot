@@ -23,13 +23,12 @@ import datetime as dt
 import logging
 import uuid
 from decimal import Decimal, InvalidOperation
-from typing import Optional
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from config.settings import get_settings
-from infra.db.models import RankedOpportunity, RankingRun, SecuritySignal, Security
+from infra.db.models import RankedOpportunity, RankingRun, Security, SecuritySignal
 from services.ranking_engine.models import RankedResult, RankingConfig
 from services.signal_engine.models import SignalOutput
 
@@ -38,7 +37,7 @@ logger = logging.getLogger(__name__)
 _QUANTIZE = Decimal("0.000001")
 
 
-def _d(x: Optional[float]) -> Optional[Decimal]:
+def _d(x: float | None) -> Decimal | None:
     if x is None:
         return None
     try:
@@ -58,7 +57,7 @@ class RankingEngineService:
         config: RankingConfig weight vector.  Defaults to RankingConfig().
     """
 
-    def __init__(self, config: Optional[RankingConfig] = None) -> None:
+    def __init__(self, config: RankingConfig | None = None) -> None:
         self._config = config or RankingConfig()
 
     # ------------------------------------------------------------------
@@ -68,8 +67,8 @@ class RankingEngineService:
     def rank_signals(
         self,
         signals: list[SignalOutput],
-        max_results: Optional[int] = None,
-        strategy_weights: Optional[dict[str, float]] = None,
+        max_results: int | None = None,
+        strategy_weights: dict[str, float] | None = None,
     ) -> list[RankedResult]:
         """Compute composite scores and return a sorted list of RankedResult.
 
@@ -117,7 +116,7 @@ class RankingEngineService:
         self,
         session: Session,
         signal_run_id: uuid.UUID,
-        signals: Optional[list[SignalOutput]] = None,
+        signals: list[SignalOutput] | None = None,
     ) -> tuple[uuid.UUID, list[RankedResult]]:
         """Run the ranking pipeline and persist results.
 
@@ -160,8 +159,8 @@ class RankingEngineService:
         security_id: object,
         sig_list: list[SignalOutput],
         settings: object,
-        strategy_weights: Optional[dict[str, float]] = None,
-    ) -> Optional[RankedResult]:
+        strategy_weights: dict[str, float] | None = None,
+    ) -> RankedResult | None:
         """Aggregate signals for one security into a single RankedResult.
 
         When *strategy_weights* is provided the weighted-mean signal score
@@ -172,7 +171,7 @@ class RankingEngineService:
         is supplied.
         """
         # Safe float extraction
-        def _f(d: Optional[Decimal]) -> float:
+        def _f(d: Decimal | None) -> float:
             return float(d) if d is not None else 0.5
 
         # Always keep highest-confidence signal as metadata anchor
@@ -302,7 +301,7 @@ class RankingEngineService:
         return "; ".join(parts) + "."
 
     @staticmethod
-    def _compute_sizing(composite: float, settings: object) -> Optional[Decimal]:
+    def _compute_sizing(composite: float, settings: object) -> Decimal | None:
         """Suggest a position size as a fraction of portfolio equity."""
         max_pct = float(getattr(settings, "max_single_name_pct", 0.20))
         sizing = composite * max_pct

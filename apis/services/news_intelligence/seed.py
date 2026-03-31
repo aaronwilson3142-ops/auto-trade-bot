@@ -10,7 +10,6 @@ In production, swap NewsSeedService for an adapter that calls a real news API.
 from __future__ import annotations
 
 import datetime as dt
-from typing import Optional
 
 from services.news_intelligence.models import CredibilityTier, NewsItem
 
@@ -116,7 +115,7 @@ class NewsSeedService:
                to use the built-in APIS seed set.
     """
 
-    def __init__(self, seeds: Optional[list[dict]] = None) -> None:
+    def __init__(self, seeds: list[dict] | None = None) -> None:
         self._seeds = seeds if seeds is not None else _DEFAULT_SEEDS
 
     @property
@@ -126,7 +125,7 @@ class NewsSeedService:
 
     def get_daily_items(
         self,
-        reference_dt: Optional[dt.datetime] = None,
+        reference_dt: dt.datetime | None = None,
     ) -> list[NewsItem]:
         """Return a fresh list of NewsItem objects stamped to *today*.
 
@@ -142,7 +141,7 @@ class NewsSeedService:
             list[NewsItem] ready to feed into
             NewsIntelligenceService.process_batch().
         """
-        now = reference_dt or dt.datetime.now(dt.timezone.utc)
+        now = reference_dt or dt.datetime.now(dt.UTC)
         published = now - dt.timedelta(hours=2)
         items: list[NewsItem] = []
         for tmpl in self._seeds:

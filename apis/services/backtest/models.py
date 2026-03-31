@@ -4,7 +4,6 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Optional
 
 
 @dataclass
@@ -32,7 +31,7 @@ class BacktestResult:
     initial_cash: Decimal
     final_portfolio_value: Decimal = Decimal("0")
     total_return_pct: float = 0.0
-    sharpe_ratio: Optional[float] = None
+    sharpe_ratio: float | None = None
     max_drawdown_pct: float = 0.0
     win_rate: float = 0.0
     total_trades: int = 0

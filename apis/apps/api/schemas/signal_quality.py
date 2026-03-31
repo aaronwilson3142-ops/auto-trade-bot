@@ -9,7 +9,6 @@ Three response models:
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
 
 from pydantic import BaseModel
 
@@ -34,11 +33,11 @@ class SignalQualityReportResponse(BaseModel):
     Returned by GET /signals/quality.
     """
 
-    computed_at: Optional[datetime]
+    computed_at: datetime | None
     total_outcomes_recorded: int
-    strategies_with_data: List[str]
+    strategies_with_data: list[str]
     strategy_count: int
-    strategy_results: List[StrategyQualitySchema]
+    strategy_results: list[StrategyQualitySchema]
     data_available: bool
 
 
@@ -51,7 +50,7 @@ class StrategyQualityDetailResponse(BaseModel):
 
     strategy_name: str
     data_available: bool
-    computed_at: Optional[datetime] = None
+    computed_at: datetime | None = None
     prediction_count: int = 0
     win_count: int = 0
     win_rate: float = 0.0

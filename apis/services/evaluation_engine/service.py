@@ -12,9 +12,7 @@ Public API:
 """
 from __future__ import annotations
 
-import datetime as dt
 from decimal import Decimal
-from typing import Optional
 
 from services.evaluation_engine.config import EvaluationConfig
 from services.evaluation_engine.models import (
@@ -32,7 +30,7 @@ from services.portfolio_engine.models import PortfolioSnapshot
 class EvaluationEngineService:
     """Compute daily scorecard, benchmarks, drawdown, and attribution."""
 
-    def __init__(self, config: Optional[EvaluationConfig] = None) -> None:
+    def __init__(self, config: EvaluationConfig | None = None) -> None:
         self._config = config or EvaluationConfig()
 
     # ── Per-trade grading ──────────────────────────────────────────────────────

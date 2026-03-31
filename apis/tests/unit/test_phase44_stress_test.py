@@ -23,7 +23,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -38,7 +37,7 @@ def _make_position(ticker: str, market_value: float) -> SimpleNamespace:
         cost_basis=Decimal(str(market_value)),
         unrealized_pnl=Decimal("0"),
         unrealized_pnl_pct=Decimal("0"),
-        opened_at=dt.datetime.now(dt.timezone.utc),
+        opened_at=dt.datetime.now(dt.UTC),
         thesis_summary=None,
         strategy_key=None,
     )
@@ -182,7 +181,7 @@ class TestApplyScenario:
 
     def test_apply_scenario_returns_label(self):
         """scenario_label is the human-readable name."""
-        from services.risk_engine.stress_test import StressTestService, SCENARIO_LABELS
+        from services.risk_engine.stress_test import SCENARIO_LABELS, StressTestService
 
         positions = {"AAPL": _make_position("AAPL", 5_000.0)}
         result = StressTestService.apply_scenario(positions, 100_000.0, "financial_crisis_2008")
@@ -212,7 +211,7 @@ class TestRunAllScenarios:
 
     def test_run_all_returns_four_scenarios(self):
         """Exactly 4 scenarios are always computed."""
-        from services.risk_engine.stress_test import StressTestService, SCENARIO_SHOCKS
+        from services.risk_engine.stress_test import SCENARIO_SHOCKS, StressTestService
 
         positions = {"AAPL": _make_position("AAPL", 10_000.0)}
         result = StressTestService.run_all_scenarios(positions, 100_000.0)
@@ -279,9 +278,9 @@ class TestRunAllScenarios:
         from services.risk_engine.stress_test import StressTestService
 
         positions = {"AAPL": _make_position("AAPL", 10_000.0)}
-        before = dt.datetime.now(dt.timezone.utc)
+        before = dt.datetime.now(dt.UTC)
         result = StressTestService.run_all_scenarios(positions, 100_000.0)
-        after = dt.datetime.now(dt.timezone.utc)
+        after = dt.datetime.now(dt.UTC)
 
         assert result.computed_at >= before
         assert result.computed_at <= after
@@ -319,7 +318,7 @@ class TestFilterForStressLimit:
     def _make_stress_result(self, worst_loss_pct: float, no_positions: bool = False):
         from services.risk_engine.stress_test import StressTestResult
         return StressTestResult(
-            computed_at=dt.datetime.now(dt.timezone.utc),
+            computed_at=dt.datetime.now(dt.UTC),
             equity=100_000.0,
             positions_count=3,
             scenarios=[],
@@ -461,7 +460,7 @@ class TestScenarioConstants:
         assert len(SCENARIO_SHOCKS) == 4
 
     def test_all_scenarios_have_labels(self):
-        from services.risk_engine.stress_test import SCENARIO_SHOCKS, SCENARIO_LABELS
+        from services.risk_engine.stress_test import SCENARIO_LABELS, SCENARIO_SHOCKS
         for name in SCENARIO_SHOCKS:
             assert name in SCENARIO_LABELS
 
@@ -633,7 +632,7 @@ class TestAppStateFields:
         from apps.api.state import ApiAppState
         from services.risk_engine.stress_test import StressTestResult
         state = ApiAppState()
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime.now(dt.UTC)
         state.latest_stress_result = StressTestResult(
             computed_at=now,
             equity=100_000.0,
@@ -655,6 +654,7 @@ class TestGetPortfolioStressTest:
 
     def _get_client(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         return TestClient(app)
 
@@ -671,7 +671,11 @@ class TestGetPortfolioStressTest:
 
     def test_with_stress_result_returns_data(self):
         from apps.api.state import get_app_state, reset_app_state
-        from services.risk_engine.stress_test import ScenarioResult, StressTestResult, SCENARIO_LABELS
+        from services.risk_engine.stress_test import (
+            SCENARIO_LABELS,
+            ScenarioResult,
+            StressTestResult,
+        )
 
         reset_app_state()
         state = get_app_state()
@@ -695,7 +699,7 @@ class TestGetPortfolioStressTest:
             ),
         ]
         state.latest_stress_result = StressTestResult(
-            computed_at=dt.datetime.now(dt.timezone.utc),
+            computed_at=dt.datetime.now(dt.UTC),
             equity=100_000.0,
             positions_count=3,
             scenarios=scenarios,
@@ -722,7 +726,7 @@ class TestGetPortfolioStressTest:
         reset_app_state()
         state = get_app_state()
         state.latest_stress_result = StressTestResult(
-            computed_at=dt.datetime.now(dt.timezone.utc),
+            computed_at=dt.datetime.now(dt.UTC),
             equity=100_000.0,
             positions_count=2,
             scenarios=[],
@@ -744,7 +748,7 @@ class TestGetPortfolioStressTest:
         reset_app_state()
         state = get_app_state()
         state.latest_stress_result = StressTestResult(
-            computed_at=dt.datetime.now(dt.timezone.utc),
+            computed_at=dt.datetime.now(dt.UTC),
             equity=100_000.0,
             positions_count=2,
             scenarios=[],
@@ -769,6 +773,7 @@ class TestGetStressScenarioDetail:
 
     def _get_client(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         return TestClient(app)
 
@@ -784,12 +789,16 @@ class TestGetStressScenarioDetail:
 
     def test_known_scenario_returns_data(self):
         from apps.api.state import get_app_state, reset_app_state
-        from services.risk_engine.stress_test import ScenarioResult, StressTestResult, SCENARIO_LABELS
+        from services.risk_engine.stress_test import (
+            SCENARIO_LABELS,
+            ScenarioResult,
+            StressTestResult,
+        )
 
         reset_app_state()
         state = get_app_state()
         state.latest_stress_result = StressTestResult(
-            computed_at=dt.datetime.now(dt.timezone.utc),
+            computed_at=dt.datetime.now(dt.UTC),
             equity=100_000.0,
             positions_count=2,
             scenarios=[
@@ -826,7 +835,7 @@ class TestGetStressScenarioDetail:
         reset_app_state()
         state = get_app_state()
         state.latest_stress_result = StressTestResult(
-            computed_at=dt.datetime.now(dt.timezone.utc),
+            computed_at=dt.datetime.now(dt.UTC),
             equity=100_000.0,
             positions_count=1,
             scenarios=[],
@@ -866,7 +875,7 @@ class TestPaperCycleStressGate:
 
         state = ApiAppState()
         state.latest_stress_result = StressTestResult(
-            computed_at=dt.datetime.now(dt.timezone.utc),
+            computed_at=dt.datetime.now(dt.UTC),
             equity=100_000.0,
             positions_count=3,
             worst_case_scenario="dotcom_bust_2001",
@@ -883,7 +892,7 @@ class TestPaperCycleStressGate:
 
         state = ApiAppState()
         state.latest_stress_result = StressTestResult(
-            computed_at=dt.datetime.now(dt.timezone.utc),
+            computed_at=dt.datetime.now(dt.UTC),
             equity=100_000.0,
             positions_count=3,
             worst_case_scenario="dotcom_bust_2001",
@@ -896,8 +905,8 @@ class TestPaperCycleStressGate:
 
     def test_cycle_result_includes_stress_mode(self):
         """run_paper_trading_cycle skips gracefully in RESEARCH mode."""
-        from apps.worker.jobs.paper_trading import run_paper_trading_cycle
         from apps.api.state import ApiAppState
+        from apps.worker.jobs.paper_trading import run_paper_trading_cycle
 
         state = ApiAppState()
         result = run_paper_trading_cycle(app_state=state)
@@ -971,7 +980,7 @@ class TestDashboardStressSection:
 
         state = self._make_state(
             stress_result=StressTestResult(
-                computed_at=dt.datetime.now(dt.timezone.utc),
+                computed_at=dt.datetime.now(dt.UTC),
                 equity=100_000.0,
                 positions_count=0,
                 no_positions=True,
@@ -982,7 +991,11 @@ class TestDashboardStressSection:
 
     def test_renders_worst_case_loss(self):
         from apps.dashboard.router import _render_stress_section
-        from services.risk_engine.stress_test import ScenarioResult, StressTestResult, SCENARIO_LABELS
+        from services.risk_engine.stress_test import (
+            SCENARIO_LABELS,
+            ScenarioResult,
+            StressTestResult,
+        )
 
         scenarios = [
             ScenarioResult(
@@ -996,7 +1009,7 @@ class TestDashboardStressSection:
         ]
         state = self._make_state(
             stress_result=StressTestResult(
-                computed_at=dt.datetime.now(dt.timezone.utc),
+                computed_at=dt.datetime.now(dt.UTC),
                 equity=100_000.0,
                 positions_count=2,
                 scenarios=scenarios,
@@ -1016,7 +1029,7 @@ class TestDashboardStressSection:
 
         state = self._make_state(
             stress_result=StressTestResult(
-                computed_at=dt.datetime.now(dt.timezone.utc),
+                computed_at=dt.datetime.now(dt.UTC),
                 equity=100_000.0,
                 positions_count=2,
                 scenarios=[],
@@ -1035,7 +1048,7 @@ class TestDashboardStressSection:
 
         state = self._make_state(
             stress_result=StressTestResult(
-                computed_at=dt.datetime.now(dt.timezone.utc),
+                computed_at=dt.datetime.now(dt.UTC),
                 equity=100_000.0,
                 positions_count=2,
                 scenarios=[],
@@ -1051,7 +1064,11 @@ class TestDashboardStressSection:
 
     def test_scenario_table_rendered(self):
         from apps.dashboard.router import _render_stress_section
-        from services.risk_engine.stress_test import ScenarioResult, StressTestResult, SCENARIO_LABELS
+        from services.risk_engine.stress_test import (
+            SCENARIO_LABELS,
+            ScenarioResult,
+            StressTestResult,
+        )
 
         scenarios = [
             ScenarioResult(
@@ -1065,7 +1082,7 @@ class TestDashboardStressSection:
         ]
         state = self._make_state(
             stress_result=StressTestResult(
-                computed_at=dt.datetime.now(dt.timezone.utc),
+                computed_at=dt.datetime.now(dt.UTC),
                 equity=100_000.0,
                 positions_count=2,
                 scenarios=scenarios,
@@ -1082,6 +1099,7 @@ class TestDashboardStressSection:
     def test_section_in_main_dashboard(self):
         """The full dashboard HTML includes the stress test section."""
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import reset_app_state
 

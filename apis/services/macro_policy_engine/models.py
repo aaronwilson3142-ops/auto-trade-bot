@@ -4,7 +4,6 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
 
 
 class PolicyEventType(str, Enum):
@@ -47,7 +46,7 @@ class PolicySignal:
     directional_bias: float = 0.0         # [-1.0 bearish, 1.0 bullish]
     confidence: float = 0.5               # [0.0, 1.0]
     implication_summary: str = ""
-    generated_at: Optional[dt.datetime] = None
+    generated_at: dt.datetime | None = None
 
 
 @dataclass
@@ -56,4 +55,4 @@ class MacroRegimeIndicator:
     regime: MacroRegime = MacroRegime.NEUTRAL
     confidence: float = 0.5
     supporting_factors: list[str] = field(default_factory=list)
-    assessed_at: Optional[dt.datetime] = None
+    assessed_at: dt.datetime | None = None

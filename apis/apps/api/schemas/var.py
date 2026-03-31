@@ -7,7 +7,6 @@ GET /api/v1/portfolio/var/{ticker}
 from __future__ import annotations
 
 import datetime as dt
-from typing import Optional
 
 from pydantic import BaseModel
 
@@ -27,7 +26,7 @@ class PortfolioVaRResponse(BaseModel):
     Returned by GET /api/v1/portfolio/var.
     """
 
-    computed_at: Optional[dt.datetime]
+    computed_at: dt.datetime | None
     equity: float
     positions_count: int
     lookback_days: int
@@ -59,13 +58,13 @@ class TickerVaRDetailResponse(BaseModel):
 
     ticker: str
     data_available: bool
-    computed_at: Optional[dt.datetime]
+    computed_at: dt.datetime | None
 
     # Position info (None when data_available=False)
-    weight_pct: Optional[float] = None
-    standalone_var_95_pct: Optional[float] = None
-    standalone_var_95_dollar: Optional[float] = None
+    weight_pct: float | None = None
+    standalone_var_95_pct: float | None = None
+    standalone_var_95_dollar: float | None = None
 
     # Portfolio context
-    portfolio_var_95_pct: Optional[float] = None
-    equity: Optional[float] = None
+    portfolio_var_95_pct: float | None = None
+    equity: float | None = None

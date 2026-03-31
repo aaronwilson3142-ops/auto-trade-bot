@@ -22,7 +22,7 @@ Design rules
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any, Optional
+from typing import Any
 
 from apps.api.state import ApiAppState
 from config.logging_config import get_logger
@@ -36,8 +36,8 @@ _LOOKBACK_CALENDAR_DAYS = 400   # ~252 trading days within a 400-calendar-day wi
 
 def run_var_refresh(
     app_state: ApiAppState,
-    settings: Optional[Settings] = None,
-    session_factory: Optional[Any] = None,
+    settings: Settings | None = None,
+    session_factory: Any | None = None,
 ) -> dict[str, Any]:
     """Load bar data and compute portfolio VaR/CVaR.
 
@@ -51,7 +51,7 @@ def run_var_refresh(
         computed_at, error.
     """
     cfg = settings or get_settings()  # noqa: F841
-    run_at = dt.datetime.now(dt.timezone.utc)
+    run_at = dt.datetime.now(dt.UTC)
 
     logger.info("var_refresh_starting")
 

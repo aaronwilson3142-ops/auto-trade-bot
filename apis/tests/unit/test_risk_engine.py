@@ -7,14 +7,16 @@ Verifies:
   - max_single_name_pct: sets adjusted_max_notional on oversized proposals
   - daily_loss_limit: blocks new opens when day's loss exceeds limit
   - drawdown: blocks new opens when drawdown exceeds weekly limit
+  - monthly_drawdown: blocks new opens when MTD loss exceeds monthly cap
+  - daily_position_cap: blocks new opens once the per-day open limit is reached
+  - sector_concentration: blocks opens that breach max_sector_pct
+  - thematic_concentration: blocks opens that breach max_thematic_pct
   - validate_action: aggregates all violations; CLOSE actions bypass position-count
 """
 from __future__ import annotations
 
 import datetime as dt
 from decimal import Decimal
-
-import pytest
 
 from config.settings import Settings
 from services.portfolio_engine.models import (
@@ -25,7 +27,6 @@ from services.portfolio_engine.models import (
 )
 from services.risk_engine.models import RiskSeverity
 from services.risk_engine.service import RiskEngineService
-
 
 # ─────────────────────────── helpers ─────────────────────────────────────────
 
@@ -104,6 +105,83 @@ class TestKillSwitch:
         result = svc.validate_action(action, state)
         assert result.passed is False
         assert action.risk_approved is False
+
+    # ── Runtime kill_switch_fn tests ──────────────────────────────────────────
+
+    def test_runtime_kill_switch_fn_blocks_when_true(self):
+        """kill_switch_fn returning True blocks even when env kill_switch is False."""
+        svc = RiskEngineService(
+            settings=_settings(kill_switch=False),
+            kill_switch_fn=lambda: True,
+        )
+        result = svc.check_kill_switch()
+        assert result.passed is False
+        assert result.is_hard_blocked is True
+        assert any(v.rule_name == "kill_switch" for v in result.violations)
+        # Source string reflects runtime flag
+        assert "runtime" in result.violations[0].reason
+
+    def test_runtime_kill_switch_fn_passes_when_false(self):
+        """kill_switch_fn returning False + env False = passes."""
+        svc = RiskEngineService(
+            settings=_settings(kill_switch=False),
+            kill_switch_fn=lambda: False,
+        )
+        result = svc.check_kill_switch()
+        assert result.passed is True
+        assert result.violations == []
+
+    def test_runtime_kill_switch_fn_both_active(self):
+        """Both env and runtime active = still blocks, source string shows both."""
+        svc = RiskEngineService(
+            settings=_settings(kill_switch=True),
+            kill_switch_fn=lambda: True,
+        )
+        result = svc.check_kill_switch()
+        assert result.passed is False
+        assert "env+runtime" in result.violations[0].reason
+
+    def test_no_kill_switch_fn_env_inactive_passes(self):
+        """No kill_switch_fn and env kill_switch=False = passes (backward-compat)."""
+        svc = RiskEngineService(settings=_settings(kill_switch=False))
+        result = svc.check_kill_switch()
+        assert result.passed is True
+
+    def test_runtime_kill_switch_blocks_validate_action(self):
+        """validate_action respects runtime kill_switch_fn."""
+        svc = RiskEngineService(
+            settings=_settings(kill_switch=False),
+            kill_switch_fn=lambda: True,
+        )
+        state = PortfolioState(cash=Decimal("100000.00"))
+        action = _open_action()
+        result = svc.validate_action(action, state)
+        assert result.passed is False
+        assert action.risk_approved is False
+
+    def test_runtime_kill_switch_blocks_evaluate_trims(self):
+        """evaluate_trims returns empty list when runtime kill switch is active."""
+        svc = RiskEngineService(
+            settings=_settings(kill_switch=False),
+            kill_switch_fn=lambda: True,
+        )
+        state = PortfolioState(cash=Decimal("100000.00"))
+        assert svc.evaluate_trims(state) == []
+
+    def test_mutable_runtime_kill_switch(self):
+        """kill_switch_fn is re-evaluated on every call (reflects live state changes)."""
+        state_flag = {"active": False}
+        svc = RiskEngineService(
+            settings=_settings(kill_switch=False),
+            kill_switch_fn=lambda: state_flag["active"],
+        )
+        # Initially off — passes
+        assert svc.check_kill_switch().passed is True
+        # Flip on at runtime — now blocks
+        state_flag["active"] = True
+        result = svc.check_kill_switch()
+        assert result.passed is False
+        assert "runtime" in result.violations[0].reason
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -249,6 +327,347 @@ class TestDrawdown:
         )
         result = svc.check_drawdown(state)
         assert result.passed is True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TestMonthlyDrawdown
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestMonthlyDrawdown:
+    def test_blocks_when_monthly_loss_exceeded(self):
+        """Start-of-month equity $100k, current equity $88k → -12% MTD > 10% limit."""
+        svc = RiskEngineService(settings=_settings())  # monthly_drawdown_limit_pct=0.10
+        state = PortfolioState(
+            cash=Decimal("88000.00"),
+            start_of_month_equity=Decimal("100000.00"),
+        )
+        result = svc.check_monthly_drawdown(state)
+        assert result.passed is False
+        assert any(v.rule_name == "monthly_drawdown_limit" for v in result.violations)
+
+    def test_passes_when_monthly_loss_within_limit(self):
+        """Start-of-month equity $100k, current equity $95k → -5% MTD < 10% limit."""
+        svc = RiskEngineService(settings=_settings())
+        state = PortfolioState(
+            cash=Decimal("95000.00"),
+            start_of_month_equity=Decimal("100000.00"),
+        )
+        result = svc.check_monthly_drawdown(state)
+        assert result.passed is True
+
+    def test_passes_when_no_start_of_month_equity(self):
+        """No start_of_month_equity → check skipped with warning."""
+        svc = RiskEngineService(settings=_settings())
+        state = PortfolioState(cash=Decimal("88000.00"))
+        result = svc.check_monthly_drawdown(state)
+        assert result.passed is True
+        assert len(result.warnings) > 0
+
+    def test_passes_at_breakeven(self):
+        """No loss this month → passes."""
+        svc = RiskEngineService(settings=_settings())
+        state = PortfolioState(
+            cash=Decimal("100000.00"),
+            start_of_month_equity=Decimal("100000.00"),
+        )
+        result = svc.check_monthly_drawdown(state)
+        assert result.passed is True
+
+    def test_passes_when_month_is_positive(self):
+        """MTD gain should never trigger the monthly drawdown check."""
+        svc = RiskEngineService(settings=_settings())
+        state = PortfolioState(
+            cash=Decimal("110000.00"),
+            start_of_month_equity=Decimal("100000.00"),
+        )
+        result = svc.check_monthly_drawdown(state)
+        assert result.passed is True
+
+    def test_blocks_at_exact_limit(self):
+        """Loss of exactly limit+1bp should trigger the block."""
+        svc = RiskEngineService(settings=_settings(monthly_drawdown_limit_pct=0.10))
+        # Equity $89,990 → -10.01% MTD, just over the 10% cap
+        state = PortfolioState(
+            cash=Decimal("89990.00"),
+            start_of_month_equity=Decimal("100000.00"),
+        )
+        result = svc.check_monthly_drawdown(state)
+        assert result.passed is False
+
+    def test_custom_monthly_limit_respected(self):
+        """A tighter 5% monthly limit should block a 6% drawdown."""
+        svc = RiskEngineService(settings=_settings(monthly_drawdown_limit_pct=0.05))
+        state = PortfolioState(
+            cash=Decimal("94000.00"),
+            start_of_month_equity=Decimal("100000.00"),
+        )
+        result = svc.check_monthly_drawdown(state)
+        assert result.passed is False
+        assert any(v.rule_name == "monthly_drawdown_limit" for v in result.violations)
+
+    def test_monthly_drawdown_wired_into_validate_action(self):
+        """validate_action must include monthly_drawdown in its pipeline."""
+        svc = RiskEngineService(settings=_settings())  # 10% monthly limit
+        state = PortfolioState(
+            cash=Decimal("85000.00"),              # -15% MTD
+            start_of_month_equity=Decimal("100000.00"),
+        )
+        action = _open_action()
+        result = svc.validate_action(action, state)
+        assert result.passed is False
+        assert any(v.rule_name == "monthly_drawdown_limit" for v in result.violations)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TestDailyPositionCap
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestDailyPositionCap:
+    def test_blocks_open_when_daily_limit_reached(self):
+        """daily_opens_count == limit → block the next OPEN."""
+        svc = RiskEngineService(settings=_settings(max_new_positions_per_day=3))
+        state = PortfolioState(cash=Decimal("100000.00"), daily_opens_count=3)
+        action = _open_action()
+        result = svc.check_daily_position_cap(action, state)
+        assert result.passed is False
+        assert any(v.rule_name == "max_new_positions_per_day" for v in result.violations)
+
+    def test_passes_open_below_limit(self):
+        """daily_opens_count < limit → OPEN is allowed."""
+        svc = RiskEngineService(settings=_settings(max_new_positions_per_day=3))
+        state = PortfolioState(cash=Decimal("100000.00"), daily_opens_count=2)
+        action = _open_action()
+        result = svc.check_daily_position_cap(action, state)
+        assert result.passed is True
+
+    def test_passes_when_zero_opens_today(self):
+        """No opens yet today → always passes."""
+        svc = RiskEngineService(settings=_settings())
+        state = PortfolioState(cash=Decimal("100000.00"), daily_opens_count=0)
+        action = _open_action()
+        result = svc.check_daily_position_cap(action, state)
+        assert result.passed is True
+
+    def test_close_never_blocked_by_daily_cap(self):
+        """CLOSE actions are never blocked regardless of daily_opens_count."""
+        svc = RiskEngineService(settings=_settings(max_new_positions_per_day=1))
+        state = PortfolioState(cash=Decimal("100000.00"), daily_opens_count=99)
+        action = _close_action()
+        result = svc.check_daily_position_cap(action, state)
+        assert result.passed is True
+
+    def test_blocks_strictly_at_limit_not_below(self):
+        """Exactly at the limit blocks; one below passes."""
+        svc = RiskEngineService(settings=_settings(max_new_positions_per_day=2))
+        state_at = PortfolioState(cash=Decimal("100000.00"), daily_opens_count=2)
+        state_below = PortfolioState(cash=Decimal("100000.00"), daily_opens_count=1)
+        assert svc.check_daily_position_cap(_open_action(), state_at).passed is False
+        assert svc.check_daily_position_cap(_open_action(), state_below).passed is True
+
+    def test_custom_limit_respected(self):
+        """A custom limit of 1 should block on the second open attempt."""
+        svc = RiskEngineService(settings=_settings(max_new_positions_per_day=1))
+        state = PortfolioState(cash=Decimal("100000.00"), daily_opens_count=1)
+        result = svc.check_daily_position_cap(_open_action(), state)
+        assert result.passed is False
+
+    def test_daily_position_cap_wired_into_validate_action(self):
+        """validate_action must include daily position cap in its pipeline."""
+        svc = RiskEngineService(settings=_settings(max_new_positions_per_day=2))
+        state = PortfolioState(cash=Decimal("100000.00"), daily_opens_count=2)
+        action = _open_action()
+        result = svc.validate_action(action, state)
+        assert result.passed is False
+        assert any(v.rule_name == "max_new_positions_per_day" for v in result.violations)
+
+    def test_daily_opens_count_default_is_zero(self):
+        """PortfolioState.daily_opens_count must default to 0 (no sentinel needed)."""
+        state = PortfolioState(cash=Decimal("100000.00"))
+        assert state.daily_opens_count == 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TestSectorConcentration
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _tech_state(notional_each: Decimal = Decimal("15000")) -> PortfolioState:
+    """Portfolio with two technology positions worth notional_each each, equity=$100k.
+
+    AAPL and MSFT both map to 'technology' sector in the universe registry.
+    Combined sector MV = 2 * notional_each.
+    """
+    state = PortfolioState(cash=Decimal("100000") - 2 * notional_each)
+    for ticker, price in (("AAPL", Decimal("175")), ("MSFT", Decimal("300"))):
+        qty = (notional_each / price).quantize(Decimal("1"), rounding="ROUND_DOWN")
+        state.positions[ticker] = PortfolioPosition(
+            ticker=ticker,
+            quantity=qty,
+            avg_entry_price=price,
+            current_price=price,
+            opened_at=dt.datetime.utcnow(),
+        )
+    return state
+
+
+class TestSectorConcentration:
+    def test_blocks_open_that_breaches_sector_cap(self):
+        """Portfolio already 30% tech; adding NVDA (tech) would exceed 40% cap."""
+        # Two tech positions each $15k → $30k / $100k equity = 30% tech
+        state = _tech_state(Decimal("15000"))
+        # Action: add $15k of NVDA (tech) → projected tech = $45k / $100k = 45% > 40%
+        svc = RiskEngineService(settings=_settings(max_sector_pct=0.40))
+        action = PortfolioAction(
+            action_type=ActionType.OPEN,
+            ticker="NVDA",
+            reason="test",
+            target_notional=Decimal("15000"),
+        )
+        result = svc.check_sector_concentration(action, state)
+        assert result.passed is False
+        assert any(v.rule_name == "max_sector_pct" for v in result.violations)
+
+    def test_passes_open_within_sector_cap(self):
+        """Adding a small tech position that stays under 40% cap passes."""
+        state = _tech_state(Decimal("10000"))  # 20k tech / 100k = 20%
+        svc = RiskEngineService(settings=_settings(max_sector_pct=0.40))
+        action = PortfolioAction(
+            action_type=ActionType.OPEN,
+            ticker="NVDA",
+            reason="test",
+            target_notional=Decimal("5000"),  # 15k / 100k = 15% — well under 40%
+        )
+        result = svc.check_sector_concentration(action, state)
+        assert result.passed is True
+
+    def test_close_never_blocked_by_sector_cap(self):
+        """CLOSE actions must always pass the sector check."""
+        state = _tech_state(Decimal("45000"))  # already > 40% tech
+        svc = RiskEngineService(settings=_settings(max_sector_pct=0.40))
+        action = PortfolioAction(
+            action_type=ActionType.CLOSE,
+            ticker="AAPL",
+            reason="test",
+        )
+        result = svc.check_sector_concentration(action, state)
+        assert result.passed is True
+
+    def test_different_sector_never_blocked(self):
+        """Opening a healthcare ticker does not trigger the tech sector cap."""
+        state = _tech_state(Decimal("35000"))  # 70% tech, over limit
+        svc = RiskEngineService(settings=_settings(max_sector_pct=0.40))
+        # LLY → healthcare, completely separate sector
+        action = PortfolioAction(
+            action_type=ActionType.OPEN,
+            ticker="LLY",
+            reason="test",
+            target_notional=Decimal("5000"),
+        )
+        result = svc.check_sector_concentration(action, state)
+        assert result.passed is True
+
+    def test_sector_check_wired_into_validate_action(self):
+        """validate_action must include sector concentration in its pipeline."""
+        state = _tech_state(Decimal("15000"))
+        svc = RiskEngineService(settings=_settings(max_sector_pct=0.40))
+        action = PortfolioAction(
+            action_type=ActionType.OPEN,
+            ticker="NVDA",
+            reason="test",
+            target_notional=Decimal("15000"),
+        )
+        result = svc.validate_action(action, state)
+        assert result.passed is False
+        assert any(v.rule_name == "max_sector_pct" for v in result.violations)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TestThematicConcentration
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _ai_state(notional_each: Decimal = Decimal("15000")) -> PortfolioState:
+    """Portfolio with two AI-infrastructure positions, equity=$100k.
+
+    NVDA and AMD both map to 'ai_infrastructure' theme.
+    """
+    state = PortfolioState(cash=Decimal("100000") - 2 * notional_each)
+    for ticker, price in (("NVDA", Decimal("800")), ("AMD", Decimal("150"))):
+        qty = (notional_each / price).quantize(Decimal("1"), rounding="ROUND_DOWN")
+        state.positions[ticker] = PortfolioPosition(
+            ticker=ticker,
+            quantity=qty,
+            avg_entry_price=price,
+            current_price=price,
+            opened_at=dt.datetime.utcnow(),
+        )
+    return state
+
+
+class TestThematicConcentration:
+    def test_blocks_open_that_breaches_thematic_cap(self):
+        """Portfolio already 30% AI-infra; adding ARM (ai_infra) exceeds 50% cap."""
+        state = _ai_state(Decimal("15000"))  # 30k ai_infra / 100k = 30%
+        svc = RiskEngineService(settings=_settings(max_thematic_pct=0.40))
+        action = PortfolioAction(
+            action_type=ActionType.OPEN,
+            ticker="ARM",  # ai_infrastructure theme
+            reason="test",
+            target_notional=Decimal("15000"),  # → 45k / 100k = 45% > 40%
+        )
+        result = svc.check_thematic_concentration(action, state)
+        assert result.passed is False
+        assert any(v.rule_name == "max_thematic_pct" for v in result.violations)
+
+    def test_passes_open_within_thematic_cap(self):
+        """A modest addition to the theme that stays under the cap passes."""
+        state = _ai_state(Decimal("10000"))  # 20% ai_infra
+        svc = RiskEngineService(settings=_settings(max_thematic_pct=0.50))
+        action = PortfolioAction(
+            action_type=ActionType.OPEN,
+            ticker="ARM",
+            reason="test",
+            target_notional=Decimal("5000"),  # 25k / 100k = 25% — under 50%
+        )
+        result = svc.check_thematic_concentration(action, state)
+        assert result.passed is True
+
+    def test_close_never_blocked_by_thematic_cap(self):
+        """CLOSE actions must always pass the thematic check."""
+        state = _ai_state(Decimal("40000"))  # way over 50% theme
+        svc = RiskEngineService(settings=_settings(max_thematic_pct=0.50))
+        action = PortfolioAction(
+            action_type=ActionType.CLOSE,
+            ticker="NVDA",
+            reason="test",
+        )
+        result = svc.check_thematic_concentration(action, state)
+        assert result.passed is True
+
+    def test_different_theme_never_blocked(self):
+        """Opening a healthcare ticker does not trigger the AI-infra theme cap."""
+        state = _ai_state(Decimal("40000"))  # 80% ai_infra
+        svc = RiskEngineService(settings=_settings(max_thematic_pct=0.50))
+        action = PortfolioAction(
+            action_type=ActionType.OPEN,
+            ticker="LLY",  # healthcare theme
+            reason="test",
+            target_notional=Decimal("5000"),
+        )
+        result = svc.check_thematic_concentration(action, state)
+        assert result.passed is True
+
+    def test_thematic_check_wired_into_validate_action(self):
+        """validate_action must include thematic concentration in its pipeline."""
+        state = _ai_state(Decimal("15000"))
+        svc = RiskEngineService(settings=_settings(max_thematic_pct=0.40))
+        action = PortfolioAction(
+            action_type=ActionType.OPEN,
+            ticker="ARM",
+            reason="test",
+            target_notional=Decimal("15000"),
+        )
+        result = svc.validate_action(action, state)
+        assert result.passed is False
+        assert any(v.rule_name == "max_thematic_pct" for v in result.violations)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

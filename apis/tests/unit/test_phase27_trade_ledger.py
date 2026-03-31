@@ -18,11 +18,13 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
-import pytest
-
+if TYPE_CHECKING:
+    from apps.api.state import ApiAppState
+    from services.portfolio_engine.models import ClosedTrade, PortfolioPosition, PortfolioState
+    from services.ranking_engine.models import RankedResult
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -32,7 +34,7 @@ def _make_position(
     avg_entry_price: Decimal = Decimal("150.00"),
     current_price: Decimal = Decimal("160.00"),
     opened_at: dt.datetime | None = None,
-) -> "PortfolioPosition":
+) -> PortfolioPosition:
     from services.portfolio_engine.models import PortfolioPosition
 
     return PortfolioPosition(
@@ -40,7 +42,7 @@ def _make_position(
         quantity=quantity,
         avg_entry_price=avg_entry_price,
         current_price=current_price,
-        opened_at=opened_at or dt.datetime(2026, 3, 1, 9, 35, tzinfo=dt.timezone.utc),
+        opened_at=opened_at or dt.datetime(2026, 3, 1, 9, 35, tzinfo=dt.UTC),
     )
 
 
@@ -54,7 +56,7 @@ def _make_closed_trade(
     opened_at: dt.datetime | None = None,
     closed_at: dt.datetime | None = None,
     hold_days: int = 5,
-) -> "ClosedTrade":
+) -> ClosedTrade:
     from services.portfolio_engine.models import ActionType, ClosedTrade
 
     at = ActionType.CLOSE if action_type_str == "close" else ActionType.TRIM
@@ -72,8 +74,8 @@ def _make_closed_trade(
         realized_pnl=realized_pnl.quantize(Decimal("0.01")),
         realized_pnl_pct=realized_pnl_pct,
         reason=reason,
-        opened_at=opened_at or dt.datetime(2026, 3, 14, 9, 35, tzinfo=dt.timezone.utc),
-        closed_at=closed_at or dt.datetime(2026, 3, 19, 15, 45, tzinfo=dt.timezone.utc),
+        opened_at=opened_at or dt.datetime(2026, 3, 14, 9, 35, tzinfo=dt.UTC),
+        closed_at=closed_at or dt.datetime(2026, 3, 19, 15, 45, tzinfo=dt.UTC),
         hold_duration_days=hold_days,
     )
 
@@ -83,7 +85,7 @@ def _make_portfolio_state(
     positions: dict | None = None,
     start_of_day_equity: Decimal | None = None,
     high_water_mark: Decimal | None = None,
-) -> "PortfolioState":
+) -> PortfolioState:
     from services.portfolio_engine.models import PortfolioState
 
     return PortfolioState(
@@ -208,7 +210,7 @@ class TestSodEquityRefresh:
         from apps.api.state import ApiAppState
         state = ApiAppState()
         ps = _make_portfolio_state(cash=Decimal("100000"))
-        run_at = dt.datetime(2026, 3, 19, 9, 35, tzinfo=dt.timezone.utc)
+        run_at = dt.datetime(2026, 3, 19, 9, 35, tzinfo=dt.UTC)
         self._run_cycle(state, ps, run_at)
         assert ps.start_of_day_equity == Decimal("100000")
 
@@ -216,11 +218,11 @@ class TestSodEquityRefresh:
         from apps.api.state import ApiAppState
         state = ApiAppState()
         ps = _make_portfolio_state(cash=Decimal("100000"))
-        run_at_morning = dt.datetime(2026, 3, 19, 9, 35, tzinfo=dt.timezone.utc)
+        run_at_morning = dt.datetime(2026, 3, 19, 9, 35, tzinfo=dt.UTC)
         self._run_cycle(state, ps, run_at_morning)
         # Simulate equity change then second cycle same day
         ps.cash = Decimal("95000")
-        run_at_midday = dt.datetime(2026, 3, 19, 12, 0, tzinfo=dt.timezone.utc)
+        run_at_midday = dt.datetime(2026, 3, 19, 12, 0, tzinfo=dt.UTC)
         self._run_cycle(state, ps, run_at_midday)
         # Still the original $100k, not $95k
         assert ps.start_of_day_equity == Decimal("100000")
@@ -229,11 +231,11 @@ class TestSodEquityRefresh:
         from apps.api.state import ApiAppState
         state = ApiAppState()
         ps = _make_portfolio_state(cash=Decimal("100000"))
-        day1 = dt.datetime(2026, 3, 19, 9, 35, tzinfo=dt.timezone.utc)
+        day1 = dt.datetime(2026, 3, 19, 9, 35, tzinfo=dt.UTC)
         self._run_cycle(state, ps, day1)
         # Portfolio grew overnight
         ps.cash = Decimal("103000")
-        day2 = dt.datetime(2026, 3, 20, 9, 35, tzinfo=dt.timezone.utc)
+        day2 = dt.datetime(2026, 3, 20, 9, 35, tzinfo=dt.UTC)
         self._run_cycle(state, ps, day2)
         assert ps.start_of_day_equity == Decimal("103000")
 
@@ -241,7 +243,7 @@ class TestSodEquityRefresh:
         from apps.api.state import ApiAppState
         state = ApiAppState()
         ps = _make_portfolio_state(cash=Decimal("100000"), high_water_mark=None)
-        run_at = dt.datetime(2026, 3, 19, 9, 35, tzinfo=dt.timezone.utc)
+        run_at = dt.datetime(2026, 3, 19, 9, 35, tzinfo=dt.UTC)
         self._run_cycle(state, ps, run_at)
         assert ps.high_water_mark == Decimal("100000")
 
@@ -251,7 +253,7 @@ class TestSodEquityRefresh:
         ps = _make_portfolio_state(
             cash=Decimal("110000"), high_water_mark=Decimal("100000")
         )
-        run_at = dt.datetime(2026, 3, 19, 9, 35, tzinfo=dt.timezone.utc)
+        run_at = dt.datetime(2026, 3, 19, 9, 35, tzinfo=dt.UTC)
         self._run_cycle(state, ps, run_at)
         assert ps.high_water_mark == Decimal("110000")
 
@@ -261,7 +263,7 @@ class TestSodEquityRefresh:
         ps = _make_portfolio_state(
             cash=Decimal("90000"), high_water_mark=Decimal("100000")
         )
-        run_at = dt.datetime(2026, 3, 19, 9, 35, tzinfo=dt.timezone.utc)
+        run_at = dt.datetime(2026, 3, 19, 9, 35, tzinfo=dt.UTC)
         self._run_cycle(state, ps, run_at)
         assert ps.high_water_mark == Decimal("100000")  # unchanged
 
@@ -269,7 +271,7 @@ class TestSodEquityRefresh:
         from apps.api.state import ApiAppState
         state = ApiAppState()
         ps = _make_portfolio_state(cash=Decimal("100000"))
-        run_at = dt.datetime(2026, 3, 19, 9, 35, tzinfo=dt.timezone.utc)
+        run_at = dt.datetime(2026, 3, 19, 9, 35, tzinfo=dt.UTC)
         self._run_cycle(state, ps, run_at)
         assert state.last_sod_capture_date == dt.date(2026, 3, 19)
 
@@ -281,11 +283,12 @@ class TestClosedTradeRecordingLogic:
         self,
         approved_requests: list,
         execution_results: list,
-        portfolio_state: "PortfolioState",
+        portfolio_state: PortfolioState,
         run_at: dt.datetime,
     ) -> list:
         """Replicate the closed trade recording snippet from paper_trading.py."""
         from decimal import Decimal
+
         from services.execution_engine.models import ExecutionStatus
         from services.portfolio_engine.models import ActionType, ClosedTrade
 
@@ -358,7 +361,7 @@ class TestClosedTradeRecordingLogic:
         ps = _make_portfolio_state(positions={"AAPL": pos})
         req = self._make_req("AAPL", "close")
         res = self._make_result("filled", fill_price=Decimal("160"), fill_qty=Decimal("100"))
-        run_at = dt.datetime(2026, 3, 19, 15, 45, tzinfo=dt.timezone.utc)
+        run_at = dt.datetime(2026, 3, 19, 15, 45, tzinfo=dt.UTC)
         trades = self._extract_closed_trades([req], [res], ps, run_at)
         assert len(trades) == 1
         assert trades[0].ticker == "AAPL"
@@ -368,7 +371,7 @@ class TestClosedTradeRecordingLogic:
         ps = _make_portfolio_state(positions={"NVDA": pos})
         req = self._make_req("NVDA", "trim", reason="overconcentration_trim")
         res = self._make_result("filled", fill_price=Decimal("420"), fill_qty=Decimal("10"))
-        run_at = dt.datetime(2026, 3, 19, 15, 45, tzinfo=dt.timezone.utc)
+        run_at = dt.datetime(2026, 3, 19, 15, 45, tzinfo=dt.UTC)
         trades = self._extract_closed_trades([req], [res], ps, run_at)
         assert len(trades) == 1
         assert trades[0].reason == "overconcentration_trim"
@@ -379,7 +382,7 @@ class TestClosedTradeRecordingLogic:
         req = self._make_req("MSFT", "open")
         res = self._make_result("filled", fill_price=Decimal("400"), fill_qty=Decimal("25"))
         trades = self._extract_closed_trades(
-            [req], [res], ps, dt.datetime(2026, 3, 19, 15, 45, tzinfo=dt.timezone.utc)
+            [req], [res], ps, dt.datetime(2026, 3, 19, 15, 45, tzinfo=dt.UTC)
         )
         assert trades == []
 
@@ -389,7 +392,7 @@ class TestClosedTradeRecordingLogic:
         req = self._make_req("TSLA", "close")
         res = self._make_result("rejected")
         trades = self._extract_closed_trades(
-            [req], [res], ps, dt.datetime(2026, 3, 19, 15, 45, tzinfo=dt.timezone.utc)
+            [req], [res], ps, dt.datetime(2026, 3, 19, 15, 45, tzinfo=dt.UTC)
         )
         assert trades == []
 
@@ -398,7 +401,7 @@ class TestClosedTradeRecordingLogic:
         req = self._make_req("AAPL", "close")
         res = self._make_result("filled", fill_price=Decimal("160"), fill_qty=Decimal("100"))
         trades = self._extract_closed_trades(
-            [req], [res], ps, dt.datetime(2026, 3, 19, 15, 45, tzinfo=dt.timezone.utc)
+            [req], [res], ps, dt.datetime(2026, 3, 19, 15, 45, tzinfo=dt.UTC)
         )
         assert trades == []
 
@@ -407,7 +410,7 @@ class TestClosedTradeRecordingLogic:
         ps = _make_portfolio_state(positions={"AAPL": pos})
         req = self._make_req("AAPL", "close")
         res = self._make_result("filled", fill_price=Decimal("120"), fill_qty=Decimal("50"))
-        run_at = dt.datetime(2026, 3, 19, 15, 45, tzinfo=dt.timezone.utc)
+        run_at = dt.datetime(2026, 3, 19, 15, 45, tzinfo=dt.UTC)
         trades = self._extract_closed_trades([req], [res], ps, run_at)
         assert trades[0].is_winner is True
         assert trades[0].realized_pnl == Decimal("1000.00")
@@ -417,18 +420,18 @@ class TestClosedTradeRecordingLogic:
         ps = _make_portfolio_state(positions={"AAPL": pos})
         req = self._make_req("AAPL", "close")
         res = self._make_result("filled", fill_price=Decimal("80"), fill_qty=Decimal("50"))
-        run_at = dt.datetime(2026, 3, 19, 15, 45, tzinfo=dt.timezone.utc)
+        run_at = dt.datetime(2026, 3, 19, 15, 45, tzinfo=dt.UTC)
         trades = self._extract_closed_trades([req], [res], ps, run_at)
         assert trades[0].is_winner is False
         assert trades[0].realized_pnl == Decimal("-1000.00")
 
     def test_hold_duration_days_calculated(self):
-        opened = dt.datetime(2026, 3, 9, 9, 35, tzinfo=dt.timezone.utc)
+        opened = dt.datetime(2026, 3, 9, 9, 35, tzinfo=dt.UTC)
         pos = _make_position("AAPL", opened_at=opened)
         ps = _make_portfolio_state(positions={"AAPL": pos})
         req = self._make_req("AAPL", "close")
         res = self._make_result("filled", fill_price=Decimal("160"), fill_qty=Decimal("100"))
-        run_at = dt.datetime(2026, 3, 19, 15, 45, tzinfo=dt.timezone.utc)
+        run_at = dt.datetime(2026, 3, 19, 15, 45, tzinfo=dt.UTC)
         trades = self._extract_closed_trades([req], [res], ps, run_at)
         assert trades[0].hold_duration_days == 10
 
@@ -441,7 +444,7 @@ class TestClosedTradeRecordingLogic:
             self._make_result("filled", fill_price=Decimal("160"), fill_qty=Decimal("100")),
             self._make_result("filled", fill_price=Decimal("380"), fill_qty=Decimal("50")),
         ]
-        run_at = dt.datetime(2026, 3, 19, 15, 45, tzinfo=dt.timezone.utc)
+        run_at = dt.datetime(2026, 3, 19, 15, 45, tzinfo=dt.UTC)
         trades = self._extract_closed_trades(reqs, ress, ps, run_at)
         assert len(trades) == 2
 
@@ -449,7 +452,7 @@ class TestClosedTradeRecordingLogic:
 class TestTradeHistoryEndpoint:
     """GET /api/v1/portfolio/trades endpoint behaviour."""
 
-    def _make_state_with_trades(self, trades: list) -> "ApiAppState":
+    def _make_state_with_trades(self, trades: list) -> ApiAppState:
         from apps.api.state import ApiAppState
         state = ApiAppState()
         state.closed_trades = trades
@@ -497,7 +500,6 @@ class TestTradeHistoryEndpoint:
         assert resp.items[0].is_winner is True
 
     def test_total_pnl_sum(self):
-        from apps.api.schemas.portfolio import ClosedTradeHistoryResponse, ClosedTradeRecord
         ct1 = _make_closed_trade(fill_price=Decimal("160"), avg_entry=Decimal("150"), quantity=Decimal("100"))
         ct2 = _make_closed_trade(fill_price=Decimal("130"), avg_entry=Decimal("150"), quantity=Decimal("50"))
         total = float(ct1.realized_pnl) + float(ct2.realized_pnl)
@@ -505,7 +507,6 @@ class TestTradeHistoryEndpoint:
         assert total == 0.0
 
     def test_win_rate_calculation(self):
-        from apps.api.schemas.portfolio import ClosedTradeHistoryResponse, ClosedTradeRecord
         winner = _make_closed_trade(fill_price=Decimal("160"), avg_entry=Decimal("150"))
         loser = _make_closed_trade(fill_price=Decimal("140"), avg_entry=Decimal("150"))
         paged = [winner, loser]
@@ -543,11 +544,11 @@ class TestTradeHistoryFiltering:
         """Trades should be sorted most recent closed_at first."""
         older = _make_closed_trade(
             ticker="AAPL",
-            closed_at=dt.datetime(2026, 3, 10, 15, 45, tzinfo=dt.timezone.utc),
+            closed_at=dt.datetime(2026, 3, 10, 15, 45, tzinfo=dt.UTC),
         )
         newer = _make_closed_trade(
             ticker="NVDA",
-            closed_at=dt.datetime(2026, 3, 19, 15, 45, tzinfo=dt.timezone.utc),
+            closed_at=dt.datetime(2026, 3, 19, 15, 45, tzinfo=dt.UTC),
         )
         trades = [older, newer]
         trades.sort(key=lambda t: t.closed_at, reverse=True)
@@ -606,7 +607,7 @@ class TestTradeHistoryAggregates:
 class TestPaperCycleWithTradeLedger:
     """Integration: paper cycle records closed trades and refreshes SOD equity."""
 
-    def _make_ranked(self, ticker: str, score: float = 0.80) -> "RankedResult":
+    def _make_ranked(self, ticker: str, score: float = 0.80) -> RankedResult:
         from services.ranking_engine.models import RankedResult
         return RankedResult(
             rank_position=1,
@@ -661,7 +662,7 @@ class TestPaperCycleWithTradeLedger:
                 quantity=bp.quantity,
                 avg_entry_price=bp.average_entry_price,
                 current_price=bp.current_price,
-                opened_at=dt.datetime(2026, 3, 1, 9, 35, tzinfo=dt.timezone.utc),
+                opened_at=dt.datetime(2026, 3, 1, 9, 35, tzinfo=dt.UTC),
             )
         app_state.portfolio_state = ps
         app_state.broker_adapter = broker
@@ -694,7 +695,7 @@ class TestPaperCycleWithTradeLedger:
         broker.set_price("NVDA", Decimal("500.00"))
 
         run_paper_trading_cycle(app_state=app_state, settings=cfg, broker=broker)
-        assert app_state.last_sod_capture_date == dt.datetime.now(dt.timezone.utc).date()
+        assert app_state.last_sod_capture_date == dt.datetime.now(dt.UTC).date()
 
     def test_cycle_closed_trade_has_correct_pnl_direction(self):
         """AAPL sold at $200 with entry $200 → realized_pnl == 0 (breakeven)."""

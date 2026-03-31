@@ -9,7 +9,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from decimal import Decimal
 
-
 # ── Default benchmarks ─────────────────────────────────────────────────────────
 
 DEFAULT_BENCHMARK_TICKERS: list[str] = ["SPY", "QQQ", "IWM"]

@@ -49,5 +49,5 @@ class AlertEvent:
     title: str
     payload: dict[str, Any] = field(default_factory=dict)
     timestamp: dt.datetime = field(
-        default_factory=lambda: dt.datetime.now(dt.timezone.utc)
+        default_factory=lambda: dt.datetime.now(dt.UTC)
     )

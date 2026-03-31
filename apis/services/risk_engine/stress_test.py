@@ -56,7 +56,6 @@ import structlog
 
 if TYPE_CHECKING:
     from config.settings import Settings
-    from services.portfolio_engine.models import PortfolioAction
 
 log = structlog.get_logger(__name__)
 
@@ -201,9 +200,7 @@ class StressTestService:
             ScenarioResult with per-ticker and portfolio-level shocked P&L.
             If scenario_name is unknown, all shocks default to -0.30.
         """
-        shocks = SCENARIO_SHOCKS.get(scenario_name, {s: -0.30 for s in [
-            "technology", "healthcare", "financials", "energy", "consumer", "other"
-        ]})
+        shocks = SCENARIO_SHOCKS.get(scenario_name, dict.fromkeys(["technology", "healthcare", "financials", "energy", "consumer", "other"], -0.3))
         label = SCENARIO_LABELS.get(scenario_name, scenario_name)
 
         ticker_pnl: dict[str, float] = {}
@@ -250,7 +247,7 @@ class StressTestService:
             StressTestResult with all scenario results and worst-case summary.
             When positions is empty, returns a no_positions=True result.
         """
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime.now(dt.UTC)
 
         if not positions or equity <= 0.0:
             return StressTestResult(
@@ -302,8 +299,8 @@ class StressTestService:
     @staticmethod
     def filter_for_stress_limit(
         actions: list,                   # list[PortfolioAction]
-        stress_result: "StressTestResult",
-        settings: "Settings",
+        stress_result: StressTestResult,
+        settings: Settings,
     ) -> tuple[list, int]:
         """Block OPEN actions when worst-case stress loss exceeds the limit.
 

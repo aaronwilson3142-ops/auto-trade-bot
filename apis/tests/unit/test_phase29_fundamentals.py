@@ -28,7 +28,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -89,7 +88,7 @@ class TestFundamentalsDataModel:
     def test_creation_with_all_fields(self):
         from services.market_data.fundamentals import FundamentalsData
 
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime.now(dt.UTC)
         fd = FundamentalsData(
             ticker="MSFT",
             pe_ratio=30.0,
@@ -108,7 +107,7 @@ class TestFundamentalsDataModel:
     def test_fetched_at_defaults_to_utc_now(self):
         from services.market_data.fundamentals import FundamentalsData
 
-        before = dt.datetime.now(dt.timezone.utc)
+        before = dt.datetime.now(dt.UTC)
         fd = FundamentalsData(
             ticker="NVDA",
             pe_ratio=None,
@@ -119,7 +118,7 @@ class TestFundamentalsDataModel:
             revenue_growth=None,
             earnings_surprise_pct=None,
         )
-        after = dt.datetime.now(dt.timezone.utc)
+        after = dt.datetime.now(dt.UTC)
         assert fd.fetched_at is not None
         assert before <= fd.fetched_at <= after
 

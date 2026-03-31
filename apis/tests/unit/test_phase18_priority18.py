@@ -21,10 +21,9 @@ from __future__ import annotations
 
 import collections
 import datetime as dt
-import time
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -46,7 +45,7 @@ def _make_settings(**kwargs) -> Any:
 
 
 def _make_app_state() -> Any:
-    from apps.api.state import reset_app_state, get_app_state
+    from apps.api.state import get_app_state, reset_app_state
     reset_app_state()
     return get_app_state()
 
@@ -96,6 +95,7 @@ class TestDBPoolSettings:
     def test_session_build_engine_uses_pool_settings(self):
         """_build_engine() must pass pool settings to create_engine."""
         import inspect
+
         import infra.db.session as session_mod
         src = inspect.getsource(session_mod._build_engine)
         assert "db_pool_size" in src
@@ -131,13 +131,14 @@ class TestAdminRateLimiter:
         assert callable(_check_rate_limit)
 
     def test_does_not_raise_below_limit(self):
-        from apps.api.routes.admin import _check_rate_limit, _RATE_LIMIT_MAX
+        from apps.api.routes.admin import _RATE_LIMIT_MAX, _check_rate_limit
         for _ in range(_RATE_LIMIT_MAX - 1):
             _check_rate_limit("1.2.3.4")  # must not raise
 
     def test_raises_429_at_limit(self):
         from fastapi import HTTPException
-        from apps.api.routes.admin import _check_rate_limit, _RATE_LIMIT_MAX
+
+        from apps.api.routes.admin import _RATE_LIMIT_MAX, _check_rate_limit
         for _ in range(_RATE_LIMIT_MAX):
             try:
                 _check_rate_limit("1.2.3.5")
@@ -149,7 +150,8 @@ class TestAdminRateLimiter:
 
     def test_429_response_has_retry_after_header(self):
         from fastapi import HTTPException
-        from apps.api.routes.admin import _check_rate_limit, _RATE_LIMIT_MAX
+
+        from apps.api.routes.admin import _RATE_LIMIT_MAX, _check_rate_limit
         for _ in range(_RATE_LIMIT_MAX + 1):
             try:
                 _check_rate_limit("1.2.3.6")
@@ -160,9 +162,10 @@ class TestAdminRateLimiter:
         pytest.fail("Expected 429 to be raised")
 
     def test_rate_limit_is_per_ip(self):
-        from apps.api.routes.admin import _check_rate_limit, _RATE_LIMIT_MAX
         # Fill up IP-A's bucket
         from fastapi import HTTPException
+
+        from apps.api.routes.admin import _RATE_LIMIT_MAX, _check_rate_limit
         for _ in range(_RATE_LIMIT_MAX):
             try:
                 _check_rate_limit("10.0.0.1")
@@ -172,7 +175,7 @@ class TestAdminRateLimiter:
         _check_rate_limit("10.0.0.2")  # must not raise
 
     def test_rate_limit_handles_none_ip(self):
-        from apps.api.routes.admin import _check_rate_limit, _RATE_LIMIT_MAX
+        from apps.api.routes.admin import _RATE_LIMIT_MAX, _check_rate_limit
         # Should key on "unknown"; not crash
         for _ in range(_RATE_LIMIT_MAX - 1):
             _check_rate_limit(None)
@@ -191,7 +194,6 @@ class TestAdminRateLimiter:
 
     def test_rate_limit_lock_is_threading_lock(self):
         from apps.api.routes.admin import _rate_limit_lock
-        from threading import Lock
         # Lock is a function returning _RLow; check it's lock-like
         assert hasattr(_rate_limit_lock, "acquire") and hasattr(_rate_limit_lock, "release")
 
@@ -202,7 +204,8 @@ class TestAdminRateLimiter:
 
     def test_rate_limit_429_detail_mentions_rate_limit(self):
         from fastapi import HTTPException
-        from apps.api.routes.admin import _check_rate_limit, _RATE_LIMIT_MAX
+
+        from apps.api.routes.admin import _RATE_LIMIT_MAX, _check_rate_limit
         for _ in range(_RATE_LIMIT_MAX + 1):
             try:
                 _check_rate_limit("9.9.9.9")
@@ -277,7 +280,7 @@ class TestBrokerRefreshJob:
         broker.refresh_auth.return_value = None
         state = _make_app_state()
         state.broker_auth_expired = True
-        state.broker_auth_expired_at = dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc)
+        state.broker_auth_expired_at = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
         from apps.worker.jobs.broker_refresh import run_broker_token_refresh
         run_broker_token_refresh(app_state=state, broker=broker)
         assert state.broker_auth_expired is False
@@ -294,16 +297,16 @@ class TestBrokerRefreshJob:
         assert state.broker_auth_expired is False
 
     def test_auth_error_returns_error_auth(self):
-        from broker_adapters.schwab.adapter import SchwabBrokerAdapter
         from broker_adapters.base.exceptions import BrokerAuthenticationError
+        from broker_adapters.schwab.adapter import SchwabBrokerAdapter
         broker = MagicMock(spec=SchwabBrokerAdapter)
         broker.refresh_auth.side_effect = BrokerAuthenticationError("RT expired")
         result, _ = self._run(broker=broker)
         assert result["status"] == "error_auth"
 
     def test_auth_error_sets_broker_auth_expired_flag(self):
-        from broker_adapters.schwab.adapter import SchwabBrokerAdapter
         from broker_adapters.base.exceptions import BrokerAuthenticationError
+        from broker_adapters.schwab.adapter import SchwabBrokerAdapter
         broker = MagicMock(spec=SchwabBrokerAdapter)
         broker.refresh_auth.side_effect = BrokerAuthenticationError("RT expired")
         state = _make_app_state()
@@ -312,15 +315,15 @@ class TestBrokerRefreshJob:
         assert state.broker_auth_expired is True
 
     def test_auth_error_sets_broker_auth_expired_at(self):
-        from broker_adapters.schwab.adapter import SchwabBrokerAdapter
         from broker_adapters.base.exceptions import BrokerAuthenticationError
+        from broker_adapters.schwab.adapter import SchwabBrokerAdapter
         broker = MagicMock(spec=SchwabBrokerAdapter)
         broker.refresh_auth.side_effect = BrokerAuthenticationError("RT expired")
         state = _make_app_state()
-        before = dt.datetime.now(dt.timezone.utc)
+        before = dt.datetime.now(dt.UTC)
         from apps.worker.jobs.broker_refresh import run_broker_token_refresh
         run_broker_token_refresh(app_state=state, broker=broker)
-        after = dt.datetime.now(dt.timezone.utc)
+        after = dt.datetime.now(dt.UTC)
         assert state.broker_auth_expired_at is not None
         assert before <= state.broker_auth_expired_at <= after
 
@@ -352,8 +355,8 @@ class TestBrokerRefreshJob:
         assert isinstance(result, dict)
 
     def test_error_result_includes_error_message(self):
-        from broker_adapters.schwab.adapter import SchwabBrokerAdapter
         from broker_adapters.base.exceptions import BrokerAuthenticationError
+        from broker_adapters.schwab.adapter import SchwabBrokerAdapter
         broker = MagicMock(spec=SchwabBrokerAdapter)
         broker.refresh_auth.side_effect = BrokerAuthenticationError("RT expired: foo")
         result, _ = self._run(broker=broker)
@@ -576,8 +579,9 @@ class TestAdminRateLimitIntegration:
 
     def _client_with_settings(self, token: str = "tok"):
         from fastapi.testclient import TestClient
-        from apps.api.main import app
+
         from apps.api.deps import get_settings
+        from apps.api.main import app
         cfg = _make_settings(admin_rotation_token=token)
         app.dependency_overrides[get_settings] = lambda: cfg
         return TestClient(app, raise_server_exceptions=False)
@@ -669,12 +673,14 @@ class TestAdminRateLimitIntegration:
 
     def test_invalidate_post_check_rate_limit_import(self):
         import inspect
+
         import apps.api.routes.admin as mod
         src = inspect.getsource(mod.invalidate_secrets)
         assert "_check_rate_limit" in src
 
     def test_list_events_check_rate_limit_import(self):
         import inspect
+
         import apps.api.routes.admin as mod
         src = inspect.getsource(mod.list_admin_events)
         assert "_check_rate_limit" in src
@@ -697,6 +703,7 @@ class TestPhase18Integration:
 
     def test_worker_main_imports_broker_refresh(self):
         import inspect
+
         import apps.worker.main as mod
         src = inspect.getsource(mod)
         assert "run_broker_token_refresh" in src

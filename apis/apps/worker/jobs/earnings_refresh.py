@@ -21,7 +21,7 @@ Design rules
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any, Optional
+from typing import Any
 
 from apps.api.state import ApiAppState
 from config.logging_config import get_logger
@@ -32,7 +32,7 @@ logger = get_logger(__name__)
 
 def run_earnings_refresh(
     app_state: ApiAppState,
-    settings: Optional[Settings] = None,
+    settings: Settings | None = None,
 ) -> dict[str, Any]:
     """Fetch upcoming earnings dates and store result in app_state.
 
@@ -45,7 +45,7 @@ def run_earnings_refresh(
         at_risk_tickers, computed_at, error.
     """
     cfg = settings or get_settings()
-    run_at = dt.datetime.now(dt.timezone.utc)
+    run_at = dt.datetime.now(dt.UTC)
 
     logger.info("earnings_refresh_starting")
 

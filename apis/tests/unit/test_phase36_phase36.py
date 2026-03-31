@@ -24,13 +24,15 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
 
 from apps.api.state import ApiAppState, reset_app_state
+from services.alternative_data.adapters import SocialMentionAdapter
+from services.alternative_data.models import AlternativeDataRecord, AlternativeDataSource
+from services.alternative_data.service import AlternativeDataService
 from services.self_improvement.config import SelfImprovementConfig
 from services.self_improvement.execution import AutoExecutionService
 from services.self_improvement.models import (
@@ -40,10 +42,6 @@ from services.self_improvement.models import (
     ProposalType,
 )
 from services.self_improvement.service import SelfImprovementService
-from services.alternative_data.adapters import SocialMentionAdapter
-from services.alternative_data.models import AlternativeDataRecord, AlternativeDataSource
-from services.alternative_data.service import AlternativeDataService
-
 
 # ============================================================
 # Helpers
@@ -289,7 +287,7 @@ class TestAutoExecuteSummarySchema:
             skipped_low_confidence=1,
             error_count=0,
             errors=[],
-            run_at=dt.datetime.now(dt.timezone.utc),
+            run_at=dt.datetime.now(dt.UTC),
         )
         assert schema.skipped_low_confidence == 1
 
@@ -301,7 +299,7 @@ class TestAutoExecuteSummarySchema:
             skipped_count=0,
             error_count=0,
             errors=[],
-            run_at=dt.datetime.now(dt.timezone.utc),
+            run_at=dt.datetime.now(dt.UTC),
         )
         assert schema.skipped_low_confidence == 0
 

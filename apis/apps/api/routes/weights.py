@@ -87,6 +87,7 @@ async def optimize_weights(
 
     try:
         import sqlalchemy as sa
+
         from infra.db.models.backtest import BacktestRun
         from services.signal_engine.weight_optimizer import WeightOptimizerService
 

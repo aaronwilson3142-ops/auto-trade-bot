@@ -17,11 +17,10 @@ from __future__ import annotations
 
 import datetime as dt
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
-
 
 # ---------------------------------------------------------------------------
 # Helper factories
@@ -49,7 +48,7 @@ def _make_record(
         quantity=Decimal(str(quantity)),
         slippage_usd=Decimal(str(slippage_usd)),
         slippage_pct=Decimal(str(slippage_pct)),
-        filled_at=filled_at or dt.datetime.now(dt.timezone.utc),
+        filled_at=filled_at or dt.datetime.now(dt.UTC),
     )
 
 
@@ -74,7 +73,7 @@ class TestFillQualityRecord:
         assert r.slippage_usd == Decimal("5.0")
 
     def test_filled_at_preserved(self):
-        ts = dt.datetime(2026, 3, 21, 14, 30, tzinfo=dt.timezone.utc)
+        ts = dt.datetime(2026, 3, 21, 14, 30, tzinfo=dt.UTC)
         r = _make_record(filled_at=ts)
         assert r.filled_at == ts
 
@@ -161,7 +160,7 @@ class TestBuildRecord:
         self.svc = FillQualityService
 
     def test_build_buy_record(self):
-        ts = dt.datetime.now(dt.timezone.utc)
+        ts = dt.datetime.now(dt.UTC)
         r = self.svc.build_record(
             ticker="MSFT",
             direction="BUY",
@@ -176,7 +175,7 @@ class TestBuildRecord:
         assert r.filled_at == ts
 
     def test_build_sell_record(self):
-        ts = dt.datetime.now(dt.timezone.utc)
+        ts = dt.datetime.now(dt.UTC)
         r = self.svc.build_record(
             ticker="TSLA",
             direction="SELL",
@@ -246,7 +245,7 @@ class TestComputeFillSummary:
         assert s.record_count == 3
 
     def test_computed_at_set(self):
-        ts = dt.datetime.now(dt.timezone.utc)
+        ts = dt.datetime.now(dt.UTC)
         s = self.svc.compute_fill_summary([], computed_at=ts)
         assert s.computed_at == ts
 
@@ -494,11 +493,12 @@ class TestPaperCycleFillCapture:
     """Ensure fill quality records are appended by the paper trading cycle."""
 
     def test_fill_quality_records_appended_on_filled_open(self):
+        from decimal import Decimal
+
         from apps.api.state import ApiAppState, reset_app_state
         from apps.worker.jobs.paper_trading import run_paper_trading_cycle
         from broker_adapters.paper.adapter import PaperBrokerAdapter
         from config.settings import OperatingMode, Settings
-        from decimal import Decimal
 
         reset_app_state()
         state = ApiAppState()

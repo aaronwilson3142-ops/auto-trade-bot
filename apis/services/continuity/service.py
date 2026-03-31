@@ -29,7 +29,7 @@ import datetime as dt
 import json
 import logging
 import os
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from services.continuity.config import ContinuityConfig
 from services.continuity.models import ContinuitySnapshot, SessionContext
@@ -48,12 +48,12 @@ class ContinuityService:
         config: Optional ContinuityConfig.  Defaults to ContinuityConfig().
     """
 
-    def __init__(self, config: Optional[ContinuityConfig] = None) -> None:
+    def __init__(self, config: ContinuityConfig | None = None) -> None:
         self._config = config or ContinuityConfig()
 
     # ── Snapshot creation ─────────────────────────────────────────────────
 
-    def take_snapshot(self, app_state: "ApiAppState", settings: "Settings") -> ContinuitySnapshot:
+    def take_snapshot(self, app_state: ApiAppState, settings: Settings) -> ContinuitySnapshot:
         """Serialize key ApiAppState fields into a ContinuitySnapshot.
 
         Args:
@@ -65,7 +65,7 @@ class ContinuityService:
         """
         ps = app_state.portfolio_state
         return ContinuitySnapshot(
-            snapshot_at=dt.datetime.now(dt.timezone.utc).isoformat(),
+            snapshot_at=dt.datetime.now(dt.UTC).isoformat(),
             operating_mode=settings.operating_mode.value,
             kill_switch_active=(
                 app_state.kill_switch_active or bool(settings.kill_switch)
@@ -89,7 +89,7 @@ class ContinuityService:
     def save_snapshot(
         self,
         snapshot: ContinuitySnapshot,
-        path: Optional[str] = None,
+        path: str | None = None,
     ) -> None:
         """Write *snapshot* as JSON to *path* (or the configured default).
 
@@ -111,8 +111,8 @@ class ContinuityService:
 
     def load_snapshot(
         self,
-        path: Optional[str] = None,
-    ) -> Optional[ContinuitySnapshot]:
+        path: str | None = None,
+    ) -> ContinuitySnapshot | None:
         """Read the latest snapshot from *path*.
 
         Returns None if the file does not exist, cannot be parsed,
@@ -135,7 +135,7 @@ class ContinuityService:
             if age_hours > self._config.max_snapshot_age_hours:
                 logger.warning("continuity_snapshot_too_old %.1f hours", age_hours)
                 return None
-            with open(path, "r", encoding="utf-8") as fh:
+            with open(path, encoding="utf-8") as fh:
                 data: dict[str, Any] = json.load(fh)
             return ContinuitySnapshot.from_dict(data)
         except Exception as exc:  # noqa: BLE001
@@ -146,8 +146,8 @@ class ContinuityService:
 
     def get_session_context(
         self,
-        app_state: "ApiAppState",
-        settings: "Settings",
+        app_state: ApiAppState,
+        settings: Settings,
     ) -> SessionContext:
         """Produce a human-readable SessionContext for handoff-log entries.
 

@@ -6,7 +6,6 @@ for policy and macro events.  No external dependencies.
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 # ---------------------------------------------------------------------------
 # Directional keywords  — (word, direction) where direction = +1 or -1
@@ -23,7 +22,7 @@ _NEGATIVE_POLICY_WORDS: frozenset[str] = frozenset({
     "tariff", "tariffs", "sanction", "sanctions", "hike", "raise",
     "tighten", "tightening", "regulation", "regulate", "ban", "blocked",
     "restrict", "restriction", "escalation", "escalate", "war",
-    "conflict", "tension", "tension", "fine", "penalty", "probe",
+    "conflict", "tension", "fine", "penalty", "probe",
     "investigation", "tax", "taxes",
 })
 

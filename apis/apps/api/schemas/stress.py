@@ -7,7 +7,6 @@ GET /api/v1/portfolio/stress-test/{scenario}
 from __future__ import annotations
 
 import datetime as dt
-from typing import Optional
 
 from pydantic import BaseModel
 
@@ -30,7 +29,7 @@ class StressTestSummaryResponse(BaseModel):
     Returned by GET /api/v1/portfolio/stress-test.
     """
 
-    computed_at: Optional[dt.datetime]
+    computed_at: dt.datetime | None
     equity: float
     positions_count: int
     no_positions: bool
@@ -58,12 +57,12 @@ class StressScenarioDetailResponse(BaseModel):
 
     scenario_name: str
     data_available: bool
-    computed_at: Optional[dt.datetime]
+    computed_at: dt.datetime | None
 
-    scenario_label: Optional[str] = None
-    portfolio_shocked_pnl: Optional[float] = None
-    portfolio_shocked_pnl_pct: Optional[float] = None
-    equity: Optional[float] = None
-    positions_count: Optional[int] = None
-    ticker_shocked_pnl: Optional[dict] = None
-    worst_case_scenario: Optional[str] = None
+    scenario_label: str | None = None
+    portfolio_shocked_pnl: float | None = None
+    portfolio_shocked_pnl_pct: float | None = None
+    equity: float | None = None
+    positions_count: int | None = None
+    ticker_shocked_pnl: dict | None = None
+    worst_case_scenario: str | None = None

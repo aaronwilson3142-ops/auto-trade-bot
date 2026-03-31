@@ -1,7 +1,7 @@
 """Pydantic schemas for strategy weight profile endpoints."""
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -15,9 +15,9 @@ class WeightProfileSchema(BaseModel):
     weights: dict[str, float]           # strategy_key → weight (sums to ~1.0)
     sharpe_metrics: dict[str, float]    # strategy_key → Sharpe used (empty for manual)
     is_active: bool
-    optimization_run_id: Optional[str] = None
-    notes: Optional[str] = None
-    created_at: Optional[Any] = None
+    optimization_run_id: str | None = None
+    notes: str | None = None
+    created_at: Any | None = None
 
 
 class WeightProfileListResponse(BaseModel):
@@ -46,5 +46,5 @@ class CreateManualWeightRequest(BaseModel):
 
     profile_name: str
     weights: dict[str, float]           # strategy_key → raw weight (will be normalised)
-    notes: Optional[str] = None
+    notes: str | None = None
     set_active: bool = True

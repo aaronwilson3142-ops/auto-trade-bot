@@ -13,8 +13,6 @@ path).  Data is populated by the run_liquidity_refresh job at 06:17 ET.
 """
 from __future__ import annotations
 
-import datetime as dt
-
 from fastapi import APIRouter
 
 from apps.api.deps import AppStateDep, SettingsDep

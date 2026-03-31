@@ -70,7 +70,7 @@ services:
   # --------------------------------------------------------------------------
   api:
     build:
-      context: ../..         # workspace root (apis/ parent)
+      context: ../../..      # workspace root (apis/ parent)
       dockerfile: apis/infra/docker/Dockerfile
       target: api
     restart: unless-stopped
@@ -91,7 +91,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ../../apis:/app/apis:ro   # read-only source mount for development
+      - ../../../apis:/app/apis:ro   # read-only source mount for development
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
       interval: 30s
@@ -105,7 +105,7 @@ services:
   # --------------------------------------------------------------------------
   worker:
     build:
-      context: ../..
+      context: ../../..
       dockerfile: apis/infra/docker/Dockerfile
       target: worker
     restart: unless-stopped
@@ -123,8 +123,20 @@ services:
       APIS_OPERATING_MODE: ${APIS_OPERATING_MODE:-paper}
       APIS_LOG_LEVEL: ${APIS_LOG_LEVEL:-INFO}
       APIS_KILL_SWITCH: ${APIS_KILL_SWITCH:-false}
+      PYTHONUNBUFFERED: "1"
     env_file:
       - ../../.env
+    healthcheck:
+      # Confirms the worker process is alive by checking the Redis heartbeat key
+      # written every 60 s by apps/worker/main.py.  start_period gives the worker
+      # time to write its first heartbeat before failures start counting.
+      # NOTE: test must use list form — YAML block scalars (> or |) introduce
+      # leading whitespace that causes Python IndentationError.
+      test: ["CMD-SHELL", "python -c \"import redis,sys,os; r=redis.Redis.from_url(os.environ.get('APIS_REDIS_URL','redis://redis:6379/0')); sys.exit(0 if r.exists('worker:heartbeat') else 1)\""]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
     networks:
       - apis_net
 
@@ -187,7 +199,7 @@ services:
       - "3000:3000"
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-change_me}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set in .env — see .env.example}
       GF_PATHS_PROVISIONING: /etc/grafana/provisioning
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/apis.json
     volumes:

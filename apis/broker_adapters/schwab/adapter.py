@@ -29,9 +29,7 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
-from datetime import timezone
 from decimal import Decimal
-from typing import Optional
 
 import schwab
 import schwab.orders.equities as eq
@@ -54,7 +52,6 @@ from broker_adapters.base.models import (
     OrderStatus,
     OrderType,
     Position,
-    TimeInForce,
 )
 
 # ── Schwab order-status → APIS OrderStatus ────────────────────────────────────
@@ -104,8 +101,8 @@ class SchwabBrokerAdapter(BaseBrokerAdapter):
         api_key: str,
         app_secret: str,
         callback_url: str = "https://127.0.0.1",
-        token_path: str = "schwab_token.json",
-        account_hash: Optional[str] = None,
+        token_path: str = "schwab_token.json",  # noqa: S107 — file path, not a password
+        account_hash: str | None = None,
         paper: bool = True,
     ) -> None:
         if not api_key or not api_key.strip():
@@ -124,7 +121,7 @@ class SchwabBrokerAdapter(BaseBrokerAdapter):
         self._account_hash = account_hash
         self._paper = paper
         self._connected = False
-        self._client: Optional[SchwabClient] = None
+        self._client: SchwabClient | None = None
         self._idempotency_keys: set[str] = set()
 
     # ── Identity ──────────────────────────────────────────────────────────────
@@ -304,7 +301,7 @@ class SchwabBrokerAdapter(BaseBrokerAdapter):
             requested_quantity=request.quantity,
             filled_quantity=Decimal("0"),
             status=OrderStatus.SUBMITTED,
-            submitted_at=dt.datetime.now(tz=timezone.utc),
+            submitted_at=dt.datetime.now(tz=dt.UTC),
         )
 
     def cancel_order(self, broker_order_id: str) -> Order:
@@ -387,7 +384,7 @@ class SchwabBrokerAdapter(BaseBrokerAdapter):
                 self._account_hash,
                 transaction_type=SchwabClient.Transactions.TransactionType.TRADE,
                 start_date=since,
-                end_date=dt.datetime.now(tz=timezone.utc),
+                end_date=dt.datetime.now(tz=dt.UTC),
             )
             txns = resp.json() or []
         except Exception as exc:
@@ -406,7 +403,7 @@ class SchwabBrokerAdapter(BaseBrokerAdapter):
         """Return True if the US equity market is currently open."""
         self._require_connected()
         try:
-            today = dt.datetime.now(tz=timezone.utc).date()
+            today = dt.datetime.now(tz=dt.UTC).date()
             resp = self._client.get_market_hours(  # type: ignore[union-attr]
                 markets=[SchwabClient.MarketHours.Market.EQUITY],
                 date=today,
@@ -423,7 +420,7 @@ class SchwabBrokerAdapter(BaseBrokerAdapter):
         """Return datetime of the next equity market open (UTC)."""
         self._require_connected()
         try:
-            today = dt.datetime.now(tz=timezone.utc).date()
+            today = dt.datetime.now(tz=dt.UTC).date()
             for offset in range(6):
                 check_date = today + dt.timedelta(days=offset)
                 resp = self._client.get_market_hours(  # type: ignore[union-attr]
@@ -441,7 +438,7 @@ class SchwabBrokerAdapter(BaseBrokerAdapter):
                             if start_str:
                                 return dt.datetime.fromisoformat(
                                     start_str
-                                ).astimezone(timezone.utc)
+                                ).astimezone(dt.UTC)
         except Exception:
             pass
         return self._next_930_et()
@@ -541,7 +538,7 @@ class SchwabBrokerAdapter(BaseBrokerAdapter):
                         Decimal(str(leg_exec.get("quantity", "0"))),
                         Decimal(str(leg_exec.get("price", "0"))),
                     ))
-        avg_fill_price: Optional[Decimal] = None
+        avg_fill_price: Decimal | None = None
         if all_exec:
             total_q = sum(q for q, _ in all_exec)
             if total_q > 0:
@@ -549,7 +546,7 @@ class SchwabBrokerAdapter(BaseBrokerAdapter):
 
         submitted_at = (
             self._parse_ts(data.get("enteredTime", ""))
-            or dt.datetime.now(tz=timezone.utc)
+            or dt.datetime.now(tz=dt.UTC)
         )
         filled_at = self._parse_ts(data.get("closeTime", ""))
         limit_price_raw = data.get("price")
@@ -626,7 +623,7 @@ class SchwabBrokerAdapter(BaseBrokerAdapter):
                 fill_qty = Decimal(str(exec_leg.get("quantity", "0")))
                 fill_time = (
                     self._parse_ts(exec_leg.get("time", ""))
-                    or dt.datetime.now(tz=timezone.utc)
+                    or dt.datetime.now(tz=dt.UTC)
                 )
                 leg_id = str(exec_leg.get("legId", uuid.uuid4()))
                 fills.append(Fill(
@@ -641,7 +638,7 @@ class SchwabBrokerAdapter(BaseBrokerAdapter):
                 ))
         return fills
 
-    def _parse_transaction_fill(self, txn: dict) -> Optional[Fill]:
+    def _parse_transaction_fill(self, txn: dict) -> Fill | None:
         """Translate a Schwab TRADE transaction dict → Fill (or None if not equity)."""
         if str(txn.get("type", "")).upper() != "TRADE":
             return None
@@ -665,7 +662,7 @@ class SchwabBrokerAdapter(BaseBrokerAdapter):
         txn_id = str(txn.get("transactionId", uuid.uuid4()))
         fill_time = (
             self._parse_ts(txn.get("tradeDate", ""))
-            or dt.datetime.now(tz=timezone.utc)
+            or dt.datetime.now(tz=dt.UTC)
         )
         fees_dict = txn.get("fees", {})
         fees = (
@@ -685,13 +682,13 @@ class SchwabBrokerAdapter(BaseBrokerAdapter):
         )
 
     @staticmethod
-    def _parse_ts(ts_str: str) -> Optional[dt.datetime]:
+    def _parse_ts(ts_str: str) -> dt.datetime | None:
         """Parse an ISO-8601 timestamp string to UTC datetime, or None."""
         if not ts_str:
             return None
         try:
             dt_obj = dt.datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-            return dt_obj.astimezone(timezone.utc)
+            return dt_obj.astimezone(dt.UTC)
         except Exception:
             return None
 
@@ -699,10 +696,10 @@ class SchwabBrokerAdapter(BaseBrokerAdapter):
     def _next_930_et() -> dt.datetime:
         """Return the next 09:30 ET on a weekday as a UTC datetime."""
         et_offset = dt.timezone(dt.timedelta(hours=-5))
-        now_et = dt.datetime.now(tz=timezone.utc).astimezone(et_offset)
+        now_et = dt.datetime.now(tz=dt.UTC).astimezone(et_offset)
         candidate = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
         if candidate <= now_et:
             candidate += dt.timedelta(days=1)
         while candidate.weekday() >= 5:  # skip Sat/Sun
             candidate += dt.timedelta(days=1)
-        return candidate.astimezone(timezone.utc)
+        return candidate.astimezone(dt.UTC)

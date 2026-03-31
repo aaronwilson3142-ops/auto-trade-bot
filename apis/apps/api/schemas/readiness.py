@@ -6,8 +6,6 @@ GET /api/v1/system/readiness-report/history
 """
 from __future__ import annotations
 
-from typing import Optional
-
 from pydantic import BaseModel
 
 
@@ -50,7 +48,7 @@ class ReadinessSnapshotSchema(BaseModel):
     warn_count: int = 0
     fail_count: int = 0
     gate_count: int = 0
-    recommendation: Optional[str] = None
+    recommendation: str | None = None
 
 
 class ReadinessHistoryResponse(BaseModel):

@@ -17,18 +17,15 @@ No database, no broker, no external API calls.
 from __future__ import annotations
 
 import datetime as dt
-from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any, Optional
-from unittest.mock import MagicMock
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
 from apps.api.main import app
 from apps.api.state import ApiAppState, get_app_state
-from config.settings import OperatingMode, Settings, get_settings
-
+from config.settings import Settings, get_settings
 
 # ---------------------------------------------------------------------------
 # Test domain-object factories (real dataclasses, no mocks)
@@ -72,7 +69,7 @@ def _make_portfolio_state(
             quantity=Decimal("100"),
             avg_entry_price=Decimal("150.00"),
             current_price=Decimal("155.00"),
-            opened_at=dt.datetime(2026, 3, 1, tzinfo=dt.timezone.utc),
+            opened_at=dt.datetime(2026, 3, 1, tzinfo=dt.UTC),
         )
     return PortfolioState(
         cash=Decimal(str(cash)),
@@ -133,7 +130,7 @@ def _make_daily_report() -> Any:
     recon = FillReconciliationSummary(records=[])
     return DailyOperationalReport(
         report_date=dt.date(2026, 3, 17),
-        report_timestamp=dt.datetime(2026, 3, 17, 18, 0, tzinfo=dt.timezone.utc),
+        report_timestamp=dt.datetime(2026, 3, 17, 18, 0, tzinfo=dt.UTC),
         equity=Decimal("105_500"),
         cash=Decimal("90_000"),
         gross_exposure=Decimal("15_500"),
@@ -202,7 +199,7 @@ def _client_with_state(state: ApiAppState, settings: Settings | None = None) -> 
 
 class TestHealthAndSystemRoutes:
     def test_health_returns_ok(self):
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
         state = ApiAppState()
         client = _client_with_state(state)
         mock_engine = MagicMock()
@@ -593,8 +590,8 @@ class TestActionsRouter:
 def _make_execution_engine():
     """Return a live ExecutionEngineService backed by PaperBrokerAdapter."""
     from decimal import Decimal as D
+
     from broker_adapters.paper.adapter import PaperBrokerAdapter
-    from config.settings import Settings
     from services.execution_engine.service import ExecutionEngineService
 
     broker = PaperBrokerAdapter(
@@ -616,8 +613,9 @@ class TestActionsExecutionEngine:
 
     def test_approve_with_engine_executes_matched_actions(self):
         """Matching action ID triggers actual execution; response includes execution_results."""
-        from services.portfolio_engine.models import ActionType, PortfolioAction
         from decimal import Decimal
+
+        from services.portfolio_engine.models import ActionType, PortfolioAction
 
         action = PortfolioAction(
             action_type=ActionType.OPEN,
@@ -652,8 +650,9 @@ class TestActionsExecutionEngine:
 
     def test_approve_with_engine_removes_action_from_proposed(self):
         """Executed actions are removed from state.proposed_actions."""
-        from services.portfolio_engine.models import ActionType, PortfolioAction
         from decimal import Decimal
+
+        from services.portfolio_engine.models import ActionType, PortfolioAction
 
         action = PortfolioAction(
             action_type=ActionType.OPEN,
@@ -707,8 +706,9 @@ class TestActionsExecutionEngine:
 
     def test_reject_removes_matching_proposed_actions(self):
         """Reject removes matched actions from proposed queue by action.id."""
-        from services.portfolio_engine.models import ActionType, PortfolioAction
         from decimal import Decimal
+
+        from services.portfolio_engine.models import ActionType, PortfolioAction
 
         action1 = PortfolioAction(
             action_type=ActionType.OPEN,
@@ -743,8 +743,9 @@ class TestActionsExecutionEngine:
 
     def test_kill_switch_blocks_execution(self):
         """Kill switch active → execution engine returns BLOCKED status."""
-        from services.portfolio_engine.models import ActionType, PortfolioAction
         from decimal import Decimal
+
+        from services.portfolio_engine.models import ActionType, PortfolioAction
 
         action = PortfolioAction(
             action_type=ActionType.OPEN,
@@ -1034,7 +1035,7 @@ class TestConfigAndRiskRouter:
         assert resp.json()["blocked_action_count"] == 3
 
     def test_risk_status_drawdown_warning_threshold(self):
-        from services.portfolio_engine.models import PortfolioPosition, PortfolioState
+        from services.portfolio_engine.models import PortfolioState
         # daily_pnl_pct at 0, drawdown at 82% of the 5% limit = 0.041 → warning
         state = ApiAppState()
         ps = PortfolioState(
@@ -1072,7 +1073,7 @@ class TestResponseSchemas:
             sizing_hint_pct=0.05,
             source_reliability_tier="secondary_verified",
             contains_rumor=False,
-            as_of=dt.datetime.now(tz=dt.timezone.utc),
+            as_of=dt.datetime.now(tz=dt.UTC),
             contributing_signals=[],
         )
         assert item.ticker == "AAPL"
@@ -1087,7 +1088,7 @@ class TestResponseSchemas:
             drawdown_pct=0.0,
             daily_pnl_pct=0.005,
             positions=[],
-            as_of=dt.datetime.now(tz=dt.timezone.utc),
+            as_of=dt.datetime.now(tz=dt.UTC),
         )
         assert pr.equity == 105_000.0
 

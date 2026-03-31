@@ -3,6 +3,121 @@ Append one entry per mandatory checkpoint. Never overwrite existing entries.
 
 ---
 
+### [2026-03-30 UTC] Ops — Infrastructure Health dashboard panel + worker pod fix
+
+- **Capacity Trigger:** User noticed readiness report on dashboard showing 3 FAIL gates (min_paper_cycles=1, min_evaluation_history=1, portfolio_initialized=not_initialized) despite system running for several days. Asked why paper cycle count was still at 1.
+- **Root Cause Diagnosed:**
+  1. `apis-worker` K8s deployment was at 0/0 replicas. It had been scaled to 0 on 2026-03-22 to eliminate duplicate scheduling when Docker Compose was the primary runtime. Since then, Docker Compose was stopped and K8s became primary, but worker was never scaled back up.
+  2. The single cycle count (1) was from a prior run or manual trigger. No scheduled cycles had executed in 8 days.
+  3. No dashboard indicator existed to show worker pod status — the issue was invisible to the operator.
+- **Changes Made:**
+  - `kubectl scale deployment apis-worker -n apis --replicas=1` — worker pod now running.
+  - `apps/dashboard/router.py` — Added `_check_infra_health()` and `_render_infra_health()` functions. New full-width "Infrastructure Health" panel shows green/yellow/red status for 6 components: API Server, Database (Postgres), Redis, Worker (Scheduler), Broker Connection, Kill Switch. Wired into `_render_page()` after the health snapshot banner.
+  - Docker image rebuilt (`apis:latest`), loaded into kind cluster, both api and worker deployments restarted.
+- **Infrastructure Health Panel Details:**
+  - API Server: always green if serving the page.
+  - Database: `SELECT 1` probe via `SessionLocal`.
+  - Redis: `PING` via `redis.from_url()` with 2s timeout.
+  - Worker: infers status from `last_paper_cycle_at` — green if <2h old, yellow if <24h, red if >24h or never recorded.
+  - Broker: checks `broker_auth_expired` flag and adapter initialization.
+  - Kill Switch: checks effective kill switch state (env + runtime).
+- **System State at Handoff:**
+  - All 4 K8s pods running: `apis-api`, `apis-worker`, `postgres-0`, `redis`.
+  - Worker just started — first paper cycle will fire at next scheduled time (09:35 ET on next trading day, 2026-03-31).
+  - Broker auth showing "unauthorized" for Alpaca — API keys may need refresh.
+  - Dashboard at `http://localhost:30800/dashboard/` shows Infrastructure Health panel.
+  - 56 dashboard tests passing.
+- **Open Items:**
+  - Monitor dashboard on 2026-03-31 after 09:35 ET to confirm worker cycles are firing and cycle count increments.
+  - Investigate Alpaca broker auth "unauthorized" error — may need new API keys.
+  - Docker Compose stack not currently running — monitoring (Prometheus/Grafana/Alertmanager) unavailable until restarted.
+- **Blockers:** None
+- **Risks:** Low — dashboard change is read-only (no mutations). Worker scaling is safe (paper mode only).
+- **Confidence:** High
+
+---
+
+### [2026-03-26 UTC] Ops — Increased paper trading cycle frequency for data collection
+
+- **Capacity Trigger:** User noted that APIS was not generating enough trades per day/week to accumulate meaningful evaluation data.
+- **Root Cause Diagnosed:**
+  1. Only 2 paper trading cycles scheduled per day (09:35 and 12:00 ET).
+  2. `max_new_positions_per_day` defaulting to 3 — capping new entries even when portfolio had open slots.
+  3. `max_position_age_days` defaulting to 20 — positions held too long before thesis-expiry exit, keeping slots occupied.
+- **Changes Made:**
+  - `apps/worker/main.py` — Added 5 more intraday trading cycles. Schedule is now: 09:35, 10:30, 11:30, 12:00, 13:30, 14:30, 15:30 ET. Total scheduled jobs: 30 → 35. New job IDs: `paper_trading_cycle_late_morning`, `paper_trading_cycle_late_morning_2`, `paper_trading_cycle_early_afternoon`, `paper_trading_cycle_afternoon`, `paper_trading_cycle_close`. Module docstring updated to reflect new schedule.
+  - `apis/.env` — Appended `APIS_MAX_NEW_POSITIONS_PER_DAY=8` and `APIS_MAX_POSITION_AGE_DAYS=5`.
+  - `tests/unit/test_worker_jobs.py` — Added 5 new job IDs to `_EXPECTED_JOB_IDS`; updated `test_scheduler_has_expected_job_count` assertion from 30 → 35.
+  - `state/ACTIVE_CONTEXT.md` — Updated to reflect new schedule and restart action item.
+  - `state/CHANGELOG.md` — Logged all changes.
+- **Risk Controls Unchanged:** All hard limits (daily loss, drawdown, kill switch, max positions, sector/thematic caps, VaR gate, stress test gate) are untouched. Only frequency and per-day open cap are loosened for paper mode.
+- **Action Required:** Restart `docker-worker-1` to load the new `.env` values and new scheduler configuration: `docker restart docker-worker-1`
+- **Open Items:** Monitor dashboard after next 09:35 ET market open to confirm 7-cycle schedule is firing correctly and trade count per day increases.
+- **Blockers:** None
+- **Risks:** Low — all changes are paper-mode scheduling config only. No logic or risk rules changed.
+- **Verification:** Tests not run in-session (venv is Windows-only). Requires `docker exec docker-worker-1 python -m pytest tests/unit/test_worker_jobs.py -q` or equivalent on Aaron's machine.
+- **Confidence:** High
+
+---
+
+### [2026-03-25 UTC] Ops — Container stack audit + Alertmanager fix
+
+- **Capacity Trigger:** User asked whether the local uvicorn + worker commands were running. Confirmed they were not — system running entirely via WSL containers.
+- **Findings:**
+  1. Two container stacks both active: Docker Compose (port :8000 → Windows) and Kubernetes kind cluster "apis" (NodePort 30800). Both had an active worker = duplicate scheduler execution of all 30 jobs.
+  2. Alertmanager had been crash-looping for 2 days (4071 restarts). `global.slack_api_url: "${SLACK_WEBHOOK_URL}"` expanded to empty string → Alertmanager exits with `unsupported scheme "" for URL`. All Slack receiver `api_url` fields had the same problem.
+- **Decision:** Keep Docker Compose as primary (it serves Windows, has full monitoring stack). K8s cluster retained but worker scaled to 0.
+- **Files Changed:**
+  - `infra/monitoring/alertmanager/alertmanager.yml` — Removed `global.slack_api_url`. All receivers stubbed to null. Original configs commented out for future use.
+- **Actions Taken:**
+  - `kubectl scale deployment apis-worker -n apis --replicas=0`
+  - `docker restart docker-alertmanager-1`
+- **System State at Handoff:** All 7 Docker Compose containers running/healthy. K8s worker at 0 replicas. API responding on :8000, mode: `paper`. Paper trading cycle will run at next 09:35 ET weekday open.
+- **Open Items:** Monitor dashboard after 09:35 ET on next trading day to confirm first paper cycle executes.
+- **Blockers:** None
+- **Risks:** None — no code changed, only infra config and K8s replica count.
+- **Confidence:** High
+
+---
+
+### [2026-03-24 UTC] Ops — Environment config fix + worker restart
+
+- **Capacity Trigger:** Dashboard showed 0 paper trading cycles completed despite worker processes running since 2026-03-23 16:49 ET. User reported dashboard had no data.
+- **Objective:** Diagnose why paper trading was not executing and restore normal operation.
+- **Root Cause:** `apis/.env` had `APIS_OPERATING_MODE=research`. The paper trading job (`_job_paper_trading_cycle`) contains a mode guard that skips execution in `research` mode. All 30 scheduled jobs were firing on schedule, but the paper cycle was silently no-op'ing every run.
+- **Secondary Finding:** Worker process architecture is parent+child (two `python.exe` processes per single invocation of `apps.worker.main`). This is normal APScheduler/multiprocessing behavior — not a duplicate worker. The parent (7780) and child (30876) were started within 7ms of each other from the same shell invocation. Killing the child caused the parent to also exit.
+- **Files Changed:** `apis/.env` — `APIS_OPERATING_MODE=research` → `APIS_OPERATING_MODE=paper`
+- **Actions Taken:**
+  - Stopped worker process pair (PIDs 7780 + 30876).
+  - Restarted worker fresh from `apis/` directory.
+  - Confirmed API health post-restart: `status: ok`, `db: ok`, `broker: ok`, `broker_auth: ok`, `kill_switch: ok`, mode: `paper`.
+- **System State at Handoff:** API running in Docker (port 8000), PostgreSQL (port 5432), Redis (port 6379) all healthy. Worker running as PIDs 69244 (parent) + 70996 (child). No paper trading data in DB yet — first live cycle expected 2026-03-25 09:35 ET.
+- **Open Items:** Monitor dashboard 2026-03-25 after 09:35 ET to confirm first paper cycle executes and data populates.
+- **Blockers:** None
+- **Risks:** None — change is a single env var correction, no code modified.
+- **Confidence:** High
+
+---
+
+### [2026-03-23 UTC] Micro-fix — TickerResult.error attribute mismatch
+
+- **Capacity Trigger:** Single targeted fix (session start)
+- **Objective:** Eliminate non-fatal `AttributeError: 'TickerResult' object has no attribute 'error_message'` logged by `market_data_ingestion` job.
+- **Current Stage:** Post-build hardening (improvements list, item outside numbered list — minor bug fix)
+- **Files Reviewed:** `services/data_ingestion/models.py`, `apps/worker/jobs/ingestion.py`, `tests/unit/test_data_ingestion.py`
+- **Files Changed:** `apps/worker/jobs/ingestion.py` line 95: `r.error_message` → `r.error`
+- **Decisions:** None — straightforward attribute name correction. `TickerResult` dataclass field is `.error` (not `.error_message`). The typo only triggered in the error-reporting path, so data ingestion itself was unaffected.
+- **Completed Work:** Fix applied and verified against model definition.
+- **Open Items (Next Steps):** Continue hardening list — next items are #8 (ruff blocking in CI + mypy job) through #15.
+- **Blockers:** None
+- **Risks:** None
+- **Verification / QA:** Confirmed `TickerResult` dataclass has `error: Optional[str] = None` (not `error_message`). Tests already use `error=` keyword arg consistently. Fix aligns ingestion job with model.
+- **Continuity Notes:** The improvement todo list in auto-memory tracks 15 items; items 1–7 done, items 8–15 remain.
+- **Confidence:** High
+
+
+---
+
 ### [2026-03-21 UTC] Session 56 — Phase 56 COMPLETE (Readiness Report History) — SYSTEM BUILD COMPLETE
 
 - **Capacity Trigger:** Phase 53 generated daily readiness reports cached in app_state but never persisted them, so operators had no way to track whether readiness was trending PASS/WARN/FAIL over time. Without history, a single day's report provided no trend context.

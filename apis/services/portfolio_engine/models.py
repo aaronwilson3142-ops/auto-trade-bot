@@ -13,8 +13,7 @@ import uuid
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Optional
-
+from typing import Any
 
 # ── Position state ────────────────────────────────────────────────────────────
 
@@ -29,7 +28,7 @@ class PortfolioPosition:
     opened_at: dt.datetime
     thesis_summary: str = ""
     strategy_key: str = ""
-    security_id: Optional[object] = None        # UUID when persisted
+    security_id: object | None = None        # UUID when persisted
 
     @property
     def market_value(self) -> Decimal:
@@ -62,8 +61,10 @@ class PortfolioState:
 
     cash: Decimal
     positions: dict[str, PortfolioPosition] = field(default_factory=dict)
-    start_of_day_equity: Optional[Decimal] = None   # for daily P&L limit
-    high_water_mark: Optional[Decimal] = None        # for drawdown limit
+    start_of_day_equity: Decimal | None = None    # for daily P&L limit
+    start_of_month_equity: Decimal | None = None  # for monthly drawdown limit
+    high_water_mark: Decimal | None = None         # for weekly drawdown limit
+    daily_opens_count: int = 0                        # new OPEN fills today; reset to 0 at start of each day
 
     @property
     def gross_exposure(self) -> Decimal:
@@ -98,6 +99,15 @@ class PortfolioState:
             (self.equity - self.start_of_day_equity) / self.start_of_day_equity
         ).quantize(Decimal("0.0001"))
 
+    @property
+    def monthly_pnl_pct(self) -> Decimal:
+        """Month-to-date P&L as a fraction of start-of-month equity (negative = loss)."""
+        if not self.start_of_month_equity or self.start_of_month_equity == Decimal("0"):
+            return Decimal("0")
+        return (
+            (self.equity - self.start_of_month_equity) / self.start_of_month_equity
+        ).quantize(Decimal("0.0001"))
+
 
 # ── Portfolio actions ─────────────────────────────────────────────────────────
 
@@ -121,12 +131,12 @@ class PortfolioAction:
     ticker: str
     reason: str
     target_notional: Decimal = Decimal("0")
-    target_quantity: Optional[Decimal] = None   # shares; may be None until execution
+    target_quantity: Decimal | None = None   # shares; may be None until execution
     thesis_summary: str = ""
     sizing_rationale: str = ""
     risk_approved: bool = False
-    security_id: Optional[object] = None        # UUID when available
-    ranked_result: Optional[Any] = None         # RankedResult for full traceability
+    security_id: object | None = None        # UUID when available
+    ranked_result: Any | None = None         # RankedResult for full traceability
     id: str = field(default_factory=lambda: str(uuid.uuid4()))  # unique action identifier
 
 

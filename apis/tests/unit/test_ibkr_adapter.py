@@ -17,7 +17,6 @@ from decimal import Decimal
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Event-loop fixture (ib_insync/eventkit requires a running event loop on import)
 # ---------------------------------------------------------------------------
@@ -176,7 +175,7 @@ class TestIBKRAdapterMethodStubs:
     def test_list_fills_since_raises_not_implemented(self):
         self._assert_requires_connection(
             self.adapter.list_fills_since,
-            dt.datetime.now(dt.timezone.utc),
+            dt.datetime.now(dt.UTC),
         )
 
     def test_is_market_open_raises_not_implemented(self):

@@ -33,8 +33,7 @@ import datetime as dt
 import logging
 import math
 import uuid
-from decimal import Decimal, ROUND_DOWN
-from typing import Optional
+from decimal import ROUND_DOWN, Decimal
 
 import pandas as pd
 
@@ -47,12 +46,11 @@ from services.feature_store.models import FeatureSet
 from services.feature_store.pipeline import BaselineFeaturePipeline
 from services.portfolio_engine.models import (
     ActionType,
-    PortfolioAction,
     PortfolioPosition,
     PortfolioState,
 )
 from services.portfolio_engine.service import PortfolioEngineService
-from services.ranking_engine.models import RankedResult, RankingConfig
+from services.ranking_engine.models import RankingConfig
 from services.ranking_engine.service import RankingEngineService
 from services.risk_engine.service import RiskEngineService
 from services.signal_engine.models import SignalOutput
@@ -99,11 +97,11 @@ class BacktestEngine:
 
     def __init__(
         self,
-        adapter: Optional[YFinanceAdapter] = None,
-        pipeline: Optional[BaselineFeaturePipeline] = None,
-        strategies: Optional[list] = None,
-        ranking_config: Optional[RankingConfig] = None,
-        enrichment_service: Optional[FeatureEnrichmentService] = None,
+        adapter: YFinanceAdapter | None = None,
+        pipeline: BaselineFeaturePipeline | None = None,
+        strategies: list | None = None,
+        ranking_config: RankingConfig | None = None,
+        enrichment_service: FeatureEnrichmentService | None = None,
     ) -> None:
         self._adapter = adapter or YFinanceAdapter()
         self._pipeline = pipeline or BaselineFeaturePipeline()
@@ -123,8 +121,8 @@ class BacktestEngine:
     def run(
         self,
         config: BacktestConfig,
-        policy_signals: Optional[list] = None,
-        news_insights: Optional[list] = None,
+        policy_signals: list | None = None,
+        news_insights: list | None = None,
     ) -> BacktestResult:
         """Execute the backtest and return aggregated results.
 
@@ -414,7 +412,7 @@ class BacktestEngine:
                     avg_entry_price=fill_price,
                     current_price=fill_price,
                     opened_at=dt.datetime.combine(
-                        sim_date, dt.time(), tzinfo=dt.timezone.utc
+                        sim_date, dt.time(), tzinfo=dt.UTC
                     ),
                     thesis_summary=action.thesis_summary or "",
                 )

@@ -21,9 +21,6 @@ from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -57,7 +54,7 @@ def _make_calendar_result(
     if reference_date is None:
         reference_date = dt.date.today()
     return SimpleNamespace(
-        computed_at=dt.datetime.now(dt.timezone.utc),
+        computed_at=dt.datetime.now(dt.UTC),
         reference_date=reference_date,
         max_earnings_proximity_days=max_days,
         entries=entries,
@@ -100,8 +97,9 @@ class TestFetchNextEarningsDate:
 
     def test_returns_date_from_dataframe_calendar(self):
         """Extracts earnings date from DataFrame-style calendar response."""
-        from services.risk_engine.earnings_calendar import EarningsCalendarService
         import pandas as pd
+
+        from services.risk_engine.earnings_calendar import EarningsCalendarService
 
         target_date = dt.date(2026, 4, 15)
         df = pd.DataFrame({"Earnings Date": [pd.Timestamp(target_date)]})
@@ -142,8 +140,9 @@ class TestFetchNextEarningsDate:
 
     def test_returns_none_when_dataframe_has_no_earnings_date_column(self):
         """Returns None when DataFrame is missing 'Earnings Date' column."""
-        from services.risk_engine.earnings_calendar import EarningsCalendarService
         import pandas as pd
+
+        from services.risk_engine.earnings_calendar import EarningsCalendarService
 
         df = pd.DataFrame({"Other Column": [1, 2, 3]})
         mock_ticker = MagicMock()
@@ -325,7 +324,7 @@ class TestBuildCalendar:
             tickers=[],
             max_earnings_proximity_days=2,
         )
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime.now(dt.UTC)
         assert (now - result.computed_at).total_seconds() < 5
 
     def test_result_records_max_days_in_entries(self):
@@ -538,8 +537,8 @@ class TestRunEarningsRefresh:
 
     def test_returns_ok_on_success(self):
         """Returns status='ok' when build_calendar succeeds."""
-        from apps.worker.jobs.earnings_refresh import run_earnings_refresh
         from apps.api.state import ApiAppState
+        from apps.worker.jobs.earnings_refresh import run_earnings_refresh
 
         state = ApiAppState()
         mock_cal = _make_calendar_result(at_risk_tickers=["AAPL"])
@@ -560,8 +559,8 @@ class TestRunEarningsRefresh:
 
     def test_updates_app_state_on_success(self):
         """Populates app_state.latest_earnings_calendar and earnings_computed_at."""
-        from apps.worker.jobs.earnings_refresh import run_earnings_refresh
         from apps.api.state import ApiAppState
+        from apps.worker.jobs.earnings_refresh import run_earnings_refresh
 
         state = ApiAppState()
         mock_cal = _make_calendar_result(at_risk_tickers=[])
@@ -581,8 +580,8 @@ class TestRunEarningsRefresh:
 
     def test_skips_empty_universe(self):
         """Returns status='skipped_empty_universe' when universe is empty."""
-        from apps.worker.jobs.earnings_refresh import run_earnings_refresh
         from apps.api.state import ApiAppState
+        from apps.worker.jobs.earnings_refresh import run_earnings_refresh
 
         state = ApiAppState()
 
@@ -594,8 +593,8 @@ class TestRunEarningsRefresh:
 
     def test_returns_error_on_exception(self):
         """Returns status='error' and does not raise when an exception occurs."""
-        from apps.worker.jobs.earnings_refresh import run_earnings_refresh
         from apps.api.state import ApiAppState
+        from apps.worker.jobs.earnings_refresh import run_earnings_refresh
 
         state = ApiAppState()
 
@@ -611,8 +610,8 @@ class TestRunEarningsRefresh:
 
     def test_state_not_cleared_on_error(self):
         """On error, existing app_state.latest_earnings_calendar is preserved."""
-        from apps.worker.jobs.earnings_refresh import run_earnings_refresh
         from apps.api.state import ApiAppState
+        from apps.worker.jobs.earnings_refresh import run_earnings_refresh
 
         state = ApiAppState()
         existing_cal = _make_calendar_result()
@@ -630,8 +629,8 @@ class TestRunEarningsRefresh:
 
     def test_result_includes_at_risk_tickers(self):
         """Result dict contains at_risk_tickers list."""
-        from apps.worker.jobs.earnings_refresh import run_earnings_refresh
         from apps.api.state import ApiAppState
+        from apps.worker.jobs.earnings_refresh import run_earnings_refresh
 
         state = ApiAppState()
         mock_cal = _make_calendar_result(at_risk_tickers=["AAPL", "NVDA"])
@@ -658,6 +657,7 @@ class TestEarningsCalendarRoute:
 
     def _get_client(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         return TestClient(app)
 
@@ -746,6 +746,7 @@ class TestEarningsRiskTickerRoute:
 
     def _get_client(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         return TestClient(app)
 
@@ -958,7 +959,7 @@ class TestEarningsAppState:
     def test_can_set_earnings_computed_at(self):
         from apps.api.state import ApiAppState
         state = ApiAppState()
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime.now(dt.UTC)
         state.earnings_computed_at = now
         assert state.earnings_computed_at == now
 
@@ -1013,8 +1014,8 @@ class TestDashboardEarningsSection:
 
     def test_renders_no_data_message_when_no_calendar(self):
         """Shows 'no data yet' message when app_state has no calendar."""
-        from apps.dashboard.router import _render_earnings_section
         from apps.api.state import ApiAppState
+        from apps.dashboard.router import _render_earnings_section
         from config.settings import Settings
 
         state = ApiAppState()
@@ -1025,8 +1026,8 @@ class TestDashboardEarningsSection:
 
     def test_renders_at_risk_tickers_when_calendar_present(self):
         """Shows at-risk tickers in the section when calendar has data."""
-        from apps.dashboard.router import _render_earnings_section
         from apps.api.state import ApiAppState
+        from apps.dashboard.router import _render_earnings_section
         from config.settings import Settings
 
         state = ApiAppState()
@@ -1048,8 +1049,8 @@ class TestDashboardEarningsSection:
 
     def test_renders_gate_active_when_at_risk_present(self):
         """Shows 'ACTIVE' gate status when at_risk_tickers is non-empty."""
-        from apps.dashboard.router import _render_earnings_section
         from apps.api.state import ApiAppState
+        from apps.dashboard.router import _render_earnings_section
         from config.settings import Settings
 
         state = ApiAppState()
@@ -1071,6 +1072,7 @@ class TestDashboardEarningsSection:
     def test_dashboard_main_includes_earnings_section(self):
         """Full dashboard HTML contains earnings section."""
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import reset_app_state
         reset_app_state()

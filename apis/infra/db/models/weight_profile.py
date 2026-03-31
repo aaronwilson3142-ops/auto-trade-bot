@@ -8,8 +8,6 @@ ranking engine reads the active profile to blend strategy signal scores.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
-from typing import Optional
 
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
@@ -36,14 +34,14 @@ class WeightProfile(Base, TimestampMixin):
         sa.Text, nullable=False, default="{}", server_default="{}"
     )
     # JSON: per-strategy Sharpe ratios used for optimisation (empty for manual)
-    sharpe_metrics_json: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
+    sharpe_metrics_json: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     # True for the single active profile (NULL-safe: default False)
     is_active: Mapped[bool] = mapped_column(
         sa.Boolean, nullable=False, default=False, server_default=sa.false()
     )
     # FK reference to backtest_runs.comparison_id (informational, no FK constraint)
-    optimization_run_id: Mapped[Optional[str]] = mapped_column(sa.String(36), nullable=True)
-    notes: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
+    optimization_run_id: Mapped[str | None] = mapped_column(sa.String(36), nullable=True)
+    notes: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
     __table_args__ = (
         sa.Index("ix_weight_profile_is_active", "is_active"),

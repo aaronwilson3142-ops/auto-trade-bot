@@ -4,10 +4,11 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TimestampMixin
@@ -25,7 +26,7 @@ class Source(Base, TimestampMixin):
     source_name: Mapped[str] = mapped_column(sa.String, nullable=False)
     source_type: Mapped[str] = mapped_column(sa.String, nullable=False)
     reliability_tier: Mapped[str] = mapped_column(sa.String, nullable=False)
-    default_weight: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(8, 4), nullable=True)
+    default_weight: Mapped[Decimal | None] = mapped_column(sa.Numeric(8, 4), nullable=True)
     is_active: Mapped[bool] = mapped_column(sa.Boolean, default=True, nullable=False)
 
 
@@ -41,16 +42,16 @@ class SourceEvent(Base, TimestampMixin):
         PG_UUID(as_uuid=True), sa.ForeignKey("sources.id"), nullable=False
     )
     event_type: Mapped[str] = mapped_column(sa.String, nullable=False)
-    headline: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
-    body_text: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
-    event_timestamp: Mapped[Optional[datetime]] = mapped_column(sa.DateTime, nullable=True, index=True)
+    headline: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    body_text: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    event_timestamp: Mapped[datetime | None] = mapped_column(sa.DateTime, nullable=True, index=True)
     ingested_at: Mapped[datetime] = mapped_column(sa.DateTime, nullable=False)
-    url: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
-    raw_payload_ref: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
-    credibility_score: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(8, 4), nullable=True)
-    decay_score: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(8, 4), nullable=True)
+    url: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    raw_payload_ref: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    credibility_score: Mapped[Decimal | None] = mapped_column(sa.Numeric(8, 4), nullable=True)
+    decay_score: Mapped[Decimal | None] = mapped_column(sa.Numeric(8, 4), nullable=True)
     is_verified: Mapped[bool] = mapped_column(sa.Boolean, default=False, nullable=False)
-    metadata_json: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
+    metadata_json: Mapped[Any | None] = mapped_column(JSONB, nullable=True)
 
 
 class SecurityEventLink(Base, TimestampMixin):
@@ -67,6 +68,6 @@ class SecurityEventLink(Base, TimestampMixin):
     security_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True), sa.ForeignKey("securities.id"), nullable=False
     )
-    link_reason: Mapped[Optional[str]] = mapped_column(sa.String, nullable=True)
-    impact_direction: Mapped[Optional[str]] = mapped_column(sa.String, nullable=True)
-    impact_confidence: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(8, 4), nullable=True)
+    link_reason: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    impact_direction: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    impact_confidence: Mapped[Decimal | None] = mapped_column(sa.Numeric(8, 4), nullable=True)

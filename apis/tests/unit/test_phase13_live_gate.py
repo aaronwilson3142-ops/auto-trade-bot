@@ -29,11 +29,9 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ── Reset shared state between tests ──────────────────────────────────────────
 
@@ -527,8 +525,9 @@ class TestSecretsEnvManager:
         assert issubclass(EnvSecretManager, SecretManager)
 
     def test_secret_manager_is_abstract(self):
-        from config.secrets import SecretManager
         import inspect
+
+        from config.secrets import SecretManager
         assert inspect.isabstract(SecretManager)
 
 
@@ -543,8 +542,9 @@ class TestSecretsAWSManager:
 
     def test_aws_manager_get_raises_runtime_error_without_aws(self):
         """AWSSecretManager.get() is now concrete; without real AWS it raises RuntimeError."""
-        from unittest.mock import MagicMock, patch
         import json
+        from unittest.mock import MagicMock, patch
+
         from config.secrets import AWSSecretManager
         sm = AWSSecretManager()
         mock_client = MagicMock()
@@ -557,8 +557,9 @@ class TestSecretsAWSManager:
 
     def test_aws_manager_get_optional_returns_default_on_missing(self):
         """AWSSecretManager.get_optional() is now concrete; returns default for missing key."""
-        from unittest.mock import MagicMock, patch
         import json
+        from unittest.mock import MagicMock, patch
+
         from config.secrets import AWSSecretManager
         sm = AWSSecretManager()
         mock_client = MagicMock()
@@ -592,6 +593,7 @@ class TestSecretsAWSManager:
     def test_aws_manager_get_raises_runtime_error_on_aws_failure(self):
         """AWSSecretManager.get() raises RuntimeError when AWS call fails."""
         from unittest.mock import MagicMock, patch
+
         from config.secrets import AWSSecretManager
         sm = AWSSecretManager()
         mock_client = MagicMock()
@@ -646,6 +648,7 @@ class TestLiveGateRouteStatus:
     @pytest.fixture
     def client(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         return TestClient(app)
 
@@ -722,6 +725,7 @@ class TestLiveGateRoutePromote:
     @pytest.fixture
     def client(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         return TestClient(app)
 
@@ -826,7 +830,7 @@ class TestApiAppStateNewFields:
         assert state.live_gate_promotion_pending is False
 
     def test_live_gate_fields_reset_on_reset(self):
-        from apps.api.state import ApiAppState, get_app_state, reset_app_state
+        from apps.api.state import get_app_state, reset_app_state
         state = get_app_state()
         state.live_gate_last_result = MagicMock()
         state.live_gate_promotion_pending = True
@@ -853,37 +857,37 @@ class TestGrafanaDashboard:
         )
 
     def test_dashboard_json_is_valid(self):
-        with open(GRAFANA_DASHBOARD_PATH, "r", encoding="utf-8") as f:
+        with open(GRAFANA_DASHBOARD_PATH, encoding="utf-8") as f:
             data = json.load(f)
         assert isinstance(data, dict)
 
     def test_dashboard_has_required_top_level_keys(self):
-        with open(GRAFANA_DASHBOARD_PATH, "r", encoding="utf-8") as f:
+        with open(GRAFANA_DASHBOARD_PATH, encoding="utf-8") as f:
             data = json.load(f)
         for key in ("title", "panels", "uid", "schemaVersion"):
             assert key in data, f"Missing top-level key: {key}"
 
     def test_dashboard_title_mentions_apis(self):
-        with open(GRAFANA_DASHBOARD_PATH, "r", encoding="utf-8") as f:
+        with open(GRAFANA_DASHBOARD_PATH, encoding="utf-8") as f:
             data = json.load(f)
         assert "APIS" in data["title"]
 
     def test_dashboard_has_multiple_panels(self):
-        with open(GRAFANA_DASHBOARD_PATH, "r", encoding="utf-8") as f:
+        with open(GRAFANA_DASHBOARD_PATH, encoding="utf-8") as f:
             data = json.load(f)
         # Must have at least 8 panels (excluding row separators)
         non_row_panels = [p for p in data["panels"] if p.get("type") != "row"]
         assert len(non_row_panels) >= 8
 
     def test_dashboard_panels_have_required_fields(self):
-        with open(GRAFANA_DASHBOARD_PATH, "r", encoding="utf-8") as f:
+        with open(GRAFANA_DASHBOARD_PATH, encoding="utf-8") as f:
             data = json.load(f)
         for panel in data["panels"]:
             assert "title" in panel, f"Panel missing 'title': {panel.get('id')}"
             assert "type" in panel, f"Panel missing 'type': {panel.get('id')}"
 
     def test_dashboard_references_prometheus_metrics(self):
-        with open(GRAFANA_DASHBOARD_PATH, "r", encoding="utf-8") as f:
+        with open(GRAFANA_DASHBOARD_PATH, encoding="utf-8") as f:
             raw = f.read()
         # At least one of the known APIS Prometheus metric names should appear
         expected_metrics = [
@@ -896,14 +900,14 @@ class TestGrafanaDashboard:
             assert metric in raw, f"Dashboard does not reference metric: {metric}"
 
     def test_dashboard_has_input_for_prometheus_datasource(self):
-        with open(GRAFANA_DASHBOARD_PATH, "r", encoding="utf-8") as f:
+        with open(GRAFANA_DASHBOARD_PATH, encoding="utf-8") as f:
             data = json.load(f)
         assert "__inputs" in data
         input_ids = [i["pluginId"] for i in data["__inputs"]]
         assert "prometheus" in input_ids
 
     def test_dashboard_refresh_interval_set(self):
-        with open(GRAFANA_DASHBOARD_PATH, "r", encoding="utf-8") as f:
+        with open(GRAFANA_DASHBOARD_PATH, encoding="utf-8") as f:
             data = json.load(f)
         assert "refresh" in data
         assert data["refresh"]  # must not be empty

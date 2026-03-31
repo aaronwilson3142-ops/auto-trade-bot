@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 
 
 class PromotableMode(str, Enum):
@@ -32,7 +32,7 @@ class LiveGateStatusResponse(BaseModel):
     all_passed: bool
     requirements: list[GateRequirementSchema]
     failed_count: int
-    promotion_advisory: Optional[str]
+    promotion_advisory: str | None
 
 
 class LiveGatePromoteRequest(BaseModel):

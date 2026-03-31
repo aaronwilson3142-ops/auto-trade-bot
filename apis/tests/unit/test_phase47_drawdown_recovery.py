@@ -18,10 +18,9 @@ import dataclasses
 import datetime as dt
 from decimal import Decimal
 from typing import Any
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -470,7 +469,7 @@ class TestDrawdownAppState:
     def test_drawdown_state_changed_at_can_be_set(self):
         from apps.api.state import ApiAppState
         state = ApiAppState()
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime.now(dt.UTC)
         state.drawdown_state_changed_at = now
         assert state.drawdown_state_changed_at == now
 
@@ -497,6 +496,7 @@ class TestDrawdownAPIEndpoint:
 
     def test_endpoint_returns_200(self):
         import asyncio
+
         from apps.api.routes.portfolio import get_drawdown_state
         state = self._make_app_state()
         settings = _make_settings()
@@ -505,6 +505,7 @@ class TestDrawdownAPIEndpoint:
 
     def test_response_contains_all_expected_fields(self):
         import asyncio
+
         from apps.api.routes.portfolio import get_drawdown_state
         state = self._make_app_state()
         settings = _make_settings()
@@ -521,6 +522,7 @@ class TestDrawdownAPIEndpoint:
 
     def test_state_reflects_normal_when_equity_at_hwm(self):
         import asyncio
+
         from apps.api.routes.portfolio import get_drawdown_state
         state = self._make_app_state(equity=100_000.0, hwm=100_000.0)
         settings = _make_settings()
@@ -529,6 +531,7 @@ class TestDrawdownAPIEndpoint:
 
     def test_state_reflects_recovery_when_equity_far_below_hwm(self):
         import asyncio
+
         from apps.api.routes.portfolio import get_drawdown_state
         # HWM=100k, equity=80k → 20% drawdown → RECOVERY
         state = self._make_app_state(equity=80_000.0, hwm=100_000.0)
@@ -538,6 +541,7 @@ class TestDrawdownAPIEndpoint:
 
     def test_current_drawdown_pct_is_float(self):
         import asyncio
+
         from apps.api.routes.portfolio import get_drawdown_state
         state = self._make_app_state(equity=95_000.0, hwm=100_000.0)
         settings = _make_settings()
@@ -546,6 +550,7 @@ class TestDrawdownAPIEndpoint:
 
     def test_block_new_positions_present_in_response(self):
         import asyncio
+
         from apps.api.routes.portfolio import get_drawdown_state
         state = self._make_app_state()
         settings = _make_settings(recovery_mode_block_new_positions=True)
@@ -554,6 +559,7 @@ class TestDrawdownAPIEndpoint:
 
     def test_state_changed_at_none_when_no_transition(self):
         import asyncio
+
         from apps.api.routes.portfolio import get_drawdown_state
         state = self._make_app_state(drawdown_state_changed_at=None)
         settings = _make_settings()
@@ -562,6 +568,7 @@ class TestDrawdownAPIEndpoint:
 
     def test_state_matches_service_output(self):
         import asyncio
+
         from apps.api.routes.portfolio import get_drawdown_state
         from services.risk_engine.drawdown_recovery import DrawdownRecoveryService
         state = self._make_app_state(equity=93_000.0, hwm=100_000.0)
@@ -600,8 +607,9 @@ class TestDrawdownPaperCycleIntegration:
         )
 
     def _minimal_mocks(self, equity=100_000.0, hwm=100_000.0, rankings_count=1):
-        from services.portfolio_engine.models import ActionType, PortfolioAction, PortfolioState
         from unittest.mock import MagicMock
+
+        from services.portfolio_engine.models import PortfolioState
 
         app_state = _make_app_state_obj()
 
@@ -718,7 +726,7 @@ class TestDrawdownPaperCycleIntegration:
 
     def test_close_trim_not_affected_by_drawdown_mode(self):
         # RECOVERY mode should not block CLOSE/TRIM actions
-        from services.portfolio_engine.models import ActionType, PortfolioAction, PortfolioState
+        from services.portfolio_engine.models import PortfolioState
         settings = _make_settings(
             drawdown_caution_pct=0.05,
             drawdown_recovery_pct=0.10,

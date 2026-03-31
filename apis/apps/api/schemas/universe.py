@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -12,15 +11,15 @@ class UniverseTickerStatusSchema(BaseModel):
     ticker: str
     in_base_universe: bool
     in_active_universe: bool
-    override_action: Optional[str] = None     # "ADD", "REMOVE", or None
-    override_reason: Optional[str] = None
+    override_action: str | None = None     # "ADD", "REMOVE", or None
+    override_reason: str | None = None
     quality_removed: bool = False
-    signal_quality_score: Optional[float] = None
+    signal_quality_score: float | None = None
 
 
 class UniverseListResponse(BaseModel):
     """Response for GET /universe/tickers."""
-    computed_at: Optional[dt.datetime]
+    computed_at: dt.datetime | None
     base_count: int
     active_count: int
     added_count: int
@@ -39,21 +38,21 @@ class UniverseTickerDetailResponse(BaseModel):
     """Response for GET /universe/tickers/{ticker}."""
     ticker: str
     data_available: bool
-    computed_at: Optional[dt.datetime] = None
-    in_base_universe: Optional[bool] = None
-    in_active_universe: Optional[bool] = None
-    override_action: Optional[str] = None
-    override_reason: Optional[str] = None
-    quality_removed: Optional[bool] = None
-    signal_quality_score: Optional[float] = None
+    computed_at: dt.datetime | None = None
+    in_base_universe: bool | None = None
+    in_active_universe: bool | None = None
+    override_action: str | None = None
+    override_reason: str | None = None
+    quality_removed: bool | None = None
+    signal_quality_score: float | None = None
 
 
 class UniverseOverrideRequest(BaseModel):
     """Request body for POST /universe/tickers/{ticker}/override."""
     action: str = Field(..., description="'ADD' or 'REMOVE'")
-    reason: Optional[str] = Field(None, description="Human-readable reason for override")
-    operator_id: Optional[str] = Field(None, description="Operator identifier")
-    expires_at: Optional[dt.datetime] = Field(
+    reason: str | None = Field(None, description="Human-readable reason for override")
+    operator_id: str | None = Field(None, description="Operator identifier")
+    expires_at: dt.datetime | None = Field(
         None, description="Optional UTC expiry; null = no expiry"
     )
 
@@ -64,8 +63,8 @@ class UniverseOverrideResponse(BaseModel):
     ticker: str
     action: str
     override_id: str
-    reason: Optional[str] = None
-    expires_at: Optional[dt.datetime] = None
+    reason: str | None = None
+    expires_at: dt.datetime | None = None
 
 
 class UniverseOverrideDeleteResponse(BaseModel):

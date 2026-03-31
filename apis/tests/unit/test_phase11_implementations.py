@@ -15,13 +15,11 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
-import uuid
 from decimal import Decimal
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ===========================================================================
 # Event-loop fixture (required by ib_insync which uses eventkit at import time)
@@ -168,6 +166,7 @@ class TestMarketDataUtils:
 
     def test_compute_liquidity_metrics_returns_object(self):
         from decimal import Decimal as D
+
         from services.market_data.models import NormalizedBar
         from services.market_data.utils import compute_liquidity_metrics
 
@@ -272,7 +271,7 @@ class TestNewsNLPService:
         return NewsItem(
             source_id="news-001",
             headline=headline,
-            published_at=dt.datetime(2024, 1, 15, 10, tzinfo=dt.timezone.utc),
+            published_at=dt.datetime(2024, 1, 15, 10, tzinfo=dt.UTC),
             body_snippet=headline,
             credibility_tier=CredibilityTier.SECONDARY_VERIFIED,
             tickers_mentioned=["NVDA"],
@@ -313,37 +312,37 @@ class TestNewsNLPService:
 
 class TestMacroPolicyUtils:
     def test_tariff_event_negative_bias(self):
-        from services.macro_policy_engine.utils import compute_directional_bias
         from services.macro_policy_engine.models import PolicyEventType
+        from services.macro_policy_engine.utils import compute_directional_bias
 
         bias = compute_directional_bias(PolicyEventType.TARIFF.value, "tariff increase")
         assert bias < 0.0
 
     def test_rate_event_base_bias_is_zero(self):
-        from services.macro_policy_engine.utils import compute_directional_bias
         from services.macro_policy_engine.models import PolicyEventType
+        from services.macro_policy_engine.utils import compute_directional_bias
 
         # "Fed holds rates" — no directional keywords → base 0.0
         bias = compute_directional_bias(PolicyEventType.INTEREST_RATE.value, "Fed holds rates steady")
         assert bias == 0.0
 
     def test_rate_cut_is_positive(self):
-        from services.macro_policy_engine.utils import compute_directional_bias
         from services.macro_policy_engine.models import PolicyEventType
+        from services.macro_policy_engine.utils import compute_directional_bias
 
         bias = compute_directional_bias(PolicyEventType.INTEREST_RATE.value, "Fed cut rates unexpectedly")
         assert bias > 0.0
 
     def test_geopolitical_affected_themes(self):
-        from services.macro_policy_engine.utils import EVENT_TYPE_THEMES
         from services.macro_policy_engine.models import PolicyEventType
+        from services.macro_policy_engine.utils import EVENT_TYPE_THEMES
 
         themes = EVENT_TYPE_THEMES[PolicyEventType.GEOPOLITICAL.value]
         assert "defence" in themes
 
     def test_generate_implication_summary_returns_str(self):
-        from services.macro_policy_engine.utils import generate_implication_summary
         from services.macro_policy_engine.models import PolicyEventType
+        from services.macro_policy_engine.utils import generate_implication_summary
 
         summary = generate_implication_summary(
             event_type_value=PolicyEventType.TARIFF.value,
@@ -370,7 +369,7 @@ class TestMacroPolicyService:
             event_id="ev-001",
             headline=headline,
             event_type=et_map.get(event_type_val, PolicyEventType.OTHER),
-            published_at=dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=age_hours),
+            published_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=age_hours),
             source="Bloomberg",
         )
 
@@ -403,8 +402,8 @@ class TestMacroPolicyService:
         assert len(signal.affected_sectors) > 0
 
     def test_assess_regime_bearish_signals_risk_off(self):
-        from services.macro_policy_engine.service import MacroPolicyEngineService
         from services.macro_policy_engine.models import MacroRegime
+        from services.macro_policy_engine.service import MacroPolicyEngineService
 
         svc = MacroPolicyEngineService()
         bearish = [self._make_event("tariff") for _ in range(5)]
@@ -413,8 +412,8 @@ class TestMacroPolicyService:
         assert regime.regime in (MacroRegime.RISK_OFF, MacroRegime.STAGFLATION, MacroRegime.NEUTRAL)
 
     def test_assess_regime_empty_signals_is_neutral(self):
-        from services.macro_policy_engine.service import MacroPolicyEngineService
         from services.macro_policy_engine.models import MacroRegime
+        from services.macro_policy_engine.service import MacroPolicyEngineService
 
         svc = MacroPolicyEngineService()
         regime = svc.assess_regime([])
@@ -585,17 +584,17 @@ class TestIBKRAdapterUnit:
             IBKRBrokerAdapter(port=4001, paper=True)
 
     def test_not_connected_raises_on_get_account_state(self):
-        from broker_adapters.ibkr.adapter import IBKRBrokerAdapter
         from broker_adapters.base.exceptions import BrokerConnectionError
+        from broker_adapters.ibkr.adapter import IBKRBrokerAdapter
 
         a = IBKRBrokerAdapter()
         with pytest.raises(BrokerConnectionError):
             a.get_account_state()
 
     def test_not_connected_raises_on_place_order(self):
-        from broker_adapters.ibkr.adapter import IBKRBrokerAdapter
         from broker_adapters.base.exceptions import BrokerConnectionError
         from broker_adapters.base.models import OrderRequest, OrderSide, OrderType
+        from broker_adapters.ibkr.adapter import IBKRBrokerAdapter
 
         a = IBKRBrokerAdapter()
         req = OrderRequest(
@@ -609,8 +608,8 @@ class TestIBKRAdapterUnit:
             a.place_order(req)
 
     def test_not_connected_raises_on_list_positions(self):
-        from broker_adapters.ibkr.adapter import IBKRBrokerAdapter
         from broker_adapters.base.exceptions import BrokerConnectionError
+        from broker_adapters.ibkr.adapter import IBKRBrokerAdapter
 
         a = IBKRBrokerAdapter()
         with pytest.raises(BrokerConnectionError):
@@ -625,6 +624,7 @@ class TestIBKRAdapterUnit:
     def test_is_market_open_during_trading_hours(self):
         """9:45 AM ET on a Tuesday in January → market open."""
         import pytz
+
         from broker_adapters.ibkr.adapter import IBKRBrokerAdapter
 
         a = IBKRBrokerAdapter()
@@ -632,10 +632,10 @@ class TestIBKRAdapterUnit:
         # Tuesday 2024-01-09 09:45 ET
         aware_et = eastern.localize(dt.datetime(2024, 1, 9, 9, 45, 0))
         with patch("broker_adapters.ibkr.adapter.dt") as mock_dt:
-            mock_dt.datetime.now.return_value = aware_et.astimezone(dt.timezone.utc).replace(tzinfo=None)
+            mock_dt.datetime.now.return_value = aware_et.astimezone(dt.UTC).replace(tzinfo=None)
             # Call the real is_market_open which uses dt.datetime.now(utc)
         # Direct test: build UTC time corresponding to 09:45 ET
-        open_utc = aware_et.astimezone(dt.timezone.utc)
+        open_utc = aware_et.astimezone(dt.UTC)
         # Is market open? 09:30-16:00 ET weekday → yes
         result = a.is_market_open()
         # Result can be True or False depending on actual current time; just check it's bool
@@ -646,16 +646,16 @@ class TestIBKRAdapterUnit:
 
         a = IBKRBrokerAdapter()
         nmo = a.next_market_open()
-        assert nmo > dt.datetime.now(dt.timezone.utc)
+        assert nmo > dt.datetime.now(dt.UTC)
         # Must be 09:30 ET (14:30 or 13:30 UTC depending on DST)
         assert nmo.hour in (13, 14)
         assert nmo.minute == 30
 
     def test_duplicate_order_raises_on_second_call(self):
         """After submitting key 'k1', a second call with 'k1' raises DuplicateOrderError."""
-        from broker_adapters.ibkr.adapter import IBKRBrokerAdapter
         from broker_adapters.base.exceptions import DuplicateOrderError
         from broker_adapters.base.models import OrderRequest, OrderSide, OrderType
+        from broker_adapters.ibkr.adapter import IBKRBrokerAdapter
 
         a = IBKRBrokerAdapter()
         # Pre-seed the submitted dict to simulate an already-placed order

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Optional
 
 from pydantic import BaseModel
 
@@ -26,7 +25,7 @@ class PolicySignalSummary(BaseModel):
     affected_sectors: list[str]
     affected_themes: list[str]
     implication_summary: str
-    generated_at: Optional[dt.datetime] = None
+    generated_at: dt.datetime | None = None
 
 
 class PolicySignalsResponse(BaseModel):
@@ -49,7 +48,7 @@ class NewsInsightSummary(BaseModel):
     affected_themes: list[str]
     market_implication: str
     contains_rumor: bool
-    processed_at: Optional[dt.datetime] = None
+    processed_at: dt.datetime | None = None
 
 
 class NewsInsightsResponse(BaseModel):
@@ -73,7 +72,7 @@ class ThematicExposureResponse(BaseModel):
     """Thematic exposure for a single ticker."""
 
     ticker: str
-    primary_theme: Optional[str] = None
+    primary_theme: str | None = None
     max_score: float
     mappings: list[ThemeMappingSummary]
     as_of: dt.datetime

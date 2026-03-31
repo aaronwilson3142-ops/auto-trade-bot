@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
 
 
 class BeneficiaryOrder(str, Enum):
@@ -31,7 +30,7 @@ class ThematicExposure:
     mappings: list[ThemeMapping] = field(default_factory=list)
 
     @property
-    def primary_theme(self) -> Optional[str]:
+    def primary_theme(self) -> str | None:
         """The theme with the highest thematic_score, or None."""
         if not self.mappings:
             return None

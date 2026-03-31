@@ -1,4 +1,4 @@
-"""
+r"""
 E2E Tests — IBKR TWS / IB Gateway Paper Account Integration.
 
 These tests exercise the APIS IBKRBrokerAdapter against a locally running
@@ -60,7 +60,7 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from decimal import Decimal
 
 import pytest

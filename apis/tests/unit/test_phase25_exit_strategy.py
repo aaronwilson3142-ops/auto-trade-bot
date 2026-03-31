@@ -25,7 +25,6 @@ from services.portfolio_engine.models import (
 )
 from services.risk_engine.service import RiskEngineService
 
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _make_settings(**overrides) -> Settings:

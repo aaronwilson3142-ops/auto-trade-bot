@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import datetime as dt
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
 from apps.api.state import ApiAppState
 from broker_adapters.base.exceptions import BrokerAuthenticationError
@@ -84,7 +84,7 @@ def _persist_portfolio_snapshot(portfolio_state: Any, mode: str) -> None:
 
         with _db_session() as db:
             snap = _DBSnap(
-                snapshot_timestamp=dt.datetime.now(dt.timezone.utc),
+                snapshot_timestamp=dt.datetime.now(dt.UTC),
                 mode=mode,
                 cash_balance=_Decimal(str(portfolio_state.cash)),
                 gross_exposure=_Decimal(str(portfolio_state.gross_exposure)),
@@ -137,14 +137,14 @@ def _persist_position_history(portfolio_state: Any, snapshot_at: Any) -> None:
 
 def run_paper_trading_cycle(
     app_state: ApiAppState,
-    settings: Optional[Settings] = None,
-    broker: Optional[Any] = None,
-    portfolio_svc: Optional[Any] = None,
-    risk_svc: Optional[Any] = None,
-    execution_svc: Optional[Any] = None,
-    market_data_svc: Optional[Any] = None,
-    reporting_svc: Optional[Any] = None,
-    eval_svc: Optional[Any] = None,
+    settings: Settings | None = None,
+    broker: Any | None = None,
+    portfolio_svc: Any | None = None,
+    risk_svc: Any | None = None,
+    execution_svc: Any | None = None,
+    market_data_svc: Any | None = None,
+    reporting_svc: Any | None = None,
+    eval_svc: Any | None = None,
 ) -> dict[str, Any]:
     """Execute one full paper trading cycle.
 
@@ -167,7 +167,7 @@ def run_paper_trading_cycle(
         executed_count, reconciliation_clean, errors.
     """
     cfg = settings or get_settings()
-    run_at = dt.datetime.now(dt.timezone.utc)
+    run_at = dt.datetime.now(dt.UTC)
 
     logger.info(
         "paper_trading_cycle_starting",
@@ -225,6 +225,7 @@ def run_paper_trading_cycle(
     try:
         # Lazy imports (keep startup fast; avoid circular imports at module level)
         from broker_adapters.paper.adapter import PaperBrokerAdapter
+        from services.evaluation_engine.service import EvaluationEngineService
         from services.execution_engine.models import ExecutionRequest
         from services.execution_engine.service import ExecutionEngineService
         from services.market_data.service import MarketDataService
@@ -232,17 +233,20 @@ def run_paper_trading_cycle(
         from services.portfolio_engine.service import PortfolioEngineService
         from services.reporting.models import FillExpectation
         from services.reporting.service import ReportingService
-        from services.evaluation_engine.service import EvaluationEngineService
         from services.risk_engine.service import RiskEngineService
 
         # ── Build services ────────────────────────────────────────────────────
         _broker = broker or getattr(app_state, "broker_adapter", None) or PaperBrokerAdapter(
             market_open=True
         )
+        # Runtime kill switch lambda — lets RiskEngine + ExecutionEngine check
+        # app_state.kill_switch_active (toggled via API) without a process restart.
+        _ks_fn = lambda: bool(getattr(app_state, "kill_switch_active", False))  # noqa: E731
+
         _portfolio_svc = portfolio_svc or PortfolioEngineService(settings=cfg)
-        _risk_svc = risk_svc or RiskEngineService(settings=cfg)
+        _risk_svc = risk_svc or RiskEngineService(settings=cfg, kill_switch_fn=_ks_fn)
         _execution_svc = execution_svc or ExecutionEngineService(
-            settings=cfg, broker=_broker
+            settings=cfg, broker=_broker, kill_switch_fn=_ks_fn
         )
         _market_data_svc = market_data_svc or MarketDataService()
         _reporting_svc = reporting_svc or ReportingService()
@@ -323,7 +327,9 @@ def run_paper_trading_cycle(
         # Apply pairwise correlation penalty to OPEN actions before risk gating.
         # Highly correlated candidates receive reduced target_notional / quantity.
         try:
-            from services.risk_engine.correlation import CorrelationService as _CorrSvc  # noqa: PLC0415
+            from services.risk_engine.correlation import (
+                CorrelationService as _CorrSvc,  # noqa: PLC0415
+            )
 
             _corr_matrix = getattr(app_state, "correlation_matrix", {})
             _existing_tickers = list(portfolio_state.positions.keys())
@@ -345,7 +351,9 @@ def run_paper_trading_cycle(
         # CLOSE and TRIM actions are never affected.
         # Updates app_state.sector_weights for the dashboard/endpoint.
         try:
-            from services.risk_engine.sector_exposure import SectorExposureService as _SectorSvc  # noqa: PLC0415
+            from services.risk_engine.sector_exposure import (
+                SectorExposureService as _SectorSvc,  # noqa: PLC0415
+            )
 
             _before_sector = len([a for a in proposed_actions if a.action_type == ActionType.OPEN])
             proposed_actions = _SectorSvc.filter_for_sector_limits(
@@ -413,7 +421,9 @@ def run_paper_trading_cycle(
         # Block new OPEN actions when the worst-case historical-scenario stressed
         # loss exceeds max_stress_loss_pct.  CLOSE and TRIM always pass through.
         try:
-            from services.risk_engine.stress_test import StressTestService as _StressSvc  # noqa: PLC0415
+            from services.risk_engine.stress_test import (
+                StressTestService as _StressSvc,  # noqa: PLC0415
+            )
 
             _stress_result = getattr(app_state, "latest_stress_result", None)
             if _stress_result is not None:
@@ -435,7 +445,9 @@ def run_paper_trading_cycle(
         # VaR and stop-loss models cannot protect against overnight earnings gaps.
         # CLOSE and TRIM actions always pass through.
         try:
-            from services.risk_engine.earnings_calendar import EarningsCalendarService as _EarnSvc  # noqa: PLC0415
+            from services.risk_engine.earnings_calendar import (
+                EarningsCalendarService as _EarnSvc,  # noqa: PLC0415
+            )
 
             _earnings_cal = getattr(app_state, "latest_earnings_calendar", None)
             if _earnings_cal is not None:
@@ -451,7 +463,10 @@ def run_paper_trading_cycle(
             logger.warning("earnings_gate_failed", error=str(_earn_exc))
 
         # ── Phase 47: Drawdown Recovery Mode ─────────────────────────────────────
-        from services.risk_engine.drawdown_recovery import DrawdownRecoveryService as _DDSvc, DrawdownState as _DDState  # noqa: PLC0415
+        from services.risk_engine.drawdown_recovery import (  # noqa: PLC0415
+            DrawdownRecoveryService as _DDSvc,
+        )
+        from services.risk_engine.drawdown_recovery import DrawdownState as _DDState
 
         try:
             _dd_equity = float(portfolio_state.equity)
@@ -468,11 +483,14 @@ def run_paper_trading_cycle(
             new_state = drawdown_result.state.value
             if new_state != prev_state:
                 app_state.drawdown_state = new_state
-                app_state.drawdown_state_changed_at = dt.datetime.now(dt.timezone.utc)
+                app_state.drawdown_state_changed_at = dt.datetime.now(dt.UTC)
                 _alert_svc_dd = getattr(app_state, "alert_service", None)
                 if _alert_svc_dd:
                     try:
-                        from services.alerting.models import AlertEvent, AlertSeverity  # noqa: PLC0415
+                        from services.alerting.models import (  # noqa: PLC0415
+                            AlertEvent,
+                            AlertSeverity,
+                        )
                         _alert_svc_dd.send_alert(AlertEvent(
                             event_type="drawdown_state_change",
                             severity=AlertSeverity.WARNING.value,
@@ -565,7 +583,9 @@ def run_paper_trading_cycle(
         # OPEN suggestions enter the normal risk pipeline.
         # CLOSE actions always supersede rebalance TRIMs (dedup by already_closing).
         try:
-            from services.risk_engine.rebalancing import RebalancingService as _RebSvc  # noqa: PLC0415
+            from services.risk_engine.rebalancing import (
+                RebalancingService as _RebSvc,  # noqa: PLC0415
+            )
 
             _reb_targets = getattr(app_state, "rebalance_targets", {}) or {}
             if _reb_targets and getattr(cfg, "enable_rebalancing", True):
@@ -641,8 +661,8 @@ def run_paper_trading_cycle(
         # evening run_fill_quality_update job can compute slippage aggregates.
         try:
             from services.execution_engine.models import ExecutionStatus as _FQExecStatus
-            from services.portfolio_engine.models import ActionType as _FQActionType
             from services.fill_quality.service import FillQualityService as _FQSvc
+            from services.portfolio_engine.models import ActionType as _FQActionType
 
             for _fq_req, _fq_res in zip(approved_requests, execution_results):
                 if (
@@ -729,7 +749,7 @@ def run_paper_trading_cycle(
             for _ct in _newly_closed:
                 _opened = _ct.opened_at
                 if _opened is not None and _opened.tzinfo is None:
-                    _opened = _opened.replace(tzinfo=dt.timezone.utc)
+                    _opened = _opened.replace(tzinfo=dt.UTC)
                 _tr = _TradeRecord(
                     ticker=_ct.ticker,
                     strategy_key="",
@@ -771,7 +791,7 @@ def run_paper_trading_cycle(
                 del _peaks[_stale_ticker]
 
         # ── Fill reconciliation ────────────────────────────────────────────────
-        reconciliation_clean: Optional[bool] = None
+        reconciliation_clean: bool | None = None
         try:
             actual_fills = _broker.list_fills_since(run_at)
             reconciliation = _reporting_svc.reconcile_fills(
@@ -820,7 +840,9 @@ def run_paper_trading_cycle(
         # Volatility data is queried read-only from the feature store; failure
         # degrades gracefully to 0.5 neutral LOW_VOL scores.
         try:
-            from services.risk_engine.factor_exposure import FactorExposureService as _FactorSvc  # noqa: PLC0415
+            from services.risk_engine.factor_exposure import (
+                FactorExposureService as _FactorSvc,  # noqa: PLC0415
+            )
 
             _fe_positions = portfolio_state.positions if portfolio_state else {}
             if _fe_positions:
@@ -837,8 +859,10 @@ def run_paper_trading_cycle(
                 _fe_vol_map: dict[str, float] = {}
                 try:
                     import sqlalchemy as _sa  # noqa: PLC0415
-                    from infra.db.models.analytics import Feature as _Feat, SecurityFeatureValue as _SFV  # noqa: PLC0415
+
                     from infra.db.models import Security as _Sec  # noqa: PLC0415
+                    from infra.db.models.analytics import Feature as _Feat  # noqa: PLC0415
+                    from infra.db.models.analytics import SecurityFeatureValue as _SFV
                     from infra.db.session import db_session as _fe_db_sess  # noqa: PLC0415
 
                     with _fe_db_sess() as _fe_db:
@@ -916,7 +940,9 @@ def run_paper_trading_cycle(
         try:
             _fe_new = getattr(app_state, "latest_factor_exposure", None)
             if _fe_new is not None:
-                from services.factor_alerts.service import FactorTiltAlertService as _FTASvc  # noqa: PLC0415
+                from services.factor_alerts.service import (
+                    FactorTiltAlertService as _FTASvc,  # noqa: PLC0415
+                )
                 _last_dom = getattr(app_state, "last_dominant_factor", None)
                 _tilt_events = getattr(app_state, "factor_tilt_events", [])
                 _tilt_event = _FTASvc.detect_tilt(
@@ -931,7 +957,10 @@ def run_paper_trading_cycle(
                     _fta_alert_svc = getattr(app_state, "alert_service", None)
                     if _fta_alert_svc:
                         try:
-                            from services.alerting.models import AlertEvent, AlertSeverity  # noqa: PLC0415
+                            from services.alerting.models import (  # noqa: PLC0415
+                                AlertEvent,
+                                AlertSeverity,
+                            )
                             _fta_alert_svc.send_alert(AlertEvent(
                                 event_type="factor_tilt_detected",
                                 severity=AlertSeverity.INFO.value,

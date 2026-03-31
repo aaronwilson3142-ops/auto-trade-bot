@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Optional
 
 from pydantic import BaseModel
 
@@ -20,7 +19,7 @@ class DailyReportResponse(BaseModel):
     reconciliation_clean: bool
     avg_slippage_bps: float
     max_slippage_bps: float
-    scorecard_grade: Optional[str]
+    scorecard_grade: str | None
     narrative: str
     benchmark_differentials: dict[str, float]
     improvement_proposals_generated: int
@@ -29,7 +28,7 @@ class DailyReportResponse(BaseModel):
 
 class DailyReportLatestResponse(BaseModel):
     found: bool
-    report: Optional[DailyReportResponse]
+    report: DailyReportResponse | None
 
 
 class ReportHistoryResponse(BaseModel):

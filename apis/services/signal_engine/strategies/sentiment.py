@@ -31,7 +31,6 @@ from __future__ import annotations
 import logging
 import math
 from decimal import Decimal, InvalidOperation
-from typing import Optional
 
 from services.feature_store.models import FeatureSet
 from services.signal_engine.models import (
@@ -56,7 +55,7 @@ def _clamp(x: float, lo: float = 0.0, hi: float = 1.0) -> float:
     return max(lo, min(hi, x))
 
 
-def _d(x: Optional[float]) -> Optional[Decimal]:
+def _d(x: float | None) -> Decimal | None:
     if x is None:
         return None
     try:

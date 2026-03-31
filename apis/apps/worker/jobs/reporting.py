@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import datetime as dt
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
 from apps.api.state import ApiAppState
 from config.logging_config import get_logger
@@ -32,10 +32,10 @@ logger = get_logger(__name__)
 
 def run_generate_daily_report(
     app_state: ApiAppState,
-    settings: Optional[Settings] = None,
-    orders: Optional[list[Any]] = None,
-    reconciliation: Optional[Any] = None,
-    reporting_service: Optional[Any] = None,
+    settings: Settings | None = None,
+    orders: list[Any] | None = None,
+    reconciliation: Any | None = None,
+    reporting_service: Any | None = None,
     max_history: int = 90,
 ) -> dict[str, Any]:
     """Assemble and store the daily operational report.
@@ -60,7 +60,7 @@ def run_generate_daily_report(
     from services.reporting.service import ReportingService
 
     cfg = settings or get_settings()
-    run_at = dt.datetime.now(dt.timezone.utc)
+    run_at = dt.datetime.now(dt.UTC)
     today = run_at.date()
     svc = reporting_service or ReportingService()
 
@@ -89,7 +89,7 @@ def run_generate_daily_report(
         realized_pnl = Decimal("0")  # would come from closed trades in full pipeline
 
         # ── Scorecard grade and benchmark differentials ───────────────────────
-        scorecard_grade: Optional[str] = None
+        scorecard_grade: str | None = None
         benchmark_differentials: dict[str, Decimal] = {}
 
         sc = app_state.latest_scorecard
@@ -171,7 +171,7 @@ def run_generate_daily_report(
 
 def run_publish_operator_summary(
     app_state: ApiAppState,
-    settings: Optional[Settings] = None,
+    settings: Settings | None = None,
 ) -> dict[str, Any]:
     """Log a structured operator summary of the current system state.
 
@@ -186,7 +186,7 @@ def run_publish_operator_summary(
         dict with keys: status, lines_emitted, run_at.
     """
     cfg = settings or get_settings()
-    run_at = dt.datetime.now(dt.timezone.utc)
+    run_at = dt.datetime.now(dt.UTC)
 
     logger.info("publish_operator_summary_starting", run_at=run_at.isoformat())
 
@@ -235,7 +235,7 @@ def run_publish_operator_summary(
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _derive_grade(scorecard: Any) -> Optional[str]:
+def _derive_grade(scorecard: Any) -> str | None:
     """Extract a letter grade from a DailyScorecard."""
     # DailyScorecard does not have a direct letter_grade field;
     # derive from daily_return_pct using standard evaluation thresholds.

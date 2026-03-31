@@ -1,6 +1,7 @@
 from __future__ import annotations
+
 import datetime as dt
-from typing import Optional
+
 from pydantic import BaseModel
 
 
@@ -13,4 +14,4 @@ class DrawdownStateResponse(BaseModel):
     recovery_threshold_pct: float
     size_multiplier: float
     block_new_positions: bool
-    state_changed_at: Optional[dt.datetime]
+    state_changed_at: dt.datetime | None

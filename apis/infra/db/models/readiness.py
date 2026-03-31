@@ -8,8 +8,6 @@ Phase 56 — Readiness Report History
 """
 from __future__ import annotations
 
-from typing import Optional
-
 import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -47,7 +45,7 @@ class ReadinessSnapshot(Base, TimestampMixin):
     gates_json: Mapped[str] = mapped_column(
         sa.Text, nullable=False, default="[]", server_default="[]"
     )
-    recommendation: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
+    recommendation: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
     __table_args__ = (
         sa.Index("ix_readiness_snapshot_captured_at", "captured_at"),

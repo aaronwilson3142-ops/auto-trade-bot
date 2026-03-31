@@ -9,7 +9,7 @@ from enum import Enum
 from functools import lru_cache
 from typing import Annotated
 
-from pydantic import Field, PostgresDsn, RedisDsn, field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -67,12 +67,27 @@ class Settings(BaseSettings):
     # ── API Server ─────────────────────────────────────────────────────────────
     api_host: str = "0.0.0.0"
     api_port: int = Field(default=8000, ge=1, le=65535)
+    # Explicit list of browser origins allowed to make cross-origin requests.
+    # Replaces allow_origins=["*"].  Default covers the FastAPI/Swagger UI on
+    # the API port and the Grafana dashboard on port 3000 — the only two
+    # browser-based origins that legitimately access the API.
+    # Override via APIS_ALLOWED_CORS_ORIGINS='["http://myhost:8000"]' (JSON list).
+    allowed_cors_origins: list[str] = Field(
+        default=[
+            "http://localhost:8000",
+            "http://127.0.0.1:8000",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ]
+    )
 
     # ── Risk Controls ──────────────────────────────────────────────────────────
     # These are configurable floors. The risk_engine may enforce tighter hard limits.
     max_positions: int = Field(default=10, ge=1, le=50)
+    max_new_positions_per_day: int = Field(default=3, ge=1, le=10)
     daily_loss_limit_pct: float = Field(default=0.02, gt=0.0, le=0.10)
     weekly_drawdown_limit_pct: float = Field(default=0.05, gt=0.0, le=0.20)
+    monthly_drawdown_limit_pct: float = Field(default=0.10, gt=0.0, le=0.50)
     max_single_name_pct: float = Field(default=0.20, gt=0.0, le=1.0)
     max_sector_pct: float = Field(default=0.40, gt=0.0, le=1.0)
     max_thematic_pct: float = Field(default=0.50, gt=0.0, le=1.0)
@@ -165,6 +180,11 @@ class Settings(BaseSettings):
     kill_switch: bool = False
 
     # ── Admin / Ops ────────────────────────────────────────────────────────────
+    # Pre-shared bearer token required on ALL /api/v1/* routes (except /health,
+    # /metrics, /readiness, and /dashboard which remain open).
+    # Set APIS_OPERATOR_TOKEN to enable; empty string = all API routes return 503.
+    operator_token: str = ""
+
     # Pre-shared bearer token that AWS Secrets Manager rotation Lambda must send
     # to POST /api/v1/admin/invalidate-secrets.  Empty string = endpoint disabled.
     admin_rotation_token: str = ""

@@ -6,9 +6,8 @@ serialize to/from plain dicts so no heavy framework is required.
 """
 from __future__ import annotations
 
-import datetime as dt
 from dataclasses import asdict, dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 
 @dataclass
@@ -23,12 +22,12 @@ class ContinuitySnapshot:
     operating_mode: str                       # e.g. "PAPER"
     kill_switch_active: bool
     paper_cycle_count: int
-    portfolio_equity: Optional[float]
-    portfolio_cash: Optional[float]
+    portfolio_equity: float | None
+    portfolio_cash: float | None
     portfolio_positions: int
     ranking_count: int
     broker_auth_expired: bool
-    last_paper_cycle_at: Optional[str]        # ISO-format or None
+    last_paper_cycle_at: str | None        # ISO-format or None
     pending_proposals: int
 
     def to_dict(self) -> dict[str, Any]:
@@ -36,7 +35,7 @@ class ContinuitySnapshot:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ContinuitySnapshot":
+    def from_dict(cls, data: dict[str, Any]) -> ContinuitySnapshot:
         """Deserialize from a plain dict (e.g. loaded from JSON)."""
         return cls(
             snapshot_at=data.get("snapshot_at", ""),

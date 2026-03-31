@@ -13,9 +13,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
+from apps.api.deps import AppStateDep, OperatorTokenDep, SettingsDep
 from config.logging_config import configure_logging, get_logger
 from config.settings import get_settings
-from apps.api.deps import AppStateDep, SettingsDep
 
 settings = get_settings()
 configure_logging(log_level=settings.log_level)
@@ -38,6 +38,14 @@ def _load_persisted_state() -> None:
 
     app_state = get_app_state()
     cfg = get_settings()
+
+    # Attach session factory to app_state so DB-backed API routes can use it
+    try:
+        from infra.db.session import SessionLocal
+        app_state._session_factory = SessionLocal
+        logger.info("session_factory_attached_to_app_state")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("session_factory_init_failed", error=str(exc))
 
     # env-var kill switch always takes precedence
     if cfg.kill_switch:
@@ -87,6 +95,57 @@ def _load_persisted_state() -> None:
     except Exception as exc:  # noqa: BLE001
         logger.warning("load_persisted_state_failed", error=str(exc))
 
+    # Restore latest rankings from DB so paper cycles are not blocked after a restart
+    try:
+        import sqlalchemy as _sa
+
+        from infra.db.models import Security
+        from infra.db.models.signal import RankedOpportunity, RankingRun
+        from infra.db.session import db_session as _db_session_rank
+        from services.ranking_engine.models import RankedResult
+
+        with _db_session_rank() as db:
+            latest_run = db.execute(
+                _sa.select(RankingRun).order_by(RankingRun.run_timestamp.desc()).limit(1)
+            ).scalar_one_or_none()
+
+            if latest_run is not None:
+                rows = db.execute(
+                    _sa.select(RankedOpportunity, Security.ticker)
+                    .join(Security, Security.id == RankedOpportunity.security_id)
+                    .where(RankedOpportunity.ranking_run_id == latest_run.id)
+                    .order_by(RankedOpportunity.rank_position)
+                ).all()
+
+                restored: list[RankedResult] = []
+                for opp, ticker in rows:
+                    restored.append(RankedResult(
+                        rank_position=opp.rank_position,
+                        security_id=opp.security_id,
+                        ticker=ticker,
+                        composite_score=opp.composite_score,
+                        portfolio_fit_score=opp.portfolio_fit_score,
+                        recommended_action=opp.recommended_action,
+                        target_horizon=opp.target_horizon or "medium",
+                        thesis_summary=opp.thesis_summary or "",
+                        disconfirming_factors=opp.disconfirming_factors or "",
+                        sizing_hint_pct=opp.sizing_hint_pct,
+                        source_reliability_tier="secondary_verified",
+                        contains_rumor=False,
+                        as_of=latest_run.run_timestamp,
+                    ))
+
+                if restored:
+                    app_state.latest_rankings = restored
+                    app_state.last_ranking_run_id = str(latest_run.id)
+                    logger.info(
+                        "latest_rankings_restored_from_db",
+                        count=len(restored),
+                        run_id=str(latest_run.id),
+                    )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("latest_rankings_restore_failed", error=str(exc))
+
     # Restore latest portfolio snapshot equity baseline from DB (Priority 20)
     try:
         from infra.db.models.portfolio import PortfolioSnapshot as _DBSnap
@@ -128,8 +187,8 @@ def _load_persisted_state() -> None:
 
     # ── Broker adapter initialization ────────────────────────────────────────
     try:
-        from config.settings import get_alpaca_settings
         from broker_adapters.alpaca.adapter import AlpacaBrokerAdapter
+        from config.settings import get_alpaca_settings
         alpaca_cfg = get_alpaca_settings()
         if alpaca_cfg.is_configured:
             adapter = AlpacaBrokerAdapter(
@@ -148,9 +207,42 @@ def _load_persisted_state() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: ARG001
-    """FastAPI lifespan — runs _load_persisted_state() on startup."""
+    """FastAPI lifespan — runs _load_persisted_state() on startup, then
+    starts the APScheduler worker in the same process so that the scheduler
+    and the API share a single ApiAppState instance.  This eliminates the
+    multi-process state-sharing gap where the worker updated its own isolated
+    in-memory state and the API served stale data to the dashboard.
+    """
     _load_persisted_state()
+
+    # Start the APScheduler in a background thread inside this process.
+    # Both the scheduler jobs and the API routes now call get_app_state()
+    # and receive the *same* singleton object.
+    scheduler = None
+    try:
+        from apps.worker.main import (
+            _setup_alert_service,  # noqa: PLC0415
+            build_scheduler,  # noqa: PLC0415
+        )
+        _setup_alert_service()
+        scheduler = build_scheduler()
+        scheduler.start()
+        logger.info(
+            "apis_scheduler_started_in_api_process",
+            job_count=len(scheduler.get_jobs()),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.error("apis_scheduler_start_failed", error=str(exc))
+
     yield
+
+    # Graceful shutdown
+    if scheduler is not None:
+        try:
+            scheduler.shutdown(wait=False)
+            logger.info("apis_scheduler_stopped")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("apis_scheduler_stop_failed", error=str(exc))
 
 
 app = FastAPI(
@@ -167,9 +259,9 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.allowed_cors_origins,
     allow_methods=["GET", "POST"],
-    allow_headers=["*"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # Mount all v1 routers under /api/v1 prefix
@@ -179,71 +271,76 @@ from apps.api.routes import (  # noqa: E402
     backtest_router,
     config_router,
     correlation_router,
+    earnings_router,
     evaluation_router,
     exit_levels_router,
+    factor_router,
+    factor_tilt_router,
+    fill_quality_router,
     intelligence_router,
-    live_gate_router,
     liquidity_router,
+    live_gate_router,
     metrics_router,
     portfolio_router,
     prices_router,
     rankings_router,
-    recommendations_router,
-    reports_router,
-    self_improvement_router,
-    signals_router,
-    weights_router,
-    regime_router,
-    sector_router,
-    var_router,
-    stress_router,
-    earnings_router,
-    signal_quality_router,
-    universe_router,
-    rebalance_router,
-    factor_router,
-    fill_quality_router,
     readiness_router,
-    factor_tilt_router,
+    rebalance_router,
+    recommendations_router,
+    regime_router,
+    reports_router,
+    sector_router,
+    self_improvement_router,
+    signal_quality_router,
+    signals_router,
+    stress_router,
+    universe_router,
+    var_router,
+    weights_router,
 )
 
 _V1 = "/api/v1"
-app.include_router(recommendations_router, prefix=_V1)
-app.include_router(portfolio_router,        prefix=_V1)
-app.include_router(actions_router,          prefix=_V1)
-app.include_router(evaluation_router,       prefix=_V1)
-app.include_router(reports_router,          prefix=_V1)
-app.include_router(config_router,           prefix=_V1)
-app.include_router(live_gate_router,        prefix=_V1)
-app.include_router(admin_router,            prefix=_V1)
-app.include_router(intelligence_router,     prefix=_V1)
-app.include_router(signals_router,          prefix=_V1)
-app.include_router(rankings_router,         prefix=_V1)
-app.include_router(backtest_router,         prefix=_V1)
-app.include_router(self_improvement_router, prefix=_V1)
-app.include_router(prices_router,           prefix=_V1)
-app.include_router(weights_router,          prefix=_V1)
-app.include_router(regime_router,           prefix=_V1)
-app.include_router(correlation_router,      prefix=_V1)
-app.include_router(sector_router,           prefix=_V1)
-app.include_router(liquidity_router,        prefix=_V1)
-app.include_router(var_router,              prefix=_V1)
-app.include_router(stress_router,           prefix=_V1)
-app.include_router(earnings_router,         prefix=_V1)
-app.include_router(signal_quality_router,   prefix=_V1)
-app.include_router(exit_levels_router,      prefix=_V1)
-app.include_router(universe_router,         prefix=_V1)
-app.include_router(rebalance_router,        prefix=_V1)
-app.include_router(factor_router,           prefix=_V1)
-app.include_router(fill_quality_router,     prefix=_V1)
-app.include_router(readiness_router,        prefix=_V1)
-app.include_router(factor_tilt_router,      prefix=_V1)
+_AUTH = [OperatorTokenDep]  # applied to every /api/v1/* route
 
-# Prometheus metrics endpoint (no prefix — standard /metrics path)
+app.include_router(recommendations_router, prefix=_V1, dependencies=_AUTH)
+app.include_router(portfolio_router,        prefix=_V1, dependencies=_AUTH)
+app.include_router(actions_router,          prefix=_V1, dependencies=_AUTH)
+app.include_router(evaluation_router,       prefix=_V1, dependencies=_AUTH)
+app.include_router(reports_router,          prefix=_V1, dependencies=_AUTH)
+app.include_router(config_router,           prefix=_V1, dependencies=_AUTH)
+app.include_router(live_gate_router,        prefix=_V1, dependencies=_AUTH)
+app.include_router(admin_router,            prefix=_V1, dependencies=_AUTH)
+app.include_router(intelligence_router,     prefix=_V1, dependencies=_AUTH)
+app.include_router(signals_router,          prefix=_V1, dependencies=_AUTH)
+app.include_router(rankings_router,         prefix=_V1, dependencies=_AUTH)
+app.include_router(backtest_router,         prefix=_V1, dependencies=_AUTH)
+app.include_router(self_improvement_router, prefix=_V1, dependencies=_AUTH)
+app.include_router(prices_router,           prefix=_V1, dependencies=_AUTH)
+app.include_router(weights_router,          prefix=_V1, dependencies=_AUTH)
+app.include_router(regime_router,           prefix=_V1, dependencies=_AUTH)
+app.include_router(correlation_router,      prefix=_V1, dependencies=_AUTH)
+app.include_router(sector_router,           prefix=_V1, dependencies=_AUTH)
+app.include_router(liquidity_router,        prefix=_V1, dependencies=_AUTH)
+app.include_router(var_router,              prefix=_V1, dependencies=_AUTH)
+app.include_router(stress_router,           prefix=_V1, dependencies=_AUTH)
+app.include_router(earnings_router,         prefix=_V1, dependencies=_AUTH)
+app.include_router(signal_quality_router,   prefix=_V1, dependencies=_AUTH)
+app.include_router(exit_levels_router,      prefix=_V1, dependencies=_AUTH)
+app.include_router(universe_router,         prefix=_V1, dependencies=_AUTH)
+app.include_router(rebalance_router,        prefix=_V1, dependencies=_AUTH)
+app.include_router(factor_router,           prefix=_V1, dependencies=_AUTH)
+app.include_router(fill_quality_router,     prefix=_V1, dependencies=_AUTH)
+app.include_router(factor_tilt_router,      prefix=_V1, dependencies=_AUTH)
+
+# Readiness probes — no auth (must respond even before token is configured)
+app.include_router(readiness_router, prefix=_V1)
+
+# Prometheus metrics endpoint (no auth — scraped by monitoring infrastructure)
 app.include_router(metrics_router)
 
 # Read-only operator dashboard
 from apps.dashboard.router import dashboard_router  # noqa: E402
+
 app.include_router(dashboard_router)
 
 
@@ -281,7 +378,7 @@ async def health(state: AppStateDep, cfg: SettingsDep) -> JSONResponse:
     if last_cycle is None:
         components["scheduler"] = "no_data"
     else:
-        age_s = (_dt.datetime.now(tz=_dt.timezone.utc) - last_cycle).total_seconds()
+        age_s = (_dt.datetime.now(tz=_dt.UTC) - last_cycle).total_seconds()
         components["scheduler"] = "stale" if age_s > 7200 else "ok"
 
     # ── Broker auth token ─────────────────────────────────────────────────────
@@ -306,7 +403,7 @@ async def health(state: AppStateDep, cfg: SettingsDep) -> JSONResponse:
             "status": overall,
             "service": "api",
             "mode": cfg.operating_mode.value,
-            "timestamp": _dt.datetime.now(tz=_dt.timezone.utc).isoformat(),
+            "timestamp": _dt.datetime.now(tz=_dt.UTC).isoformat(),
             "components": components,
         },
     )
@@ -321,8 +418,8 @@ async def system_status(state: AppStateDep, cfg: SettingsDep) -> dict[str, objec
         "mode": cfg.operating_mode.value,
         "kill_switch": effective_kill,
         "max_positions": cfg.max_positions,
-        "latest_ranking_run_id": None,  # populated once ranking engine is live
-        "latest_evaluation_run_id": None,
+        "latest_ranking_run_id": getattr(state, "last_ranking_run_id", None),
+        "latest_evaluation_run_id": getattr(state, "evaluation_run_id", None),
     }
 
 

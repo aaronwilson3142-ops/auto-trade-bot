@@ -7,7 +7,6 @@ All endpoints are read-only.
 from __future__ import annotations
 
 import datetime as dt
-from typing import Optional
 
 from fastapi import APIRouter, Query
 
@@ -62,7 +61,7 @@ async def get_portfolio(state: AppStateDep) -> PortfolioResponse:
             drawdown_pct=0.0,
             daily_pnl_pct=0.0,
             positions=[],
-            as_of=dt.datetime.now(tz=dt.timezone.utc),
+            as_of=dt.datetime.now(tz=dt.UTC),
         )
 
     positions = [_to_position_schema(p) for p in ps.positions.values()]
@@ -74,7 +73,7 @@ async def get_portfolio(state: AppStateDep) -> PortfolioResponse:
         drawdown_pct=float(ps.drawdown_pct),
         daily_pnl_pct=float(ps.daily_pnl_pct),
         positions=positions,
-        as_of=dt.datetime.now(tz=dt.timezone.utc),
+        as_of=dt.datetime.now(tz=dt.UTC),
     )
 
 
@@ -114,7 +113,7 @@ async def get_performance_summary(state: AppStateDep) -> PerformanceSummaryRespo
     and unrealized P&L from current open positions are all computed in-memory.
     """
     ps = state.portfolio_state
-    now = dt.datetime.now(tz=dt.timezone.utc)
+    now = dt.datetime.now(tz=dt.UTC)
 
     if ps is None:
         return PerformanceSummaryResponse(
@@ -175,7 +174,7 @@ async def get_performance_summary(state: AppStateDep) -> PerformanceSummaryRespo
 @router.get("/grades", response_model=TradeGradeHistoryResponse)
 async def get_trade_grades(
     limit: int = Query(50, ge=1, le=500),
-    ticker: Optional[str] = Query(None, description="Filter by ticker symbol (case-insensitive)."),
+    ticker: str | None = Query(None, description="Filter by ticker symbol (case-insensitive)."),
     state: AppStateDep = None,
 ) -> TradeGradeHistoryResponse:
     """Return trade grade history from the in-memory grade ledger, most recent first.
@@ -220,7 +219,7 @@ async def get_trade_grades(
 @router.get("/trades", response_model=ClosedTradeHistoryResponse)
 async def get_trade_history(
     limit: int = Query(50, ge=1, le=500),
-    ticker: Optional[str] = Query(None, description="Filter by ticker symbol (case-insensitive)."),
+    ticker: str | None = Query(None, description="Filter by ticker symbol (case-insensitive)."),
     state: AppStateDep = None,
 ) -> ClosedTradeHistoryResponse:
     """Return closed trade history from the in-memory ledger, most recent first.
@@ -315,9 +314,10 @@ async def get_positions_latest_history() -> PositionLatestSnapshotResponse:
     conflicting with the parameterised ``/positions/{ticker}`` route.
     """
     try:
+        import sqlalchemy as _sa
+
         from infra.db.models.portfolio import PositionHistory as _PosHist
         from infra.db.session import db_session as _db_session
-        import sqlalchemy as _sa
 
         with _db_session() as db:
             # Subquery: max snapshot_at per ticker
@@ -404,8 +404,8 @@ async def get_portfolio_snapshots(
 @router.get("/drawdown-state")
 async def get_drawdown_state(app_state: AppStateDep, settings: SettingsDep):
     """Current drawdown recovery state."""
-    from services.risk_engine.drawdown_recovery import DrawdownRecoveryService
     from apps.api.schemas.drawdown import DrawdownStateResponse
+    from services.risk_engine.drawdown_recovery import DrawdownRecoveryService
 
     ps = app_state.portfolio_state
     if ps is not None:

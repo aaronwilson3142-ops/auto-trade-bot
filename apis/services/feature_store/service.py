@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-from typing import Optional
 from uuid import UUID
 
 import pandas as pd
@@ -21,7 +20,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from infra.db.models import DailyMarketBar, Feature, Security, SecurityFeatureValue
+from infra.db.models import DailyMarketBar, Feature, SecurityFeatureValue
 from services.feature_store.models import FEATURE_GROUP_MAP, FEATURE_KEYS, FeatureSet
 from services.feature_store.pipeline import BaselineFeaturePipeline
 
@@ -35,7 +34,7 @@ class FeatureStoreService:
         pipeline: Feature pipeline instance.  Defaults to BaselineFeaturePipeline().
     """
 
-    def __init__(self, pipeline: Optional[BaselineFeaturePipeline] = None) -> None:
+    def __init__(self, pipeline: BaselineFeaturePipeline | None = None) -> None:
         self._pipeline = pipeline or BaselineFeaturePipeline()
 
     # ------------------------------------------------------------------
@@ -78,7 +77,7 @@ class FeatureStoreService:
         session: Session,
         security_id: UUID,
         ticker: str,
-        as_of: Optional[dt.datetime] = None,
+        as_of: dt.datetime | None = None,
     ) -> FeatureSet:
         """Load bars from DB, compute features, persist them, and return the FeatureSet.
 
@@ -110,7 +109,7 @@ class FeatureStoreService:
         self,
         session: Session,
         security_id: UUID,
-        as_of: Optional[dt.datetime] = None,
+        as_of: dt.datetime | None = None,
     ) -> dict[str, object]:
         """Retrieve the most recent feature values for a security.
 

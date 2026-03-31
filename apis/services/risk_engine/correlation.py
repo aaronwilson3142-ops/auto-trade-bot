@@ -20,8 +20,8 @@ Design rules
 from __future__ import annotations
 
 import dataclasses
-from decimal import Decimal, ROUND_DOWN
-from typing import TYPE_CHECKING, Optional
+from decimal import ROUND_DOWN, Decimal
+from typing import TYPE_CHECKING
 
 import structlog
 
@@ -93,7 +93,7 @@ class CorrelationService:
 
                 try:
                     corr = float(np.corrcoef(arr_a[mask], arr_b[mask])[0, 1])
-                except Exception:  # noqa: BLE001
+                except Exception:  # noqa: BLE001, S112
                     continue
 
                 if not (-1.0 <= corr <= 1.0):
@@ -112,7 +112,7 @@ class CorrelationService:
         ticker_a: str,
         ticker_b: str,
         matrix: dict[tuple[str, str], float],
-    ) -> Optional[float]:
+    ) -> float | None:
         """Return the pairwise correlation between two tickers, or None.
 
         Tries both orderings so callers need not worry about key direction.
@@ -155,7 +155,7 @@ class CorrelationService:
     # ── Size factor ───────────────────────────────────────────────────────
 
     @staticmethod
-    def correlation_size_factor(max_corr: float, settings: "Settings") -> float:
+    def correlation_size_factor(max_corr: float, settings: Settings) -> float:
         """Map maximum pairwise correlation to a position size multiplier.
 
         No penalty below _PENALTY_ONSET (0.50).  Linear decay from 1.0 to
@@ -182,11 +182,11 @@ class CorrelationService:
     @classmethod
     def adjust_action_for_correlation(
         cls,
-        action: "PortfolioAction",
+        action: PortfolioAction,
         existing_tickers: list[str],
         matrix: dict[tuple[str, str], float],
-        settings: "Settings",
-    ) -> "PortfolioAction":
+        settings: Settings,
+    ) -> PortfolioAction:
         """Return a correlation-adjusted OPEN action (or the original unchanged).
 
         Non-OPEN actions are returned as-is.  Empty portfolio or missing matrix
@@ -228,7 +228,7 @@ class CorrelationService:
             Decimal("0.01")
         )
 
-        new_qty: Optional[Decimal] = None
+        new_qty: Decimal | None = None
         if action.target_quantity is not None and action.target_quantity > Decimal("0"):
             new_qty = (
                 action.target_quantity * Decimal(str(round(factor, 6)))

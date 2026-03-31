@@ -20,7 +20,8 @@ Design rules
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 from config.logging_config import get_logger
 from config.settings import Settings, get_settings
@@ -34,9 +35,9 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 def run_market_data_ingestion(
-    settings: Optional[Settings] = None,
-    session_factory: Optional[Callable] = None,
-    ingestion_service: Optional[Any] = None,
+    settings: Settings | None = None,
+    session_factory: Callable | None = None,
+    ingestion_service: Any | None = None,
 ) -> dict[str, Any]:
     """Fetch and persist OHLCV bars for the full universe.
 
@@ -52,7 +53,7 @@ def run_market_data_ingestion(
         run_at.
     """
     cfg = settings or get_settings()
-    run_at = dt.datetime.now(dt.timezone.utc)
+    run_at = dt.datetime.now(dt.UTC)
 
     logger.info("ingestion_job_starting", run_at=run_at.isoformat())
 
@@ -92,7 +93,7 @@ def run_market_data_ingestion(
             "status": result.status.value,
             "tickers_attempted": len(tickers),
             "bars_persisted": result.total_bars_persisted,
-            "errors": [r.error_message for r in result.ticker_results if r.error_message],
+            "errors": [r.error for r in result.ticker_results if r.error],
             "run_at": run_at.isoformat(),
         }
 
@@ -112,9 +113,9 @@ def run_market_data_ingestion(
 # ---------------------------------------------------------------------------
 
 def run_feature_refresh(
-    settings: Optional[Settings] = None,
-    session_factory: Optional[Callable] = None,
-    feature_store_service: Optional[Any] = None,
+    settings: Settings | None = None,
+    session_factory: Callable | None = None,
+    feature_store_service: Any | None = None,
 ) -> dict[str, Any]:
     """Compute and persist baseline features for all universe securities.
 
@@ -129,7 +130,7 @@ def run_feature_refresh(
         dict with keys: status, securities_processed, errors, run_at.
     """
     cfg = settings or get_settings()
-    run_at = dt.datetime.now(dt.timezone.utc)
+    run_at = dt.datetime.now(dt.UTC)
 
     logger.info("feature_refresh_job_starting", run_at=run_at.isoformat())
 
@@ -198,8 +199,8 @@ def run_feature_refresh(
 
 def run_feature_enrichment(
     app_state: Any,
-    settings: Optional[Settings] = None,
-    enrichment_service: Optional[Any] = None,
+    settings: Settings | None = None,
+    enrichment_service: Any | None = None,
 ) -> dict[str, Any]:
     """Assess the current macro regime from active policy signals.
 
@@ -220,7 +221,7 @@ def run_feature_enrichment(
         dict with keys: status, macro_regime, signal_count, run_at.
     """
     _settings = settings or get_settings()
-    run_at = dt.datetime.now(dt.timezone.utc)
+    run_at = dt.datetime.now(dt.UTC)
 
     logger.info("feature_enrichment_job_starting", run_at=run_at.isoformat())
 
@@ -262,9 +263,9 @@ def run_feature_enrichment(
 
 def run_fundamentals_refresh(
     app_state: Any,
-    settings: Optional[Settings] = None,
-    fundamentals_service: Optional[Any] = None,
-    tickers: Optional[list] = None,
+    settings: Settings | None = None,
+    fundamentals_service: Any | None = None,
+    tickers: list | None = None,
 ) -> dict[str, Any]:
     """Fetch fundamental metrics for all universe tickers and store in app_state.
 
@@ -290,7 +291,7 @@ def run_fundamentals_refresh(
         dict with keys: status, tickers_fetched, errors, run_at.
     """
     _settings = settings or get_settings()
-    run_at = dt.datetime.now(dt.timezone.utc)
+    run_at = dt.datetime.now(dt.UTC)
 
     logger.info("fundamentals_refresh_job_starting", run_at=run_at.isoformat())
 
@@ -331,10 +332,10 @@ def run_fundamentals_refresh(
 
 def run_alternative_data_ingestion(
     app_state: Any,
-    settings: Optional[Settings] = None,
-    alt_data_service: Optional[Any] = None,
-    adapter: Optional[Any] = None,
-    tickers: Optional[list] = None,
+    settings: Settings | None = None,
+    alt_data_service: Any | None = None,
+    adapter: Any | None = None,
+    tickers: list | None = None,
 ) -> dict[str, Any]:
     """Fetch alternative data (social sentiment) for the universe and store in app_state.
 
@@ -357,7 +358,7 @@ def run_alternative_data_ingestion(
         dict with keys: status, records_ingested, tickers_processed, run_at.
     """
     _settings = settings or get_settings()
-    run_at = dt.datetime.now(dt.timezone.utc)
+    run_at = dt.datetime.now(dt.UTC)
 
     logger.info("alternative_data_ingestion_job_starting", run_at=run_at.isoformat())
 

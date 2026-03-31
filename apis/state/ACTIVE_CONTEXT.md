@@ -1,8 +1,36 @@
 # APIS — Active Context
-Last Updated: 2026-03-21 (Session 56 — Phase 56 COMPLETE — SYSTEM BUILD COMPLETE)
+Last Updated: 2026-03-30 (Ops — Infrastructure Health dashboard panel + worker pod fix)
 
 ## What APIS Is
 An Autonomous Portfolio Intelligence System for U.S. equities. A disciplined, modular, auditable portfolio operating system: ingests market/macro/news/politics/rumor signals, ranks equity ideas, manages a paper portfolio under strict risk rules, grades itself daily, and improves itself in a controlled way.
+
+## Current Operational Status
+**System running in Kubernetes kind cluster "apis" (primary). All 4 pods running. Paper trading runs 7 intraday cycles per trading day.**
+
+### Paper Trading Schedule
+- 09:35, 10:30, 11:30, 12:00, 13:30, 14:30, 15:30 ET (7 cycles/day)
+- `APIS_MAX_NEW_POSITIONS_PER_DAY=8` (up from default 3)
+- `APIS_MAX_POSITION_AGE_DAYS=5` (down from default 20)
+
+### Runtime: Kubernetes kind cluster "apis" (primary)
+- `apis-api` pod — Running, NodePort 30800, image `apis:latest`
+- `apis-worker` pod — Running (scaled back to 1 on 2026-03-30; was 0 since 2026-03-22)
+- `postgres-0` — Running, 8 days uptime
+- `redis` — Running, 8 days uptime
+- Dashboard: `http://localhost:30800/dashboard/` (or port-forward `svc/apis-api-svc 8000:8000`)
+
+### Runtime: Docker Compose (not currently running)
+- Docker Compose was previously the primary stack but is not active at this time.
+- Monitoring stack (Prometheus, Grafana, Alertmanager) only available in Docker Compose.
+
+### Config notes
+- `apis/.env`: `APIS_OPERATING_MODE=paper` ✅
+- Alpaca broker auth: currently returning "unauthorized" — API keys may need refresh
+- Local Windows Python commands (`uvicorn`, `apps.worker.main`) are NOT used
+
+### Key Issue Fixed This Session
+- **Worker pod was scaled to 0 for 8 days** (since 2026-03-22). Paper cycle count stuck at 1. All readiness gates stalled. Scaled back to 1 replica on 2026-03-30.
+- **Infrastructure Health dashboard panel added** to prevent this from going unnoticed again. Shows green/yellow/red status for: API Server, Database, Redis, Worker, Broker Connection, Kill Switch.
 
 ## Current Build Stage
 **Phase 56 — Readiness Report History — COMPLETE. 3626/3626 tests (100 skipped).**

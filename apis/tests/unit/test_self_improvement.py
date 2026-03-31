@@ -25,19 +25,16 @@ import datetime as dt
 from decimal import Decimal
 from typing import Any
 
-import pytest
-
 from services.self_improvement.config import SelfImprovementConfig
 from services.self_improvement.models import (
     PROTECTED_COMPONENTS,
     ImprovementProposal,
+    PromotionDecision,
     ProposalEvaluation,
     ProposalStatus,
     ProposalType,
-    PromotionDecision,
 )
 from services.self_improvement.service import SelfImprovementService
-
 
 # ─────────────────────── helpers ──────────────────────────────────────────────
 

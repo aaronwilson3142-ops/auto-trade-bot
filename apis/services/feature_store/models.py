@@ -10,8 +10,6 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Optional
-
 
 # ---------------------------------------------------------------------------
 # Feature registry constants
@@ -51,7 +49,7 @@ class ComputedFeature:
     """A single computed feature value for one security at one point in time."""
     feature_key: str
     feature_group: str
-    value: Optional[Decimal]
+    value: Decimal | None
     as_of_timestamp: dt.datetime
     source_version: str = "baseline_v1"
 
@@ -76,15 +74,15 @@ class FeatureSet:
 
     # ── Fundamentals overlay fields (populated by FundamentalsService) ────────
     # All None by default so callers can detect "no data" vs a genuine 0 value.
-    pe_ratio: Optional[float] = None              # trailing 12-month P/E ratio
-    forward_pe: Optional[float] = None            # forward P/E (consensus estimate)
-    peg_ratio: Optional[float] = None             # price/earnings-to-growth ratio
-    price_to_sales: Optional[float] = None        # trailing 12-month price/sales
-    eps_growth: Optional[float] = None            # YoY EPS growth (0.15 = +15%)
-    revenue_growth: Optional[float] = None        # YoY revenue growth (0.10 = +10%)
-    earnings_surprise_pct: Optional[float] = None # latest quarterly EPS surprise %
+    pe_ratio: float | None = None              # trailing 12-month P/E ratio
+    forward_pe: float | None = None            # forward P/E (consensus estimate)
+    peg_ratio: float | None = None             # price/earnings-to-growth ratio
+    price_to_sales: float | None = None        # trailing 12-month price/sales
+    eps_growth: float | None = None            # YoY EPS growth (0.15 = +15%)
+    revenue_growth: float | None = None        # YoY revenue growth (0.10 = +10%)
+    earnings_surprise_pct: float | None = None # latest quarterly EPS surprise %
 
-    def get(self, feature_key: str) -> Optional[Decimal]:
+    def get(self, feature_key: str) -> Decimal | None:
         """Return the value for *feature_key*, or None if absent."""
         for f in self.features:
             if f.feature_key == feature_key:

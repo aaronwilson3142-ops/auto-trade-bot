@@ -9,12 +9,11 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-from typing import Optional
 
 from services.data_ingestion.adapters.yfinance_adapter import YFinanceAdapter
 from services.market_data.config import MarketDataConfig
 from services.market_data.models import LiquidityMetrics, MarketSnapshot, NormalizedBar
-from services.market_data.utils import compute_liquidity_metrics, df_to_normalized_bars
+from services.market_data.utils import compute_liquidity_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +31,8 @@ class MarketDataService:
 
     def __init__(
         self,
-        config: Optional[MarketDataConfig] = None,
-        adapter: Optional[YFinanceAdapter] = None,
+        config: MarketDataConfig | None = None,
+        adapter: YFinanceAdapter | None = None,
     ) -> None:
         self._config = config or MarketDataConfig()
         self._adapter = adapter or YFinanceAdapter()
@@ -45,7 +44,7 @@ class MarketDataService:
     def get_normalized_bars(
         self,
         ticker: str,
-        period: Optional[str] = None,
+        period: str | None = None,
     ) -> list[NormalizedBar]:
         """Return a list of NormalizedBar objects for *ticker*.
 
@@ -79,7 +78,7 @@ class MarketDataService:
 
     def get_snapshot(self, ticker: str) -> MarketSnapshot:
         """Return the complete MarketSnapshot for *ticker* including liquidity."""
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime.now(dt.UTC)
         bars = self.get_normalized_bars(ticker)
         if not bars:
             logger.warning("Empty snapshot for %s — fetch returned no bars", ticker)
@@ -117,14 +116,14 @@ class MarketDataService:
                 logger.warning("Failed to fetch snapshot for %s: %s", ticker, exc)
                 result[ticker.upper()] = MarketSnapshot(
                     ticker=ticker.upper(),
-                    as_of=dt.datetime.now(dt.timezone.utc),
+                    as_of=dt.datetime.now(dt.UTC),
                 )
         return result
 
     def compute_liquidity(
         self,
         ticker: str,
-        bars: Optional[list[NormalizedBar]] = None,
+        bars: list[NormalizedBar] | None = None,
     ) -> LiquidityMetrics:
         """Compute liquidity metrics from pre-fetched bars or fetch fresh."""
         if bars is None:

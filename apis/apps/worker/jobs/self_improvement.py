@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import datetime as dt
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
 from apps.api.state import ApiAppState
 from config.logging_config import get_logger
@@ -38,8 +38,8 @@ logger = get_logger(__name__)
 
 def run_generate_improvement_proposals(
     app_state: ApiAppState,
-    settings: Optional[Settings] = None,
-    self_improvement_service: Optional[Any] = None,
+    settings: Settings | None = None,
+    self_improvement_service: Any | None = None,
 ) -> dict[str, Any]:
     """Generate improvement proposals from the latest scorecard.
 
@@ -61,7 +61,7 @@ def run_generate_improvement_proposals(
     from services.self_improvement.service import SelfImprovementService
 
     cfg = settings or get_settings()
-    run_at = dt.datetime.now(dt.timezone.utc)
+    run_at = dt.datetime.now(dt.UTC)
     svc = self_improvement_service or SelfImprovementService()
 
     logger.info("self_improvement_job_starting", run_at=run_at.isoformat())
@@ -172,9 +172,9 @@ def _build_attribution_summary(scorecard: Any) -> dict[str, Any]:
 
 def run_auto_execute_proposals(
     app_state: Any,
-    settings: Optional[Settings] = None,
-    session_factory: Optional[Any] = None,
-    auto_execution_service: Optional[Any] = None,
+    settings: Settings | None = None,
+    session_factory: Any | None = None,
+    auto_execution_service: Any | None = None,
 ) -> dict[str, Any]:
     """Auto-execute all PROMOTED proposals from the current improvement cycle.
 
@@ -196,7 +196,7 @@ def run_auto_execute_proposals(
     """
     from services.self_improvement.execution import AutoExecutionService
 
-    run_at = dt.datetime.now(dt.timezone.utc)
+    run_at = dt.datetime.now(dt.UTC)
     svc = auto_execution_service or AutoExecutionService()
 
     logger.info("auto_execute_job_starting", run_at=run_at.isoformat())

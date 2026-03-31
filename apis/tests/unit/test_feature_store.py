@@ -15,7 +15,6 @@ import uuid
 from decimal import Decimal
 
 import pandas as pd
-import pytest
 
 from services.feature_store.models import FEATURE_KEYS, ComputedFeature, FeatureSet
 from services.feature_store.pipeline import BaselineFeaturePipeline

@@ -14,14 +14,12 @@ TestPaperCycleTrailingStop      — paper cycle integration
 """
 from __future__ import annotations
 
-import dataclasses
 import datetime as dt
 from decimal import Decimal
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -52,7 +50,7 @@ def _make_position(
         quantity=Decimal(str(quantity)),
         avg_entry_price=Decimal(str(avg_entry_price)),
         current_price=Decimal(str(current_price)),
-        opened_at=dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days_ago),
+        opened_at=dt.datetime.now(dt.UTC) - dt.timedelta(days=days_ago),
         thesis_summary=thesis,
     )
 
@@ -263,7 +261,6 @@ class TestEvaluateExitsTrailingStop:
 
     def test_close_supersedes_trailing_stop(self):
         """CLOSE from rankings takes precedence: trailing stop should not duplicate it."""
-        from services.portfolio_engine.models import ActionType
         from services.risk_engine.service import RiskEngineService
         s = _make_settings(trailing_stop_pct=0.05, trailing_stop_activation_pct=0.03, take_profit_pct=0.0, stop_loss_pct=0.50)
         svc = RiskEngineService(settings=s)
@@ -475,8 +472,8 @@ class TestExitLevelsEndpoint:
         assert resp.positions == []
 
     def test_returns_correct_levels_for_position(self):
-        from services.portfolio_engine.models import PortfolioPosition, PortfolioState
         from apps.api.routes.exit_levels import get_exit_levels
+        from services.portfolio_engine.models import PortfolioState
 
         pos = _make_position(ticker="AAPL", avg_entry_price=100.0, current_price=110.0)
         ps = PortfolioState(cash=Decimal("90000"))
@@ -496,8 +493,8 @@ class TestExitLevelsEndpoint:
         assert p.take_profit_level == pytest.approx(100.0 * 1.20)
 
     def test_trailing_stop_level_computed_from_peak_not_entry(self):
-        from services.portfolio_engine.models import PortfolioState
         from apps.api.routes.exit_levels import get_exit_levels
+        from services.portfolio_engine.models import PortfolioState
 
         pos = _make_position(ticker="AAPL", avg_entry_price=100.0, current_price=110.0)
         ps = PortfolioState(cash=Decimal("90000"))
@@ -514,8 +511,8 @@ class TestExitLevelsEndpoint:
         assert p.peak_price == pytest.approx(peak)
 
     def test_stop_loss_level_computed_from_entry(self):
-        from services.portfolio_engine.models import PortfolioState
         from apps.api.routes.exit_levels import get_exit_levels
+        from services.portfolio_engine.models import PortfolioState
 
         pos = _make_position(ticker="AAPL", avg_entry_price=100.0, current_price=105.0)
         ps = PortfolioState(cash=Decimal("90000"))
@@ -529,8 +526,8 @@ class TestExitLevelsEndpoint:
         assert p.stop_loss_level == pytest.approx(100.0 * (1 - 0.07))
 
     def test_take_profit_level_computed_from_entry(self):
-        from services.portfolio_engine.models import PortfolioState
         from apps.api.routes.exit_levels import get_exit_levels
+        from services.portfolio_engine.models import PortfolioState
 
         pos = _make_position(ticker="AAPL", avg_entry_price=100.0, current_price=105.0)
         ps = PortfolioState(cash=Decimal("90000"))
@@ -544,8 +541,8 @@ class TestExitLevelsEndpoint:
         assert p.take_profit_level == pytest.approx(100.0 * 1.20)
 
     def test_trailing_stop_none_when_disabled(self):
-        from services.portfolio_engine.models import PortfolioState
         from apps.api.routes.exit_levels import get_exit_levels
+        from services.portfolio_engine.models import PortfolioState
 
         pos = _make_position(ticker="AAPL", avg_entry_price=100.0, current_price=110.0)
         ps = PortfolioState(cash=Decimal("90000"))
@@ -631,7 +628,6 @@ class TestPaperCycleTrailingStop:
     def test_peak_prices_updated_after_cycle(self):
         """After a paper cycle with a held position, position_peak_prices has an entry."""
         from apps.worker.jobs.paper_trading import run_paper_trading_cycle
-        from config.settings import Settings
 
         state = self._build_minimal_state()
         cfg = _make_settings(

@@ -55,11 +55,9 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-import os
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -83,7 +81,7 @@ def _tests(path: str) -> Path:
 class TestSchwabAdapterConcrete:
     """Identity, properties, and construction guards."""
 
-    def _make(self, **kwargs) -> "SchwabBrokerAdapter":  # noqa: F821
+    def _make(self, **kwargs) -> SchwabBrokerAdapter:  # noqa: F821
         from broker_adapters.schwab.adapter import SchwabBrokerAdapter
         defaults = dict(
             api_key="test_key",
@@ -300,15 +298,15 @@ class TestSchwabAdapterAccountState:
         assert state.positions == []
 
     def test_not_connected_raises(self):
-        from broker_adapters.schwab.adapter import SchwabBrokerAdapter
         from broker_adapters.base.exceptions import BrokerConnectionError
+        from broker_adapters.schwab.adapter import SchwabBrokerAdapter
         a = SchwabBrokerAdapter(api_key="k", app_secret="s", account_hash="H")
         with pytest.raises(BrokerConnectionError):
             a.get_account_state()
 
     def test_no_account_hash_raises(self):
-        from broker_adapters.schwab.adapter import SchwabBrokerAdapter
         from broker_adapters.base.exceptions import BrokerConnectionError
+        from broker_adapters.schwab.adapter import SchwabBrokerAdapter
         a = SchwabBrokerAdapter(api_key="k", app_secret="s")
         a._connected = True
         a._client = MagicMock()
@@ -414,9 +412,9 @@ class TestSchwabAdapterDuplicateGuard:
     """Idempotency safety guard."""
 
     def test_duplicate_key_raises_duplicate_order_error(self):
-        from broker_adapters.schwab.adapter import SchwabBrokerAdapter
         from broker_adapters.base.exceptions import DuplicateOrderError
         from broker_adapters.base.models import OrderRequest, OrderSide, OrderType
+        from broker_adapters.schwab.adapter import SchwabBrokerAdapter
         a = SchwabBrokerAdapter(api_key="k", app_secret="s", account_hash="H")
         # Must be connected so _require_connected() passes before duplicate check
         a._connected = True
@@ -642,7 +640,7 @@ class TestSchwabAdapterFills:
     def test_list_fills_since_returns_list(self):
         from broker_adapters.base.models import Fill
         a = self._adapter_with_fills()
-        since = dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc)
+        since = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
         fills = a.list_fills_since(since)
         assert isinstance(fills, list)
         if fills:
@@ -660,7 +658,7 @@ class TestSchwabAdapterFills:
         )
         with patch("schwab.auth.client_from_token_file", return_value=mock_client):
             a.connect()
-        result = a.list_fills_since(dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc))
+        result = a.list_fills_since(dt.datetime(2026, 1, 1, tzinfo=dt.UTC))
         assert result == []
 
 
@@ -702,8 +700,8 @@ class TestSchwabAdapterMarketHours:
         assert a.is_market_open() is False
 
     def test_is_market_open_exception_raises_connection_error(self):
-        from broker_adapters.schwab.adapter import SchwabBrokerAdapter
         from broker_adapters.base.exceptions import BrokerConnectionError
+        from broker_adapters.schwab.adapter import SchwabBrokerAdapter
         a = SchwabBrokerAdapter(api_key="k", app_secret="s", account_hash="H")
         # Not connected: _require_connected() raises BrokerConnectionError
         with pytest.raises(BrokerConnectionError):
@@ -716,8 +714,8 @@ class TestSchwabAdapterMarketHours:
         assert result.tzinfo is not None
 
     def test_next_market_open_raises_connection_error_when_not_connected(self):
-        from broker_adapters.schwab.adapter import SchwabBrokerAdapter
         from broker_adapters.base.exceptions import BrokerConnectionError
+        from broker_adapters.schwab.adapter import SchwabBrokerAdapter
         a = SchwabBrokerAdapter(api_key="k", app_secret="s", account_hash="H")
         with pytest.raises(BrokerConnectionError):
             a.next_market_open()
@@ -760,7 +758,7 @@ class TestSchwabAdapterHelpers:
     def test_next_930_et_in_future(self):
         result = self._make()._next_930_et()
         # Allow a 10-second margin for test execution time
-        assert result > dt.datetime.now(tz=dt.timezone.utc) - dt.timedelta(seconds=10)
+        assert result > dt.datetime.now(tz=dt.UTC) - dt.timedelta(seconds=10)
 
     def test_parse_order_filled_status(self):
         from broker_adapters.base.models import OrderStatus
@@ -829,15 +827,15 @@ class TestSchwabAdapterGuards:
     """require_connected, require_account_hash guards."""
 
     def test_require_connected_raises_when_not_connected(self):
-        from broker_adapters.schwab.adapter import SchwabBrokerAdapter
         from broker_adapters.base.exceptions import BrokerConnectionError
+        from broker_adapters.schwab.adapter import SchwabBrokerAdapter
         a = SchwabBrokerAdapter(api_key="k", app_secret="s", account_hash="H")
         with pytest.raises(BrokerConnectionError, match="not connected"):
             a._require_connected()
 
     def test_require_account_hash_raises_when_none(self):
-        from broker_adapters.schwab.adapter import SchwabBrokerAdapter
         from broker_adapters.base.exceptions import BrokerConnectionError
+        from broker_adapters.schwab.adapter import SchwabBrokerAdapter
         a = SchwabBrokerAdapter(api_key="k", app_secret="s")
         a._connected = True
         a._client = MagicMock()
@@ -886,7 +884,6 @@ class TestAWSSecretManagerConcrete:
             a.get("K")
             a.get("K")
         # boto3.client called only once (cache hit on second call)
-        import boto3
         assert mock_client.get_secret_value.call_count == 1
 
     def test_get_missing_key_raises_key_error(self):

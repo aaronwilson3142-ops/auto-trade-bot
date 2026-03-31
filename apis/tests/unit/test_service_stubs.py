@@ -8,18 +8,13 @@ properly-shaped output objects.  No external calls or DB required.
 from __future__ import annotations
 
 import datetime as dt
-import math
-from decimal import Decimal
-
-import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 def _utcnow() -> dt.datetime:
-    return dt.datetime.now(dt.timezone.utc)
+    return dt.datetime.now(dt.UTC)
 
 
 # ===========================================================================
@@ -58,7 +53,6 @@ class TestNewsIntelligence:
         assert 0.0 <= insight.credibility_weight <= 1.0
 
     def test_process_item_credibility_weight_applied(self):
-        from services.news_intelligence.models import CredibilityTier
         from services.news_intelligence.service import NewsIntelligenceService
         svc = NewsIntelligenceService()
         primary_item = self._item(tier="primary_verified")
@@ -112,12 +106,7 @@ class TestNewsIntelligence:
 
     def test_module_exports(self):
         from services.news_intelligence import (
-            CredibilityTier,
-            NewsInsight,
-            NewsIntelligenceConfig,
             NewsIntelligenceService,
-            NewsItem,
-            SentimentLabel,
         )
         assert NewsIntelligenceService is not None
 
@@ -185,13 +174,7 @@ class TestMacroPolicyEngine:
 
     def test_module_exports(self):
         from services.macro_policy_engine import (
-            MacroPolicyConfig,
             MacroPolicyEngineService,
-            MacroRegime,
-            MacroRegimeIndicator,
-            PolicyEvent,
-            PolicyEventType,
-            PolicySignal,
         )
         assert MacroPolicyEngineService is not None
 
@@ -255,11 +238,7 @@ class TestThemeEngine:
 
     def test_module_exports(self):
         from services.theme_engine import (
-            BeneficiaryOrder,
-            ThematicExposure,
-            ThemeEngineConfig,
             ThemeEngineService,
-            ThemeMapping,
         )
         assert ThemeEngineService is not None
 
@@ -328,7 +307,6 @@ class TestRumorScoring:
         assert result.is_actionable is True
 
     def test_is_actionable_below_threshold(self):
-        from services.rumor_scoring.models import RumorScore
         from services.rumor_scoring.models import RumorEvent, RumorSource
         rumor = RumorEvent(
             rumor_id="r-low",
@@ -365,10 +343,6 @@ class TestRumorScoring:
 
     def test_module_exports(self):
         from services.rumor_scoring import (
-            RumorEvent,
-            RumorScore,
-            RumorScoringConfig,
             RumorScoringService,
-            RumorSource,
         )
         assert RumorScoringService is not None

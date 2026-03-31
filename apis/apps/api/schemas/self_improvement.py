@@ -5,7 +5,7 @@ Phase 35 — Self-Improvement Proposal Auto-Execution
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -21,7 +21,7 @@ class ExecutionRecordSchema(BaseModel):
     baseline_params: dict[str, Any]
     status: str                          # "applied" | "rolled_back"
     executed_at: dt.datetime
-    rolled_back_at: Optional[dt.datetime] = None
+    rolled_back_at: dt.datetime | None = None
     notes: str = ""
 
     model_config = {"from_attributes": True}
@@ -38,7 +38,7 @@ class ExecuteProposalResponse(BaseModel):
     """Response for POST /self-improvement/proposals/{proposal_id}/execute."""
 
     status: str          # "executed" | "error"
-    execution_id: Optional[str] = None
+    execution_id: str | None = None
     proposal_id: str
     message: str
 

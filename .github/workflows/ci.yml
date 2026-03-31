@@ -8,7 +8,7 @@ on:
 
 jobs:
   # --------------------------------------------------------------------------
-  # Unit test suite (no external dependencies needed)
+  # Unit test suite + coverage enforcement (no external dependencies needed)
   # --------------------------------------------------------------------------
   unit-tests:
     name: Unit Tests (Python ${{ matrix.python-version }})
@@ -36,19 +36,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run unit tests
+      - name: Run unit tests with coverage
         env:
           PYTHONPATH: .
           APIS_DB_URL: postgresql+psycopg://apis:apis_test@localhost:5432/apis
           APIS_ENV: development
         run: |
-          python -m pytest tests/unit/ --no-cov -q --tb=short
+          python -m pytest tests/unit/ -q --tb=short \
+            --cov=. --cov-report=term-missing --cov-config=pyproject.toml
 
   # --------------------------------------------------------------------------
-  # Lint / type checks (informational, non-blocking)
+  # Lint — ruff (blocking) + mypy (type check, informational)
   # --------------------------------------------------------------------------
   lint:
-    name: Lint
+    name: Lint & Type Check
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -69,11 +70,77 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install ruff || true
 
-      - name: Ruff lint (warnings only)
+      - name: Ruff lint (blocking)
         run: |
-          python -m ruff check . --exit-zero || true
+          python -m ruff check .
+
+      - name: Mypy type check (informational)
+        run: |
+          python -m mypy . || true
+        # NOTE: mypy strict errors are tracked but do not block CI while the
+        # codebase is being annotated incrementally. Remove `|| true` once
+        # zero mypy errors are achieved.
+
+  # --------------------------------------------------------------------------
+  # Integration tests — with Postgres service container
+  # --------------------------------------------------------------------------
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apis
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: apis
+          POSTGRES_PASSWORD: apis_test
+          POSTGRES_DB: apis_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: apis/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run integration tests
+        env:
+          PYTHONPATH: .
+          APIS_DB_URL: postgresql+psycopg://apis:apis_test@localhost:5432/apis_test
+          APIS_REDIS_URL: redis://localhost:6379/0
+          APIS_ENV: development
+        run: |
+          python -m pytest tests/integration/ -v --no-cov --tb=short
 
   # --------------------------------------------------------------------------
   # Docker build verification (api + worker targets)

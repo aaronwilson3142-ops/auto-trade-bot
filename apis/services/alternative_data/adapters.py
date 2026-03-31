@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import datetime as dt
 from abc import ABC, abstractmethod
-from typing import Sequence
+from collections.abc import Sequence
 
 from services.alternative_data.models import AlternativeDataRecord, AlternativeDataSource
 
@@ -57,7 +57,7 @@ class SocialMentionAdapter(BaseAlternativeAdapter):
 
     def fetch(self, tickers: Sequence[str]) -> list[AlternativeDataRecord]:
         records: list[AlternativeDataRecord] = []
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime.now(dt.UTC)
 
         for ticker in tickers:
             seed = sum(ord(c) for c in ticker.upper())

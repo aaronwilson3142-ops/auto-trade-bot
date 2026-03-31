@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import datetime as dt
 from decimal import Decimal
-from typing import Optional
 
 from broker_adapters.base.models import Fill, Order, OrderStatus
 from services.reporting.models import (
@@ -175,8 +174,8 @@ class ReportingService:
         start_of_day_equity: Decimal,
         orders: list[Order],
         reconciliation: FillReconciliationSummary,
-        scorecard_grade: Optional[str] = None,
-        benchmark_differentials: Optional[dict[str, Decimal]] = None,
+        scorecard_grade: str | None = None,
+        benchmark_differentials: dict[str, Decimal] | None = None,
         improvement_proposals_generated: int = 0,
         improvement_proposals_promoted: int = 0,
     ) -> DailyOperationalReport:
@@ -239,7 +238,7 @@ class ReportingService:
 
         return DailyOperationalReport(
             report_date=report_date,
-            report_timestamp=dt.datetime.now(dt.timezone.utc),
+            report_timestamp=dt.datetime.now(dt.UTC),
             equity=equity,
             cash=cash,
             gross_exposure=gross_exposure,

@@ -5,7 +5,6 @@ Phase 36 — Real-time Price Streaming / WebSocket Feed
 from __future__ import annotations
 
 import datetime as dt
-from typing import Optional
 
 from pydantic import BaseModel
 
@@ -27,4 +26,4 @@ class PriceSnapshotResponse(BaseModel):
     ticks: list[PriceTickSchema]
     position_count: int
     as_of: dt.datetime
-    note: Optional[str] = None
+    note: str | None = None

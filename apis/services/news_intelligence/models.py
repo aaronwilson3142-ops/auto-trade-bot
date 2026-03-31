@@ -4,7 +4,6 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
 
 
 class CredibilityTier(str, Enum):
@@ -45,7 +44,7 @@ class NewsInsight:
     affected_themes: list[str] = field(default_factory=list)
     market_implication: str = ""          # human-readable one-liner
     contains_rumor: bool = False
-    processed_at: Optional[dt.datetime] = None
+    processed_at: dt.datetime | None = None
 
     @property
     def weighted_sentiment(self) -> float:

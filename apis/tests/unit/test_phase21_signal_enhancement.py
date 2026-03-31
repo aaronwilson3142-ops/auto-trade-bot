@@ -24,7 +24,6 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -34,7 +33,6 @@ from services.signal_engine.strategies.macro_tailwind import MacroTailwindStrate
 from services.signal_engine.strategies.momentum import MomentumStrategy
 from services.signal_engine.strategies.sentiment import SentimentStrategy
 from services.signal_engine.strategies.theme_alignment import ThemeAlignmentStrategy
-
 
 # ---------------------------------------------------------------------------
 # Helpers

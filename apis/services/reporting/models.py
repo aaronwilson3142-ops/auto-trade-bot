@@ -16,8 +16,6 @@ import datetime as dt
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
-from typing import Optional
-
 
 # ── Fill reconciliation ────────────────────────────────────────────────────────
 
@@ -55,7 +53,7 @@ class FillReconciliationRecord:
     actual_price: Decimal
     slippage_bps: Decimal           # (actual - expected) / expected * 10_000
     reconciled_at: dt.datetime = field(
-        default_factory=lambda: dt.datetime.now(dt.timezone.utc)
+        default_factory=lambda: dt.datetime.now(dt.UTC)
     )
     notes: str = ""
 
@@ -70,7 +68,7 @@ class FillReconciliationSummary:
     """Aggregate result of reconciling all fills in one session/day."""
     records: list[FillReconciliationRecord]
     reconciled_at: dt.datetime = field(
-        default_factory=lambda: dt.datetime.now(dt.timezone.utc)
+        default_factory=lambda: dt.datetime.now(dt.UTC)
     )
 
     @property
@@ -139,7 +137,7 @@ class DailyOperationalReport:
     reconciliation: FillReconciliationSummary
 
     # Scorecard (from evaluation engine) — optional for first-pass
-    scorecard_grade: Optional[str] = None        # A/B/C/D/F
+    scorecard_grade: str | None = None        # A/B/C/D/F
     benchmark_differentials: dict[str, Decimal] = field(default_factory=dict)
 
     # Self-improvement — optional

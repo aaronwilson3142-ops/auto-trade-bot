@@ -5,12 +5,67 @@ request-scoped dependencies with one import line.
 """
 from __future__ import annotations
 
+import hmac
 from typing import Annotated
 
-from fastapi import Depends
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from apps.api.state import ApiAppState, get_app_state
 from config.settings import Settings, get_settings
 
 AppStateDep = Annotated[ApiAppState, Depends(get_app_state)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
+
+# ── Operator token auth ───────────────────────────────────────────────────────
+
+_bearer_scheme = HTTPBearer(auto_error=False)
+
+
+def _token_matches(expected: str, provided: str) -> bool:
+    """Constant-time comparison to prevent timing side-channel attacks."""
+    return hmac.compare_digest(
+        expected.encode("utf-8"),
+        provided.encode("utf-8"),
+    )
+
+
+def require_operator_token(
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(_bearer_scheme)
+    ],
+    settings: SettingsDep,
+) -> None:
+    """Enforce operator bearer-token authentication on API v1 routes.
+
+    Applied as a router-level dependency in main.py so every /api/v1/* route
+    (except /metrics, /readiness probes, and /dashboard) requires a valid token.
+
+    Behaviour:
+      - APIS_OPERATOR_TOKEN not set (empty string): returns HTTP 503 so that a
+        freshly deployed instance fails loudly rather than silently accepting
+        anonymous requests.
+      - Token present but wrong: HTTP 401 with WWW-Authenticate: Bearer.
+      - Token correct: passes silently (returns None).
+    """
+    expected = settings.operator_token
+
+    if not expected:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "API authentication is not configured. "
+                "Set the APIS_OPERATOR_TOKEN environment variable to enable access."
+            ),
+        )
+
+    provided = credentials.credentials if credentials else ""
+    if not _token_matches(expected, provided):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing operator bearer token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+OperatorTokenDep = Depends(require_operator_token)

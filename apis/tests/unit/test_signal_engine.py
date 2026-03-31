@@ -15,8 +15,6 @@ import datetime as dt
 import uuid
 from decimal import Decimal
 
-import pytest
-
 from services.feature_store.models import ComputedFeature, FeatureSet
 from services.signal_engine.models import SignalOutput, SignalType
 from services.signal_engine.strategies.momentum import MomentumStrategy

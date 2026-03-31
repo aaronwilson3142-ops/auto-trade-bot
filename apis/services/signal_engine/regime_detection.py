@@ -51,9 +51,10 @@ from __future__ import annotations
 import datetime as dt
 import statistics
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Optional
+from typing import Any
 
 import structlog
 
@@ -121,9 +122,9 @@ class RegimeResult:
     confidence: float           # [0.0, 1.0]
     detection_basis: dict       # signals / thresholds that drove the decision
     is_manual_override: bool = False
-    override_reason: Optional[str] = None
+    override_reason: str | None = None
     detected_at: dt.datetime = field(
-        default_factory=lambda: dt.datetime.now(dt.timezone.utc)
+        default_factory=lambda: dt.datetime.now(dt.UTC)
     )
 
 
@@ -152,7 +153,7 @@ class RegimeDetectionService:
     BULL_THRESHOLD:     float = 0.60
     BEAR_THRESHOLD:     float = 0.40
 
-    def __init__(self, session_factory: Optional[Callable] = None) -> None:
+    def __init__(self, session_factory: Callable | None = None) -> None:
         self._session_factory = session_factory
 
     # ------------------------------------------------------------------
@@ -270,7 +271,7 @@ class RegimeDetectionService:
     def persist_snapshot(
         self,
         result: RegimeResult,
-        session_factory: Optional[Callable] = None,
+        session_factory: Callable | None = None,
     ) -> None:
         """Persist *result* to the ``regime_snapshots`` table.
 
@@ -282,6 +283,7 @@ class RegimeDetectionService:
             return
         try:
             import json
+
             from infra.db.models.regime_detection import RegimeSnapshot
 
             with sf() as session:

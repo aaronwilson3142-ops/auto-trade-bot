@@ -61,7 +61,7 @@ def get_sector_exposure(state: AppStateDep, settings: SettingsDep) -> SectorExpo
     """Return current sector breakdown from live portfolio positions."""
     ps = getattr(state, "portfolio_state", None)
     max_pct: float = float(getattr(settings, "max_sector_pct", 0.40))
-    computed_at = dt.datetime.now(dt.timezone.utc)
+    computed_at = dt.datetime.now(dt.UTC)
 
     if ps is None or not getattr(ps, "positions", {}):
         return SectorExposureResponse(
@@ -124,7 +124,7 @@ def get_sector_detail(
     """Return detailed breakdown for a single sector."""
     sector = sector.lower()
     max_pct: float = float(getattr(settings, "max_sector_pct", 0.40))
-    computed_at = dt.datetime.now(dt.timezone.utc)
+    computed_at = dt.datetime.now(dt.UTC)
 
     ps = getattr(state, "portfolio_state", None)
     if ps is None or not getattr(ps, "positions", {}):

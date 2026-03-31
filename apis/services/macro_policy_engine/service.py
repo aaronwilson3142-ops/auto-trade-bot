@@ -6,7 +6,6 @@ classification, and multi-signal regime assessment.  No external deps.
 from __future__ import annotations
 
 import datetime as dt
-from typing import Optional
 
 import structlog
 
@@ -35,7 +34,7 @@ class MacroPolicyEngineService:
     classify affected sectors/themes, and assess the macro regime.
     """
 
-    def __init__(self, config: Optional[MacroPolicyConfig] = None) -> None:
+    def __init__(self, config: MacroPolicyConfig | None = None) -> None:
         self._config = config or MacroPolicyConfig()
         self._log = log.bind(service="macro_policy_engine")
 
@@ -67,19 +66,19 @@ class MacroPolicyEngineService:
             directional_bias=bias,
             confidence=confidence,
             implication_summary=summary,
-            generated_at=dt.datetime.now(dt.timezone.utc),
+            generated_at=dt.datetime.now(dt.UTC),
         )
 
     def process_batch(self, events: list[PolicyEvent]) -> list[PolicySignal]:
         """Process a batch of PolicyEvents, filtering by age and confidence."""
-        cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(
+        cutoff = dt.datetime.now(dt.UTC) - dt.timedelta(
             hours=self._config.max_event_age_hours
         )
         signals: list[PolicySignal] = []
         for event in events:
             ts = event.published_at
             if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=dt.timezone.utc)
+                ts = ts.replace(tzinfo=dt.UTC)
             if ts < cutoff:
                 continue
             signal = self.process_event(event)
@@ -104,7 +103,7 @@ class MacroPolicyEngineService:
                 regime=MacroRegime.NEUTRAL,
                 confidence=0.0,
                 supporting_factors=["No active signals"],
-                assessed_at=dt.datetime.now(dt.timezone.utc),
+                assessed_at=dt.datetime.now(dt.UTC),
             )
 
         weighted_bias = sum(s.directional_bias * s.confidence for s in signals)
@@ -130,5 +129,5 @@ class MacroPolicyEngineService:
             regime=regime,
             confidence=round(avg_confidence, 4),
             supporting_factors=factors,
-            assessed_at=dt.datetime.now(dt.timezone.utc),
+            assessed_at=dt.datetime.now(dt.UTC),
         )

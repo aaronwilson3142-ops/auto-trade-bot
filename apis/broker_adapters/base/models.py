@@ -10,7 +10,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Optional
 
 
 class OrderSide(str, Enum):
@@ -56,9 +55,9 @@ class OrderRequest:
     order_type: OrderType
     quantity: Decimal
     time_in_force: TimeInForce = TimeInForce.DAY
-    limit_price: Optional[Decimal] = None
-    stop_price: Optional[Decimal] = None
-    client_order_id: Optional[str] = None
+    limit_price: Decimal | None = None
+    stop_price: Decimal | None = None
+    client_order_id: str | None = None
 
 
 @dataclass
@@ -76,11 +75,11 @@ class Order:
     filled_quantity: Decimal
     status: OrderStatus
     submitted_at: datetime
-    filled_at: Optional[datetime] = None
-    average_fill_price: Optional[Decimal] = None
-    limit_price: Optional[Decimal] = None
-    stop_price: Optional[Decimal] = None
-    rejection_reason: Optional[str] = None
+    filled_at: datetime | None = None
+    average_fill_price: Decimal | None = None
+    limit_price: Decimal | None = None
+    stop_price: Decimal | None = None
+    rejection_reason: str | None = None
 
 
 @dataclass
@@ -97,7 +96,7 @@ class Fill:
     fill_price: Decimal
     fees: Decimal
     filled_at: datetime
-    liquidity_flag: Optional[str] = None  # "maker" | "taker" | None
+    liquidity_flag: str | None = None  # "maker" | "taker" | None
 
 
 @dataclass

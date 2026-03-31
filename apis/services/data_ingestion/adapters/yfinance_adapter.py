@@ -13,7 +13,6 @@ from __future__ import annotations
 import datetime as dt
 import logging
 from decimal import Decimal, InvalidOperation
-from typing import Optional
 
 import pandas as pd
 
@@ -26,7 +25,7 @@ SOURCE_KEY = "yfinance"
 RELIABILITY_TIER = "secondary_verified"   # delayed EOD, no real-time
 
 
-def _to_decimal(value: object) -> Optional[Decimal]:
+def _to_decimal(value: object) -> Decimal | None:
     """Safely convert a pandas or Python scalar to Decimal."""
     if value is None:
         return None
@@ -39,7 +38,7 @@ def _to_decimal(value: object) -> Optional[Decimal]:
         return None
 
 
-def _to_int(value: object) -> Optional[int]:
+def _to_int(value: object) -> int | None:
     if value is None:
         return None
     try:
@@ -73,8 +72,8 @@ class YFinanceAdapter:
         ticker: str,
         *,
         period: str = "1y",
-        start: Optional[dt.date] = None,
-        end: Optional[dt.date] = None,
+        start: dt.date | None = None,
+        end: dt.date | None = None,
     ) -> list[BarRecord]:
         """Fetch daily bars for a single ticker.
 
@@ -116,8 +115,8 @@ class YFinanceAdapter:
         tickers: list[str],
         *,
         period: str = "1y",
-        start: Optional[dt.date] = None,
-        end: Optional[dt.date] = None,
+        start: dt.date | None = None,
+        end: dt.date | None = None,
     ) -> dict[str, list[BarRecord]]:
         """Fetch daily bars for multiple tickers in a single yfinance call.
 

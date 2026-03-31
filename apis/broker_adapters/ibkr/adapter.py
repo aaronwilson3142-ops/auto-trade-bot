@@ -24,14 +24,12 @@ Spec references
 from __future__ import annotations
 
 import datetime as dt
-from datetime import timezone
 from decimal import Decimal, InvalidOperation
-from typing import Optional
 
 try:
-    from ib_insync import IB, Fill as IbFill, Position as IbPosition
-    from ib_insync import MarketOrder, LimitOrder, StopOrder, StopLimitOrder
-    from ib_insync import Stock
+    from ib_insync import IB, LimitOrder, MarketOrder, Stock, StopLimitOrder, StopOrder
+    from ib_insync import Fill as IbFill
+    from ib_insync import Position as IbPosition
     from ib_insync import Trade as IbTrade
     _IB_AVAILABLE = True
 except ImportError:  # pragma: no cover
@@ -53,7 +51,6 @@ from broker_adapters.base.models import (
     OrderStatus,
     OrderType,
     Position,
-    TimeInForce,
 )
 
 _NOT_INSTALLED = (
@@ -98,7 +95,7 @@ class IBKRBrokerAdapter(BaseBrokerAdapter):
         self._port = port
         self._client_id = client_id
         self._paper = paper
-        self._ib: Optional[IB] = None  # type: ignore[type-arg]
+        self._ib: IB | None = None  # type: ignore[type-arg]
         # Idempotency tracking: idempotency_key → broker_order_id
         self._submitted: dict[str, str] = {}
 
@@ -165,7 +162,7 @@ class IBKRBrokerAdapter(BaseBrokerAdapter):
             equity_value=equity,
             gross_exposure=gross_exposure,
             positions=positions,
-            snapshot_at=dt.datetime.now(timezone.utc),
+            snapshot_at=dt.datetime.now(dt.UTC),
         )
 
     # ── Orders ────────────────────────────────────────────────────────────────
@@ -262,13 +259,13 @@ class IBKRBrokerAdapter(BaseBrokerAdapter):
     def list_fills_since(self, since: dt.datetime) -> list[Fill]:
         """Return all fills since *since*, for reconciliation."""
         self._require_connection()
-        since_utc = since.astimezone(timezone.utc) if since.tzinfo else since
+        since_utc = since.astimezone(dt.UTC) if since.tzinfo else since
         fills = self._ib.fills()
         result: list[Fill] = []
         for f in fills:
             exec_time = f.execution.time
             if exec_time.tzinfo:
-                exec_time = exec_time.astimezone(timezone.utc)
+                exec_time = exec_time.astimezone(dt.UTC)
             if exec_time >= since_utc:
                 result.append(self._to_fill(f))
         return result
@@ -298,7 +295,7 @@ class IBKRBrokerAdapter(BaseBrokerAdapter):
         # Skip weekends
         while candidate.weekday() >= 5:
             candidate += dt.timedelta(days=1)
-        return candidate.astimezone(timezone.utc)
+        return candidate.astimezone(dt.UTC)
 
     # ── Private helpers ────────────────────────────────────────────────────────
 
@@ -309,7 +306,7 @@ class IBKRBrokerAdapter(BaseBrokerAdapter):
                 "IBKRBrokerAdapter is not connected. Call connect() first."
             )
 
-    def _find_trade(self, broker_order_id: str) -> "IbTrade":
+    def _find_trade(self, broker_order_id: str) -> IbTrade:
         """Find an ib_insync Trade by broker_order_id string."""
         trades = self._ib.trades()
         match = next(
@@ -324,7 +321,7 @@ class IBKRBrokerAdapter(BaseBrokerAdapter):
 
     # ── Model translators ──────────────────────────────────────────────────────
 
-    def _to_order(self, trade: "IbTrade", idempotency_key: str) -> Order:
+    def _to_order(self, trade: IbTrade, idempotency_key: str) -> Order:
         """Translate an ib_insync Trade → APIS Order."""
         order_status_map = {
             "PreSubmitted": OrderStatus.PENDING,
@@ -352,16 +349,16 @@ class IBKRBrokerAdapter(BaseBrokerAdapter):
             trade.order.orderType, OrderType.MARKET
         )
 
-        filled_at: Optional[dt.datetime] = None
-        avg_fill_price: Optional[Decimal] = None
+        filled_at: dt.datetime | None = None
+        avg_fill_price: Decimal | None = None
         if trade.orderStatus.avgFillPrice:
             avg_fill_price = _d(trade.orderStatus.avgFillPrice)
         if status == OrderStatus.FILLED and trade.fills:
             last_fill_time = trade.fills[-1].execution.time
             filled_at = (
-                last_fill_time.astimezone(timezone.utc)
+                last_fill_time.astimezone(dt.UTC)
                 if last_fill_time.tzinfo
-                else last_fill_time.replace(tzinfo=timezone.utc)
+                else last_fill_time.replace(tzinfo=dt.UTC)
             )
 
         return Order(
@@ -373,12 +370,12 @@ class IBKRBrokerAdapter(BaseBrokerAdapter):
             requested_quantity=_d(trade.order.totalQuantity),
             filled_quantity=_d(trade.orderStatus.filled),
             status=status,
-            submitted_at=dt.datetime.now(timezone.utc),
+            submitted_at=dt.datetime.now(dt.UTC),
             filled_at=filled_at,
             average_fill_price=avg_fill_price,
         )
 
-    def _to_position(self, pos: "IbPosition") -> Position:
+    def _to_position(self, pos: IbPosition) -> Position:
         """Translate an ib_insync Position → APIS Position."""
         from broker_adapters.base.models import Position as ApisPosition
         avg_cost = _d(pos.avgCost)
@@ -399,13 +396,13 @@ class IBKRBrokerAdapter(BaseBrokerAdapter):
             unrealized_pnl_pct=Decimal("0"),
         )
 
-    def _to_fill(self, fill: "IbFill") -> Fill:
+    def _to_fill(self, fill: IbFill) -> Fill:
         """Translate an ib_insync Fill → APIS Fill."""
         exec_time = fill.execution.time
         if exec_time.tzinfo:
-            exec_time = exec_time.astimezone(timezone.utc)
+            exec_time = exec_time.astimezone(dt.UTC)
         else:
-            exec_time = exec_time.replace(tzinfo=timezone.utc)
+            exec_time = exec_time.replace(tzinfo=dt.UTC)
         side = (
             OrderSide.BUY
             if fill.execution.side.upper() in ("BOT", "BUY")

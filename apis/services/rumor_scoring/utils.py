@@ -6,13 +6,12 @@ pattern-based approach as the NLP layer (no external deps).
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 _TICKER_RE = re.compile(r"\b([A-Z]{1,5})\b")
 
 
 def extract_tickers_from_rumor(
-    text: str, known_tickers: Optional[frozenset[str]] = None
+    text: str, known_tickers: frozenset[str] | None = None
 ) -> list[str]:
     """Extract ticker symbols appearing in a rumor text string.
 

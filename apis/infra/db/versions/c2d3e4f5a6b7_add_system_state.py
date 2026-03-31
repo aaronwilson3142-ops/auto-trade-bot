@@ -11,16 +11,16 @@ Adds the system_state key-value table used to persist critical runtime flags
 The table is intentionally minimal — no UUID PK because the key IS the
 primary key, and no TimestampMixin because updated_at is set explicitly.
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = 'c2d3e4f5a6b7'
-down_revision: Union[str, None] = 'b1c2d3e4f5a6'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = 'b1c2d3e4f5a6'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:

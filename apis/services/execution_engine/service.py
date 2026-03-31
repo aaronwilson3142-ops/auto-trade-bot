@@ -10,8 +10,9 @@ Design rules enforced here:
   - Only ActionType.OPEN and ActionType.CLOSE trigger real orders.
   - BLOCKED actions are returned as-is with ExecutionStatus.BLOCKED.
   - Fractional shares are not permitted in MVP: quantity = floor(notional/price).
-  - Idempotency keys are built from ticker + action_type + timestamp so that
-    duplicate submissions from retries are detected by the broker adapter.
+  - Idempotency keys are built from action.id (stable UUID assigned once at action
+    creation) so that retries of the same action always produce the same key,
+    enabling broker-side deduplication via DuplicateOrderError.
 
 Spec references:
   - API_AND_SERVICE_BOUNDARIES_SPEC.md § 3.12
@@ -19,9 +20,8 @@ Spec references:
 """
 from __future__ import annotations
 
-import uuid
-from decimal import Decimal, ROUND_DOWN
-from typing import Optional
+from collections.abc import Callable
+from decimal import ROUND_DOWN, Decimal
 
 import structlog
 
@@ -46,9 +46,27 @@ class ExecutionEngineService:
     Thread-safety: not thread-safe; callers must coordinate access.
     """
 
-    def __init__(self, settings: Settings, broker: BaseBrokerAdapter) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        broker: BaseBrokerAdapter,
+        kill_switch_fn: Callable[[], bool] | None = None,
+    ) -> None:
+        """Initialise the execution engine.
+
+        Args:
+            settings:       Application settings (provides env-var kill_switch).
+            broker:         Broker adapter to submit orders through.
+            kill_switch_fn: Optional zero-argument callable that returns True when
+                            the *runtime* kill switch is active (e.g.
+                            ``lambda: app_state.kill_switch_active``).  When None,
+                            only the env-var kill_switch is checked.  When provided,
+                            the effective kill switch is
+                            ``settings.kill_switch OR kill_switch_fn()``.
+        """
         self._settings = settings
         self._broker = broker
+        self._kill_switch_fn = kill_switch_fn
         self._log = log.bind(service="execution_engine", broker=broker.adapter_name)
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -65,13 +83,18 @@ class ExecutionEngineService:
         """
         action = request.action
 
-        # ── Kill switch re-check ────────────────────────────────────────────
-        if self._settings.kill_switch:
-            self._log.warning("execution_blocked_kill_switch", ticker=action.ticker)
+        # ── Kill switch re-check (belt-and-suspenders: risk_engine already checked) ─
+        runtime_active = self._kill_switch_fn() if self._kill_switch_fn is not None else False
+        if self._settings.kill_switch or runtime_active:
+            source = "env+runtime" if (self._settings.kill_switch and runtime_active) \
+                else ("runtime" if runtime_active else "env")
+            self._log.warning(
+                "execution_blocked_kill_switch", ticker=action.ticker, source=source
+            )
             return ExecutionResult(
                 status=ExecutionStatus.BLOCKED,
                 action=action,
-                error_message="Kill switch active — order not submitted.",
+                error_message=f"Kill switch active ({source}) — order not submitted.",
             )
 
         # ── BLOCKED actions pass-through ────────────────────────────────────
@@ -329,7 +352,13 @@ class ExecutionEngineService:
         )
 
     @staticmethod
-    def _make_idempotency_key(action: "PortfolioAction", suffix: str) -> str:  # noqa: F821
-        """Generate a unique idempotency key for this action attempt."""
-        return f"{action.ticker}_{suffix}_{uuid.uuid4()}"
+    def _make_idempotency_key(action: PortfolioAction, suffix: str) -> str:  # noqa: F821
+        """Generate a deterministic idempotency key for this action.
+
+        Built from action.id (stable UUID assigned once at action creation) so that
+        retries of the same action always produce the same key, enabling broker-side
+        deduplication via DuplicateOrderError.  Different proposals (e.g. re-entry
+        after a stop-out) carry a different action.id and thus a different key.
+        """
+        return f"{action.ticker}_{suffix}_{action.id}"
 

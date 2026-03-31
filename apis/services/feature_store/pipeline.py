@@ -14,8 +14,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-from decimal import Decimal, ROUND_HALF_UP
-from typing import Optional
+from decimal import ROUND_HALF_UP, Decimal
 
 import pandas as pd
 
@@ -32,7 +31,7 @@ _SOURCE_VERSION = "baseline_v1"
 _QUANTIZE = Decimal("0.000001")
 
 
-def _d(value: Optional[float]) -> Optional[Decimal]:
+def _d(value: float | None) -> Decimal | None:
     """Convert float to Decimal, returning None for NaN / None."""
     if value is None:
         return None
@@ -57,7 +56,7 @@ class BaselineFeaturePipeline:
         security_id: object,
         ticker: str,
         bars_df: pd.DataFrame,
-        as_of: Optional[dt.datetime] = None,
+        as_of: dt.datetime | None = None,
     ) -> FeatureSet:
         """Compute all features for the most recent date in *bars_df*.
 
@@ -105,7 +104,7 @@ class BaselineFeaturePipeline:
             else:
                 as_of = dt.datetime.utcnow()
 
-        raw: dict[str, Optional[float]] = {}
+        raw: dict[str, float | None] = {}
 
         # ── Momentum: n-period returns ──────────────────────────────────────
         raw["return_1m"] = self._period_return(closes, periods=21)
@@ -156,7 +155,7 @@ class BaselineFeaturePipeline:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _period_return(closes: pd.Series, periods: int) -> Optional[float]:
+    def _period_return(closes: pd.Series, periods: int) -> float | None:
         """Simple return over *periods* trading days."""
         if len(closes) <= periods:
             return None
@@ -167,7 +166,7 @@ class BaselineFeaturePipeline:
         return float((now - past) / past)
 
     @staticmethod
-    def _volatility(closes: pd.Series, periods: int = 20) -> Optional[float]:
+    def _volatility(closes: pd.Series, periods: int = 20) -> float | None:
         """Annualised volatility of log returns over *periods* days."""
         if len(closes) < periods + 1:
             return None
@@ -185,7 +184,7 @@ class BaselineFeaturePipeline:
         lows: pd.Series,
         closes: pd.Series,
         period: int = 14,
-    ) -> Optional[float]:
+    ) -> float | None:
         """Average True Range over *period* days."""
         if len(closes) < period + 1 or highs.empty or lows.empty:
             return None
@@ -202,7 +201,7 @@ class BaselineFeaturePipeline:
         closes: pd.Series,
         volumes: pd.Series,
         periods: int = 20,
-    ) -> Optional[float]:
+    ) -> float | None:
         """Average daily dollar volume over *periods* days."""
         if len(closes) < periods or len(volumes) < periods:
             return None
@@ -211,7 +210,7 @@ class BaselineFeaturePipeline:
         return None if pd.isna(avg) else float(avg)
 
     @staticmethod
-    def _sma(closes: pd.Series, period: int) -> Optional[float]:
+    def _sma(closes: pd.Series, period: int) -> float | None:
         """Simple moving average of the last *period* closes."""
         if len(closes) < period:
             return None
@@ -223,7 +222,7 @@ class BaselineFeaturePipeline:
         closes: pd.Series,
         fast: int = 20,
         slow: int = 50,
-    ) -> Optional[float]:
+    ) -> float | None:
         """Return 1.0 (golden cross), -1.0 (death cross), or 0.0 (no recent cross).
 
         A cross is detected when the fast SMA crossed the slow SMA between
@@ -232,7 +231,7 @@ class BaselineFeaturePipeline:
         if len(closes) < slow + 1:
             return None
 
-        def _sma_at(s: pd.Series, end_idx: int, period: int) -> Optional[float]:
+        def _sma_at(s: pd.Series, end_idx: int, period: int) -> float | None:
             start = end_idx - period
             if start < 0:
                 return None

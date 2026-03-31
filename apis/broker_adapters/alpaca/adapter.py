@@ -28,20 +28,17 @@ Spec references
 """
 from __future__ import annotations
 
-import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Optional
 
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import (
     OrderSide as AlpacaOrderSide,
-    OrderStatus as AlpacaOrderStatus,
-    OrderType as AlpacaOrderType,
+)
+from alpaca.trading.enums import (
     TimeInForce as AlpacaTimeInForce,
 )
 from alpaca.trading.requests import (
-    GetOrdersRequest,
     LimitOrderRequest,
     MarketOrderRequest,
 )
@@ -51,11 +48,9 @@ from broker_adapters.base.exceptions import (
     BrokerAuthenticationError,
     BrokerConnectionError,
     DuplicateOrderError,
-    KillSwitchActiveError,
     MarketClosedError,
     OrderRejectedError,
     PositionNotFoundError,
-    ReconciliationError,
 )
 from broker_adapters.base.models import (
     AccountState,
@@ -68,7 +63,6 @@ from broker_adapters.base.models import (
     Position,
     TimeInForce,
 )
-
 
 # ── SDK enum translation maps ──────────────────────────────────────────────────
 
@@ -131,7 +125,7 @@ class AlpacaBrokerAdapter(BaseBrokerAdapter):
         self._api_key = api_key
         self._api_secret = api_secret
         self._paper = paper
-        self._client: Optional[TradingClient] = None
+        self._client: TradingClient | None = None
         self._connected = False
         # Local idempotency guard (belt-and-suspenders over Alpaca's own check)
         self._submitted_keys: set[str] = set()
@@ -190,7 +184,7 @@ class AlpacaBrokerAdapter(BaseBrokerAdapter):
             positions=positions,
             is_pattern_day_trader=bool(getattr(acct, "pattern_day_trader", False)),
             is_account_blocked=bool(getattr(acct, "trading_blocked", False)),
-            snapshot_at=datetime.now(tz=timezone.utc),
+            snapshot_at=datetime.now(tz=UTC),
         )
 
     # ── Orders ────────────────────────────────────────────────────────────────
@@ -284,8 +278,8 @@ class AlpacaBrokerAdapter(BaseBrokerAdapter):
 
     def list_open_orders(self) -> list[Order]:
         self._require_connected()
-        from alpaca.trading.requests import GetOrdersRequest as _GOR
         from alpaca.trading.enums import QueryOrderStatus
+        from alpaca.trading.requests import GetOrdersRequest as _GOR
         req = _GOR(status=QueryOrderStatus.OPEN)
         orders = self._client.get_orders(filter=req)  # type: ignore[union-attr]
         return [
@@ -326,8 +320,8 @@ class AlpacaBrokerAdapter(BaseBrokerAdapter):
     def list_fills_since(self, since: datetime) -> list[Fill]:
         """Return all fills since `since` by querying closed/filled orders."""
         self._require_connected()
-        from alpaca.trading.requests import GetOrdersRequest as _GOR
         from alpaca.trading.enums import QueryOrderStatus
+        from alpaca.trading.requests import GetOrdersRequest as _GOR
         req = _GOR(
             status=QueryOrderStatus.CLOSED,
             after=since,
@@ -358,11 +352,11 @@ class AlpacaBrokerAdapter(BaseBrokerAdapter):
             clock = self._client.get_clock()  # type: ignore[union-attr]
             next_open = clock.next_open
             if hasattr(next_open, "replace"):
-                return next_open.replace(tzinfo=timezone.utc) if next_open.tzinfo is None else next_open
-            return datetime.now(tz=timezone.utc)
+                return next_open.replace(tzinfo=UTC) if next_open.tzinfo is None else next_open
+            return datetime.now(tz=UTC)
         except Exception:
             from datetime import timedelta
-            return datetime.now(tz=timezone.utc) + timedelta(hours=1)
+            return datetime.now(tz=UTC) + timedelta(hours=1)
 
     # ── Internal helpers ───────────────────────────────────────────────────────
 
@@ -399,16 +393,16 @@ class AlpacaBrokerAdapter(BaseBrokerAdapter):
 
         submitted_at_raw = getattr(o, "submitted_at", None) or getattr(o, "created_at", None)
         if submitted_at_raw is None:
-            submitted_at = datetime.now(tz=timezone.utc)
+            submitted_at = datetime.now(tz=UTC)
         elif hasattr(submitted_at_raw, "tzinfo"):
-            submitted_at = submitted_at_raw if submitted_at_raw.tzinfo else submitted_at_raw.replace(tzinfo=timezone.utc)
+            submitted_at = submitted_at_raw if submitted_at_raw.tzinfo else submitted_at_raw.replace(tzinfo=UTC)
         else:
-            submitted_at = datetime.now(tz=timezone.utc)
+            submitted_at = datetime.now(tz=UTC)
 
         filled_at_raw = getattr(o, "filled_at", None)
-        filled_at: Optional[datetime] = None
+        filled_at: datetime | None = None
         if filled_at_raw is not None:
-            filled_at = filled_at_raw if getattr(filled_at_raw, "tzinfo", None) else filled_at_raw.replace(tzinfo=timezone.utc)
+            filled_at = filled_at_raw if getattr(filled_at_raw, "tzinfo", None) else filled_at_raw.replace(tzinfo=UTC)
 
         raw_side = str(getattr(o, "side", "buy")).lower()
         side = OrderSide.BUY if raw_side == "buy" else OrderSide.SELL
@@ -464,6 +458,6 @@ class AlpacaBrokerAdapter(BaseBrokerAdapter):
             fill_quantity=order.filled_quantity,
             fill_price=order.average_fill_price or Decimal("0"),
             fees=Decimal("0"),  # Alpaca charges no commission for equities
-            filled_at=order.filled_at or datetime.now(tz=timezone.utc),
+            filled_at=order.filled_at or datetime.now(tz=UTC),
             liquidity_flag="taker",
         )

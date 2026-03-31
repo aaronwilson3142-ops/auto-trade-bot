@@ -4,7 +4,6 @@ Pydantic schemas for the correlation API (Phase 39).
 from __future__ import annotations
 
 import datetime as dt
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -24,7 +23,7 @@ class CorrelationMatrixResponse(BaseModel):
     present in the last correlation refresh job.
     """
 
-    computed_at: Optional[dt.datetime] = None
+    computed_at: dt.datetime | None = None
     ticker_count: int = 0
     pair_count: int = 0
     tickers: list[str] = Field(default_factory=list)
@@ -47,4 +46,4 @@ class TickerCorrelationResponse(BaseModel):
     )
     portfolio_tickers: list[str] = Field(default_factory=list)
     correlations: list[CorrelationPairSchema] = Field(default_factory=list)
-    computed_at: Optional[dt.datetime] = None
+    computed_at: dt.datetime | None = None

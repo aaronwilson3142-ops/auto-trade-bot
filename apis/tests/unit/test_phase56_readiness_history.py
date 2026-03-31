@@ -14,14 +14,9 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-import uuid
-from dataclasses import dataclass, field
-from typing import Any, Optional
 from unittest.mock import MagicMock, patch
 
-import pytest
 from fastapi.testclient import TestClient
-
 
 # ---------------------------------------------------------------------------
 # Helpers / stubs
@@ -51,7 +46,7 @@ def _make_report(
         )
     ]
     return ReadinessReport(
-        generated_at=dt.datetime(2026, 3, 21, 18, 45, tzinfo=dt.timezone.utc),
+        generated_at=dt.datetime(2026, 3, 21, 18, 45, tzinfo=dt.UTC),
         current_mode=current_mode,
         target_mode=target_mode,
         overall_status=overall_status,
@@ -190,7 +185,6 @@ class TestPersistSnapshot:
 
     def test_gates_json_contains_gate_names(self):
         """persist_snapshot serializes gate_rows into gates_json."""
-        from infra.db.models.readiness import ReadinessSnapshot
         from services.readiness.service import ReadinessReportService
 
         captured_rows = []
@@ -213,7 +207,6 @@ class TestPersistSnapshot:
         assert gates[0]["status"] == "PASS"
 
     def test_stores_overall_status(self):
-        from infra.db.models.readiness import ReadinessSnapshot
         from services.readiness.service import ReadinessReportService
 
         captured_rows = []
@@ -325,21 +318,22 @@ class TestRunReadinessReportUpdateWithSessionFactory:
     def test_job_accepts_session_factory_param(self):
         """run_readiness_report_update signature must accept session_factory."""
         import inspect
+
         from apps.worker.jobs.readiness import run_readiness_report_update
         sig = inspect.signature(run_readiness_report_update)
         assert "session_factory" in sig.parameters
 
     def test_job_returns_ok_status(self):
-        from apps.worker.jobs.readiness import run_readiness_report_update
         from apps.api.state import ApiAppState
+        from apps.worker.jobs.readiness import run_readiness_report_update
         state = ApiAppState()
         result = run_readiness_report_update(app_state=state, session_factory=None)
         assert result["status"] == "ok"
 
     def test_job_calls_persist_on_success(self):
         """When session_factory is provided and job succeeds, persist_snapshot is called."""
-        from apps.worker.jobs.readiness import run_readiness_report_update
         from apps.api.state import ApiAppState
+        from apps.worker.jobs.readiness import run_readiness_report_update
 
         state = ApiAppState()
         mock_session = MagicMock()
@@ -357,8 +351,8 @@ class TestRunReadinessReportUpdateWithSessionFactory:
 
     def test_job_does_not_raise_if_persist_fails(self):
         """Job must still return ok status even when DB persist raises."""
-        from apps.worker.jobs.readiness import run_readiness_report_update
         from apps.api.state import ApiAppState
+        from apps.worker.jobs.readiness import run_readiness_report_update
 
         state = ApiAppState()
         mock_factory = MagicMock(side_effect=RuntimeError("DB unavailable"))
@@ -469,8 +463,8 @@ class TestReadinessHistoryResponse:
 
 class TestReadinessHistoryRoute:
     def _client(self, **state_kwargs):
-        from apps.api.main import app
         from apps.api.deps import get_app_state
+        from apps.api.main import app
         state = _make_state(**state_kwargs)
         app.dependency_overrides[get_app_state] = lambda: state
         client = TestClient(app, raise_server_exceptions=False)
@@ -479,8 +473,8 @@ class TestReadinessHistoryRoute:
 
     def test_history_returns_200_when_no_db(self):
         """GET /history must return 200 + empty list even when DB is unavailable."""
-        from apps.api.main import app
         from apps.api.deps import get_app_state
+        from apps.api.main import app
         state = _make_state()
         app.dependency_overrides[get_app_state] = lambda: state
         client = TestClient(app, raise_server_exceptions=False)
@@ -496,8 +490,8 @@ class TestReadinessHistoryRoute:
 
     def test_history_empty_list_when_no_snapshots(self):
         """GET /history returns empty list gracefully when DB has no rows."""
-        from apps.api.main import app
         from apps.api.deps import get_app_state
+        from apps.api.main import app
 
         state = _make_state()
         app.dependency_overrides[get_app_state] = lambda: state
@@ -520,8 +514,8 @@ class TestReadinessHistoryRoute:
 
     def test_history_returns_snapshots(self):
         """GET /history serializes DB rows correctly."""
-        from apps.api.main import app
         from apps.api.deps import get_app_state
+        from apps.api.main import app
 
         state = _make_state()
         app.dependency_overrides[get_app_state] = lambda: state
@@ -529,7 +523,7 @@ class TestReadinessHistoryRoute:
 
         fake_row = MagicMock()
         fake_row.id = "snap-001"
-        fake_row.captured_at = dt.datetime(2026, 3, 21, 18, 45, tzinfo=dt.timezone.utc)
+        fake_row.captured_at = dt.datetime(2026, 3, 21, 18, 45, tzinfo=dt.UTC)
         fake_row.overall_status = "PASS"
         fake_row.current_mode = "paper"
         fake_row.target_mode = "human_approved"
@@ -559,8 +553,8 @@ class TestReadinessHistoryRoute:
 
     def test_history_limit_default_is_10(self):
         """Default limit is 10."""
-        from apps.api.main import app
         from apps.api.deps import get_app_state
+        from apps.api.main import app
 
         state = _make_state()
         app.dependency_overrides[get_app_state] = lambda: state
@@ -582,8 +576,8 @@ class TestReadinessHistoryRoute:
 
     def test_history_limit_param_accepted(self):
         """limit query param is accepted (1-100)."""
-        from apps.api.main import app
         from apps.api.deps import get_app_state
+        from apps.api.main import app
 
         state = _make_state()
         app.dependency_overrides[get_app_state] = lambda: state
@@ -602,8 +596,8 @@ class TestReadinessHistoryRoute:
 
     def test_history_limit_out_of_range_rejected(self):
         """limit=0 must be rejected with 422."""
-        from apps.api.main import app
         from apps.api.deps import get_app_state
+        from apps.api.main import app
 
         state = _make_state()
         app.dependency_overrides[get_app_state] = lambda: state
@@ -615,8 +609,8 @@ class TestReadinessHistoryRoute:
 
     def test_history_db_error_returns_200_not_500(self):
         """DB errors must degrade to 200 + empty (not 500)."""
-        from apps.api.main import app
         from apps.api.deps import get_app_state
+        from apps.api.main import app
 
         state = _make_state()
         app.dependency_overrides[get_app_state] = lambda: state
@@ -714,8 +708,8 @@ class TestReadinessDashboardHistory:
 
     def test_render_readiness_section_no_report_no_crash(self):
         """_render_readiness_section renders without error when no report and no DB."""
-        from apps.dashboard.router import _render_readiness_section
         from apps.api.state import ApiAppState
+        from apps.dashboard.router import _render_readiness_section
 
         state = ApiAppState()
 
@@ -729,8 +723,8 @@ class TestReadinessDashboardHistory:
 
     def test_render_readiness_section_title_updated(self):
         """Section title now includes Phase 56 annotation."""
-        from apps.dashboard.router import _render_readiness_section
         from apps.api.state import ApiAppState
+        from apps.dashboard.router import _render_readiness_section
 
         state = ApiAppState()
         state.latest_readiness_report = _make_report()

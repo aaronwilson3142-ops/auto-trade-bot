@@ -3,7 +3,6 @@ SQLAlchemy declarative base and shared timestamp mixin used by all ORM models.
 """
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
 
 import sqlalchemy as sa

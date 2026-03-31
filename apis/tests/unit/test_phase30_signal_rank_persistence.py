@@ -28,13 +28,9 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
-from contextlib import contextmanager
 from decimal import Decimal
 from typing import Any
 from unittest.mock import MagicMock, patch
-
-import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -114,7 +110,6 @@ class TestSignalEngineServiceSignalRun:
         return svc
 
     def test_signal_run_row_added_to_session(self):
-        from infra.db.models import SignalRun
         svc = self._make_service()
         session = MagicMock()
         # Make execute() for strategy lookup return empty (no rows)
@@ -341,7 +336,7 @@ class TestSignalRunSchema:
         from apps.api.schemas.signals import SignalRunRecord
         r = SignalRunRecord(
             run_id=str(uuid.uuid4()),
-            run_timestamp=dt.datetime.now(dt.timezone.utc),
+            run_timestamp=dt.datetime.now(dt.UTC),
             run_mode="paper",
             universe_name="default",
             status="completed",
@@ -352,7 +347,7 @@ class TestSignalRunSchema:
         assert r.strategy_count == 5
 
     def test_signal_run_history_response(self):
-        from apps.api.schemas.signals import SignalRunHistoryResponse, SignalRunRecord
+        from apps.api.schemas.signals import SignalRunHistoryResponse
         resp = SignalRunHistoryResponse(count=0, runs=[])
         assert resp.count == 0
         assert resp.runs == []
@@ -362,7 +357,7 @@ class TestSignalRunSchema:
         r = RankingRunRecord(
             run_id=str(uuid.uuid4()),
             signal_run_id=str(uuid.uuid4()),
-            run_timestamp=dt.datetime.now(dt.timezone.utc),
+            run_timestamp=dt.datetime.now(dt.UTC),
             status="completed",
             ranked_count=10,
         )
@@ -395,7 +390,7 @@ class TestSignalRunSchema:
         resp = RankingRunDetailResponse(
             run_id=str(uuid.uuid4()),
             signal_run_id=str(uuid.uuid4()),
-            run_timestamp=dt.datetime.now(dt.timezone.utc),
+            run_timestamp=dt.datetime.now(dt.UTC),
             status="completed",
             opportunities=[opp],
         )
@@ -412,8 +407,9 @@ class TestSignalRunsEndpoint:
 
     def _client(self, state=None):
         from fastapi.testclient import TestClient
-        from apps.api.main import app
+
         from apps.api.deps import get_app_state
+        from apps.api.main import app
         _state = state or _make_app_state()
         app.dependency_overrides[get_app_state] = lambda: _state
         client = TestClient(app, raise_server_exceptions=False)
@@ -451,8 +447,9 @@ class TestRankingRunsEndpoint:
 
     def _client(self, state=None):
         from fastapi.testclient import TestClient
-        from apps.api.main import app
+
         from apps.api.deps import get_app_state
+        from apps.api.main import app
         _state = state or _make_app_state()
         app.dependency_overrides[get_app_state] = lambda: _state
         client = TestClient(app, raise_server_exceptions=False)
@@ -494,8 +491,9 @@ class TestRankingsLatestEndpoint:
 
     def _client(self, state=None):
         from fastapi.testclient import TestClient
-        from apps.api.main import app
+
         from apps.api.deps import get_app_state
+        from apps.api.main import app
         _state = state or _make_app_state()
         app.dependency_overrides[get_app_state] = lambda: _state
         client = TestClient(app, raise_server_exceptions=False)
@@ -530,7 +528,7 @@ class TestRankingsLatestEndpoint:
         mock_run = MagicMock()
         mock_run.id = run_id
         mock_run.signal_run_id = sig_run_id
-        mock_run.run_timestamp = dt.datetime.now(dt.timezone.utc)
+        mock_run.run_timestamp = dt.datetime.now(dt.UTC)
         mock_run.status = "completed"
         mock_run.config_version = None
 
@@ -563,8 +561,9 @@ class TestRankingRunByIdEndpoint:
 
     def _client(self, state=None):
         from fastapi.testclient import TestClient
-        from apps.api.main import app
+
         from apps.api.deps import get_app_state
+        from apps.api.main import app
         _state = state or _make_app_state()
         app.dependency_overrides[get_app_state] = lambda: _state
         client = TestClient(app, raise_server_exceptions=False)
@@ -601,7 +600,7 @@ class TestRankingRunByIdEndpoint:
         mock_run = MagicMock()
         mock_run.id = run_id
         mock_run.signal_run_id = uuid.uuid4()
-        mock_run.run_timestamp = dt.datetime.now(dt.timezone.utc)
+        mock_run.run_timestamp = dt.datetime.now(dt.UTC)
         mock_run.status = "completed"
 
         mock_session = MagicMock()

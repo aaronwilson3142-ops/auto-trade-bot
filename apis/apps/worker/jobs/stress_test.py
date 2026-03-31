@@ -22,7 +22,7 @@ Design rules
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any, Optional
+from typing import Any
 
 from apps.api.state import ApiAppState
 from config.logging_config import get_logger
@@ -33,7 +33,7 @@ logger = get_logger(__name__)
 
 def run_stress_test(
     app_state: ApiAppState,
-    settings: Optional[Settings] = None,
+    settings: Settings | None = None,
 ) -> dict[str, Any]:
     """Compute portfolio stress-test result and store in app_state.
 
@@ -46,7 +46,7 @@ def run_stress_test(
         worst_case_loss_pct, computed_at, error.
     """
     cfg = settings or get_settings()  # noqa: F841
-    run_at = dt.datetime.now(dt.timezone.utc)
+    run_at = dt.datetime.now(dt.UTC)
 
     logger.info("stress_test_refresh_starting")
 

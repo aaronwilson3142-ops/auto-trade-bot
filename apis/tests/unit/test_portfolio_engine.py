@@ -24,7 +24,6 @@ from services.portfolio_engine.models import (
 from services.portfolio_engine.service import PortfolioEngineService
 from services.ranking_engine.models import RankedResult
 
-
 # ─────────────────────────── shared fixtures ──────────────────────────────────
 
 def _make_settings(**overrides) -> Settings:

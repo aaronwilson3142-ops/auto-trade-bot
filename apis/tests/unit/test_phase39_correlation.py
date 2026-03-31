@@ -20,10 +20,7 @@ import datetime as dt
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-from services.risk_engine.correlation import CorrelationService, MIN_OBSERVATIONS
-
+from services.risk_engine.correlation import MIN_OBSERVATIONS, CorrelationService
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -486,8 +483,9 @@ class TestRunCorrelationRefresh:
 class TestCorrelationRestEndpoints:
     def _client(self, state_overrides: dict | None = None):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
-        from apps.api.state import reset_app_state, get_app_state
+        from apps.api.state import get_app_state, reset_app_state
 
         reset_app_state()
         if state_overrides:
@@ -513,7 +511,7 @@ class TestCorrelationRestEndpoints:
         client = self._client({
             "correlation_matrix": matrix,
             "correlation_tickers": ["AAPL", "MSFT", "TSLA"],
-            "correlation_computed_at": dt.datetime(2026, 3, 20, 6, 16, tzinfo=dt.timezone.utc),
+            "correlation_computed_at": dt.datetime(2026, 3, 20, 6, 16, tzinfo=dt.UTC),
         })
         resp = client.get("/api/v1/portfolio/correlation")
         assert resp.status_code == 200

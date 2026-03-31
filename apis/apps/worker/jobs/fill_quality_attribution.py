@@ -22,7 +22,7 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import replace as _dc_replace
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
 from apps.api.state import ApiAppState
 from config.logging_config import get_logger
@@ -39,7 +39,7 @@ def _fetch_subsequent_price(
     filled_at: dt.datetime,
     n_days: int,
     session_factory: Any,
-) -> Optional[Decimal]:
+) -> Decimal | None:
     """Query SecurityBar for the closing price approximately N trading days after filled_at.
 
     Returns None when session_factory is None or when no bar is found.
@@ -49,6 +49,7 @@ def _fetch_subsequent_price(
         return None
     try:
         import sqlalchemy as _sa  # noqa: PLC0415
+
         from infra.db.models import Security as _Sec  # noqa: PLC0415
         from infra.db.models.market_data import SecurityBar as _Bar  # noqa: PLC0415
 
@@ -77,8 +78,8 @@ def _fetch_subsequent_price(
 
 def run_fill_quality_attribution(
     app_state: ApiAppState,
-    settings: Optional[Settings] = None,
-    session_factory: Optional[Any] = None,
+    settings: Settings | None = None,
+    session_factory: Any | None = None,
     n_days: int = _DEFAULT_N_DAYS,
 ) -> dict[str, Any]:
     """Enrich fill quality records with N-day alpha-decay attribution.
@@ -96,7 +97,7 @@ def run_fill_quality_attribution(
         dict with keys: status, enriched_count, record_count, computed_at, errors.
     """
     cfg = settings or get_settings()  # noqa: F841
-    run_at = dt.datetime.now(dt.timezone.utc)
+    run_at = dt.datetime.now(dt.UTC)
     errors: list[str] = []
 
     try:

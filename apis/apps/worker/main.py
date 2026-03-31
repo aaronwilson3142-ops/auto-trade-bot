@@ -24,7 +24,12 @@ All times are Eastern Time (US/Eastern).  Jobs only fire on weekdays.
   06:45  run_ranking_generation        — composite score + write to ApiAppState
   06:52  run_weight_optimization       — Sharpe-proportional strategy weights
   09:35  run_paper_trading_cycle       — morning execution: rank → risk → execute
+  10:30  run_paper_trading_cycle       — late-morning execution
+  11:30  run_paper_trading_cycle       — pre-midday execution
   12:00  run_paper_trading_cycle       — midday execution: re-rank → risk → execute
+  13:30  run_paper_trading_cycle       — early-afternoon execution
+  14:30  run_paper_trading_cycle       — afternoon execution
+  15:30  run_paper_trading_cycle       — pre-close execution
   17:00  run_daily_evaluation          — DailyScorecard → app_state
   17:15  run_attribution_analysis      — attribution log
   17:20  run_signal_quality_update     — per-strategy signal quality (Phase 46)
@@ -57,8 +62,11 @@ from apps.worker.jobs import (
     run_broker_token_refresh,
     run_correlation_refresh,
     run_daily_evaluation,
+    run_earnings_refresh,
     run_feature_enrichment,
     run_feature_refresh,
+    run_fill_quality_attribution,
+    run_fill_quality_update,
     run_fundamentals_refresh,
     run_generate_daily_report,
     run_generate_improvement_proposals,
@@ -68,18 +76,15 @@ from apps.worker.jobs import (
     run_paper_trading_cycle,
     run_publish_operator_summary,
     run_ranking_generation,
+    run_readiness_report_update,
+    run_rebalance_check,
     run_regime_detection,
     run_signal_generation,
-    run_var_refresh,
-    run_stress_test,
-    run_earnings_refresh,
     run_signal_quality_update,
-    run_weight_optimization,
+    run_stress_test,
     run_universe_refresh,
-    run_rebalance_check,
-    run_fill_quality_update,
-    run_fill_quality_attribution,
-    run_readiness_report_update,
+    run_var_refresh,
+    run_weight_optimization,
 )
 from config.logging_config import configure_logging, get_logger
 from config.settings import get_settings
@@ -209,6 +214,7 @@ def _job_ranking_generation() -> None:
     run_ranking_generation(
         app_state=get_app_state(),
         settings=settings,
+        session_factory=_make_session_factory(),
     )
 
 
@@ -568,6 +574,9 @@ def build_scheduler() -> BackgroundScheduler:
     )
 
     # Paper trading cycles — market hours only; mode guard inside the job
+    # 7 intraday cycles: 09:35, 10:30, 11:30, 12:00, 13:30, 14:30, 15:30 ET
+    # More frequent cycles accumulate richer paper-trade data for evaluation
+    # and self-improvement without changing any risk rules.
     scheduler.add_job(
         _job_paper_trading_cycle,
         CronTrigger(day_of_week=_weekday, hour=9, minute=35, timezone=_ET),
@@ -578,9 +587,49 @@ def build_scheduler() -> BackgroundScheduler:
     )
     scheduler.add_job(
         _job_paper_trading_cycle,
+        CronTrigger(day_of_week=_weekday, hour=10, minute=30, timezone=_ET),
+        id="paper_trading_cycle_late_morning",
+        name="Paper Trading Cycle (Late Morning)",
+        replace_existing=True,
+        misfire_grace_time=300,
+    )
+    scheduler.add_job(
+        _job_paper_trading_cycle,
+        CronTrigger(day_of_week=_weekday, hour=11, minute=30, timezone=_ET),
+        id="paper_trading_cycle_late_morning_2",
+        name="Paper Trading Cycle (Pre-Midday)",
+        replace_existing=True,
+        misfire_grace_time=300,
+    )
+    scheduler.add_job(
+        _job_paper_trading_cycle,
         CronTrigger(day_of_week=_weekday, hour=12, minute=0, timezone=_ET),
         id="paper_trading_cycle_midday",
         name="Paper Trading Cycle (Midday)",
+        replace_existing=True,
+        misfire_grace_time=300,
+    )
+    scheduler.add_job(
+        _job_paper_trading_cycle,
+        CronTrigger(day_of_week=_weekday, hour=13, minute=30, timezone=_ET),
+        id="paper_trading_cycle_early_afternoon",
+        name="Paper Trading Cycle (Early Afternoon)",
+        replace_existing=True,
+        misfire_grace_time=300,
+    )
+    scheduler.add_job(
+        _job_paper_trading_cycle,
+        CronTrigger(day_of_week=_weekday, hour=14, minute=30, timezone=_ET),
+        id="paper_trading_cycle_afternoon",
+        name="Paper Trading Cycle (Afternoon)",
+        replace_existing=True,
+        misfire_grace_time=300,
+    )
+    scheduler.add_job(
+        _job_paper_trading_cycle,
+        CronTrigger(day_of_week=_weekday, hour=15, minute=30, timezone=_ET),
+        id="paper_trading_cycle_close",
+        name="Paper Trading Cycle (Pre-Close)",
         replace_existing=True,
         misfire_grace_time=300,
     )
@@ -644,13 +693,38 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
 
-    # Block the main thread
+    # Build a Redis client for the heartbeat — None-safe if Redis is unavailable.
+    # The healthcheck in docker-compose polls worker:heartbeat to confirm the
+    # worker process is alive (improvement item #11).
+    _heartbeat_client = None
+    try:
+        import redis as _redis_mod
+        _heartbeat_client = _redis_mod.Redis.from_url(
+            settings.redis_url, socket_connect_timeout=2, socket_timeout=2
+        )
+        _heartbeat_client.ping()  # verify connectivity at startup
+        logger.info("worker_heartbeat_redis_connected")
+    except Exception as _exc:  # noqa: BLE001
+        logger.warning("worker_heartbeat_redis_unavailable", error=str(_exc))
+        _heartbeat_client = None
+
+    # Block the main thread; write a heartbeat to Redis on every iteration so
+    # the docker-compose healthcheck can confirm the worker process is alive.
+    # TTL is 3× the sleep interval so a single missed write does not fail the check.
+    _HEARTBEAT_KEY = "worker:heartbeat"
+    _HEARTBEAT_TTL = 180  # seconds — 3× the 60-second sleep
     try:
         import time
         while True:
             time.sleep(60)
+            if _heartbeat_client is not None:
+                try:
+                    _heartbeat_client.setex(_HEARTBEAT_KEY, _HEARTBEAT_TTL, "1")
+                except Exception as _hb_exc:  # noqa: BLE001
+                    logger.warning("worker_heartbeat_write_failed", error=str(_hb_exc))
     except (KeyboardInterrupt, SystemExit):
-        scheduler.shutdown(wait=False)
+        if scheduler.running:
+            scheduler.shutdown(wait=False)
         logger.info("apis_worker_stopped")
 
 

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Optional
 
 from pydantic import BaseModel
 
@@ -21,7 +20,7 @@ class SectorAllocationSchema(BaseModel):
 class SectorExposureResponse(BaseModel):
     """Full sector breakdown of the current portfolio."""
 
-    computed_at: Optional[dt.datetime]
+    computed_at: dt.datetime | None
     equity_usd: float
     max_sector_pct: float
     sector_count: int
@@ -38,4 +37,4 @@ class SectorDetailResponse(BaseModel):
     tickers: list[str]
     max_sector_pct: float
     at_limit: bool
-    computed_at: Optional[dt.datetime]
+    computed_at: dt.datetime | None

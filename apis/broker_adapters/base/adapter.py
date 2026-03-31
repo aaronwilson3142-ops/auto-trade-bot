@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from datetime import datetime
-from decimal import Decimal
 
 from broker_adapters.base.models import (
     AccountState,

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-
 # Canonical themes tracked by APIS
 _DEFAULT_THEMES = [
     "ai_infrastructure",

@@ -14,8 +14,6 @@ import datetime as dt
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from services.data_ingestion.models import (
     BarRecord,
     IngestionRequest,
@@ -124,6 +122,7 @@ class TestYFinanceAdapter:
 
     def test_fetch_bars_returns_empty_on_empty_dataframe(self) -> None:
         import pandas as pd
+
         from services.data_ingestion.adapters.yfinance_adapter import YFinanceAdapter
         adapter = YFinanceAdapter()
 
@@ -136,6 +135,7 @@ class TestYFinanceAdapter:
     def test_normalise_df_produces_bar_records(self) -> None:
         """_normalise_df maps a DataFrame → sorted BarRecord list."""
         import pandas as pd
+
         from services.data_ingestion.adapters.yfinance_adapter import YFinanceAdapter
         adapter = YFinanceAdapter()
 
@@ -160,8 +160,8 @@ class TestYFinanceAdapter:
 
     def test_normalise_df_skips_nan_close(self) -> None:
         """Rows with NaN close are dropped by dropna(subset=['Close'])."""
-        import math
         import pandas as pd
+
         from services.data_ingestion.adapters.yfinance_adapter import YFinanceAdapter
         adapter = YFinanceAdapter()
 

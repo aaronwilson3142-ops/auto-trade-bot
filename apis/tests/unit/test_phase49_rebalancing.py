@@ -24,9 +24,6 @@ from decimal import Decimal
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -261,8 +258,8 @@ class TestRebalancingServiceActions:
         return _make_settings(**kw)
 
     def test_trim_action_generated_for_overweight(self):
-        from services.risk_engine.rebalancing import RebalancingService
         from services.portfolio_engine.models import ActionType
+        from services.risk_engine.rebalancing import RebalancingService
         pos = _FakePosition("AAPL", quantity=Decimal("40"), current_price=Decimal("100"))
         cfg = self._make_cfg(
             enable_rebalancing=True,
@@ -282,8 +279,8 @@ class TestRebalancingServiceActions:
         assert trim_actions[0].target_quantity > 0
 
     def test_open_action_not_preapproved(self):
-        from services.risk_engine.rebalancing import RebalancingService
         from services.portfolio_engine.models import ActionType
+        from services.risk_engine.rebalancing import RebalancingService
         cfg = self._make_cfg(
             enable_rebalancing=True,
             rebalance_threshold_pct=0.05,
@@ -323,8 +320,8 @@ class TestRebalancingServiceActions:
         assert actions == []
 
     def test_trim_quantity_correct(self):
-        from services.risk_engine.rebalancing import RebalancingService
         from services.portfolio_engine.models import ActionType
+        from services.risk_engine.rebalancing import RebalancingService
         # AAPL: 40 shares @ $100 = $4000 = 40% of $10000
         # target = 20% = $2000 → excess = $2000 → sell 20 shares
         pos = _FakePosition("AAPL", quantity=Decimal("40"), current_price=Decimal("100"))
@@ -343,8 +340,8 @@ class TestRebalancingServiceActions:
         assert trim.target_quantity == Decimal("20")
 
     def test_trim_reason_contains_drift(self):
-        from services.risk_engine.rebalancing import RebalancingService
         from services.portfolio_engine.models import ActionType
+        from services.risk_engine.rebalancing import RebalancingService
         pos = _FakePosition("AAPL", quantity=Decimal("40"), current_price=Decimal("100"))
         cfg = self._make_cfg(
             enable_rebalancing=True,
@@ -477,7 +474,7 @@ class TestRebalancingAppState:
 
     def test_fields_settable(self):
         state = _make_app_state()
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime.now(dt.UTC)
         state.rebalance_targets = {"AAPL": 0.20, "MSFT": 0.20}
         state.rebalance_computed_at = now
         state.rebalance_drift_count = 3
@@ -629,6 +626,7 @@ class TestRebalanceCheckJobDisabled:
 class TestRebalanceAPIEndpoint:
     def _client(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         return TestClient(app)
 
@@ -660,7 +658,7 @@ class TestRebalanceAPIEndpoint:
         reset_app_state()
         state = get_app_state()
         state.rebalance_targets = {"AAPL": 0.20, "MSFT": 0.20}
-        state.rebalance_computed_at = dt.datetime.now(dt.timezone.utc)
+        state.rebalance_computed_at = dt.datetime.now(dt.UTC)
 
         pos = _FakePosition("AAPL", quantity=Decimal("40"), current_price=Decimal("100"))
         ps = _FakePortfolioState(equity=Decimal("10000"), positions={"AAPL": pos})
@@ -676,7 +674,7 @@ class TestRebalanceAPIEndpoint:
         from apps.api.state import get_app_state, reset_app_state
         reset_app_state()
         state = get_app_state()
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime.now(dt.UTC)
         state.rebalance_computed_at = now
 
         client = self._client()
@@ -734,7 +732,7 @@ class TestRebalanceDashboard:
         from apps.dashboard.router import _render_rebalancing_section
         state = _make_app_state()
         state.rebalance_targets = {"AAPL": 0.20}
-        state.rebalance_computed_at = dt.datetime.now(dt.timezone.utc)
+        state.rebalance_computed_at = dt.datetime.now(dt.UTC)
         pos = _FakePosition("AAPL", quantity=Decimal("40"), current_price=Decimal("100"))
         ps = _FakePortfolioState(equity=Decimal("10000"), positions={"AAPL": pos})
         state.portfolio_state = ps
@@ -755,8 +753,8 @@ class TestRebalanceDashboard:
 class TestRebalancePaperCycleIntegration:
     def test_rebalance_trim_added_to_proposed_actions(self):
         """Paper cycle merges rebalance TRIM actions when enabled."""
+        from services.portfolio_engine.models import ActionType
         from services.risk_engine.rebalancing import RebalancingService
-        from services.portfolio_engine.models import ActionType, PortfolioAction
 
         pos = _FakePosition("AAPL", quantity=Decimal("40"), current_price=Decimal("100"))
         cfg = _make_settings(
@@ -777,7 +775,6 @@ class TestRebalancePaperCycleIntegration:
     def test_close_supersedes_rebalance_trim(self):
         """If ticker is already in already_closing set, rebalance TRIM is skipped."""
         from services.risk_engine.rebalancing import RebalancingService
-        from services.portfolio_engine.models import ActionType
 
         pos = _FakePosition("AAPL", quantity=Decimal("40"), current_price=Decimal("100"))
         cfg = _make_settings(
@@ -798,8 +795,8 @@ class TestRebalancePaperCycleIntegration:
 
     def test_rebalance_open_not_preapproved(self):
         """OPEN rebalance actions are not pre-approved and enter risk pipeline."""
-        from services.risk_engine.rebalancing import RebalancingService
         from services.portfolio_engine.models import ActionType
+        from services.risk_engine.rebalancing import RebalancingService
 
         cfg = _make_settings(
             enable_rebalancing=True,

@@ -11,7 +11,6 @@ import datetime as dt
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
 
 
 class AlternativeDataSource(str, Enum):
@@ -37,7 +36,7 @@ class AlternativeDataRecord:
     mention_count: int = 0
     raw_snippet: str = ""
     captured_at: dt.datetime = field(
-        default_factory=lambda: dt.datetime.now(dt.timezone.utc)
+        default_factory=lambda: dt.datetime.now(dt.UTC)
     )
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 

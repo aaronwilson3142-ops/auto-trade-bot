@@ -146,7 +146,7 @@ class AWSSecretManager(SecretManager):
 
     def __init__(
         self,
-        secret_name: str = "apis/production/secrets",
+        secret_name: str = "apis/production/secrets",  # noqa: S107 — AWS Secrets Manager path, not a password
         region_name: str = "us-east-1",
     ) -> None:
         self._secret_name = secret_name
@@ -190,8 +190,9 @@ class AWSSecretManager(SecretManager):
     def _fetch_from_aws(self) -> dict[str, str]:
         """Fetch and parse the secret JSON blob from AWS Secrets Manager."""
         try:
-            import boto3  # type: ignore[import]
             import json
+
+            import boto3  # type: ignore[import]
         except ImportError as exc:
             raise RuntimeError(
                 "boto3 is required for AWSSecretManager. "

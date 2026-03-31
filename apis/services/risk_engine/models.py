@@ -8,7 +8,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
-from typing import Optional
 
 
 class RiskSeverity(str, Enum):
@@ -37,7 +36,7 @@ class RiskCheckResult:
     violations: list[RiskViolation] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     # When a size reduction (rather than full block) is possible, this is set.
-    adjusted_max_notional: Optional[Decimal] = None
+    adjusted_max_notional: Decimal | None = None
 
     @property
     def is_hard_blocked(self) -> bool:

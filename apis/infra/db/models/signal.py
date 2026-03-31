@@ -5,10 +5,11 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TimestampMixin
@@ -26,7 +27,7 @@ class Strategy(Base, TimestampMixin):
     strategy_name: Mapped[str] = mapped_column(sa.String, nullable=False)
     strategy_family: Mapped[str] = mapped_column(sa.String, nullable=False)
     is_active: Mapped[bool] = mapped_column(sa.Boolean, default=True, nullable=False)
-    config_version: Mapped[Optional[str]] = mapped_column(sa.String, nullable=True)
+    config_version: Mapped[str | None] = mapped_column(sa.String, nullable=True)
 
 
 class SignalRun(Base, TimestampMixin):
@@ -39,10 +40,10 @@ class SignalRun(Base, TimestampMixin):
     )
     run_timestamp: Mapped[datetime] = mapped_column(sa.DateTime, nullable=False)
     run_mode: Mapped[str] = mapped_column(sa.String, nullable=False)
-    universe_name: Mapped[Optional[str]] = mapped_column(sa.String, nullable=True)
-    config_version: Mapped[Optional[str]] = mapped_column(sa.String, nullable=True)
+    universe_name: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    config_version: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     status: Mapped[str] = mapped_column(sa.String, nullable=False)
-    notes: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
+    notes: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
 
 class SecuritySignal(Base, TimestampMixin):
@@ -66,13 +67,13 @@ class SecuritySignal(Base, TimestampMixin):
         PG_UUID(as_uuid=True), sa.ForeignKey("strategies.id"), nullable=False
     )
     signal_type: Mapped[str] = mapped_column(sa.String, nullable=False)
-    signal_score: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(12, 6), nullable=True)
-    confidence_score: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(12, 6), nullable=True)
-    risk_score: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(12, 6), nullable=True)
-    catalyst_score: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(12, 6), nullable=True)
-    liquidity_score: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(12, 6), nullable=True)
-    horizon_classification: Mapped[Optional[str]] = mapped_column(sa.String, nullable=True)
-    explanation_json: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
+    signal_score: Mapped[Decimal | None] = mapped_column(sa.Numeric(12, 6), nullable=True)
+    confidence_score: Mapped[Decimal | None] = mapped_column(sa.Numeric(12, 6), nullable=True)
+    risk_score: Mapped[Decimal | None] = mapped_column(sa.Numeric(12, 6), nullable=True)
+    catalyst_score: Mapped[Decimal | None] = mapped_column(sa.Numeric(12, 6), nullable=True)
+    liquidity_score: Mapped[Decimal | None] = mapped_column(sa.Numeric(12, 6), nullable=True)
+    horizon_classification: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    explanation_json: Mapped[Any | None] = mapped_column(JSONB, nullable=True)
 
 
 class RankingRun(Base, TimestampMixin):
@@ -87,7 +88,7 @@ class RankingRun(Base, TimestampMixin):
         PG_UUID(as_uuid=True), sa.ForeignKey("signal_runs.id"), nullable=False
     )
     run_timestamp: Mapped[datetime] = mapped_column(sa.DateTime, nullable=False)
-    config_version: Mapped[Optional[str]] = mapped_column(sa.String, nullable=True)
+    config_version: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     status: Mapped[str] = mapped_column(sa.String, nullable=False)
 
 
@@ -109,10 +110,10 @@ class RankedOpportunity(Base, TimestampMixin):
         PG_UUID(as_uuid=True), sa.ForeignKey("securities.id"), nullable=False
     )
     rank_position: Mapped[int] = mapped_column(sa.Integer, nullable=False)
-    composite_score: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(12, 6), nullable=True)
-    portfolio_fit_score: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(12, 6), nullable=True)
+    composite_score: Mapped[Decimal | None] = mapped_column(sa.Numeric(12, 6), nullable=True)
+    portfolio_fit_score: Mapped[Decimal | None] = mapped_column(sa.Numeric(12, 6), nullable=True)
     recommended_action: Mapped[str] = mapped_column(sa.String, nullable=False)
-    target_horizon: Mapped[Optional[str]] = mapped_column(sa.String, nullable=True)
-    thesis_summary: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
-    disconfirming_factors: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
-    sizing_hint_pct: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(8, 4), nullable=True)
+    target_horizon: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    thesis_summary: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    disconfirming_factors: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    sizing_hint_pct: Mapped[Decimal | None] = mapped_column(sa.Numeric(8, 4), nullable=True)

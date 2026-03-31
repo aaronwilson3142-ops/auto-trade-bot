@@ -13,17 +13,13 @@ Verifies:
 """
 from __future__ import annotations
 
-import datetime as dt
 from decimal import Decimal
-
-import pytest
 
 from broker_adapters.paper.adapter import PaperBrokerAdapter
 from config.settings import Settings
 from services.execution_engine.models import ExecutionRequest, ExecutionStatus
 from services.execution_engine.service import ExecutionEngineService
 from services.portfolio_engine.models import ActionType, PortfolioAction
-
 
 # ─────────────────────────── helpers ─────────────────────────────────────────
 
@@ -80,8 +76,9 @@ def _close_action(ticker: str = "AAPL") -> PortfolioAction:
 
 def _buy_into_broker(broker: PaperBrokerAdapter, ticker: str, price: Decimal, qty: Decimal) -> None:
     """Helper: open a position in the broker for CLOSE tests."""
-    from broker_adapters.base.models import OrderRequest, OrderSide, OrderType
     import uuid
+
+    from broker_adapters.base.models import OrderRequest, OrderSide, OrderType
     req = OrderRequest(
         idempotency_key=str(uuid.uuid4()),
         ticker=ticker,
@@ -113,6 +110,49 @@ class TestKillSwitchBlocking:
         req = ExecutionRequest(action=_open_action(), current_price=Decimal("175.00"))
         result = svc.execute_action(req)
         assert result.status == ExecutionStatus.FILLED
+
+    def test_runtime_kill_switch_fn_blocks_when_true(self):
+        """kill_switch_fn=True blocks even when env kill_switch is False."""
+        broker = _broker(prices={"AAPL": Decimal("175.00")})
+        svc = ExecutionEngineService(
+            settings=_settings(kill_switch=False),
+            broker=broker,
+            kill_switch_fn=lambda: True,
+        )
+        req = ExecutionRequest(action=_open_action(), current_price=Decimal("175.00"))
+        result = svc.execute_action(req)
+        assert result.status == ExecutionStatus.BLOCKED
+        assert "runtime" in result.error_message
+
+    def test_runtime_kill_switch_fn_false_proceeds(self):
+        """kill_switch_fn=False + env False = order proceeds normally."""
+        broker = _broker(prices={"AAPL": Decimal("175.00")})
+        svc = ExecutionEngineService(
+            settings=_settings(kill_switch=False),
+            broker=broker,
+            kill_switch_fn=lambda: False,
+        )
+        req = ExecutionRequest(action=_open_action(), current_price=Decimal("175.00"))
+        result = svc.execute_action(req)
+        assert result.status == ExecutionStatus.FILLED
+
+    def test_mutable_runtime_kill_switch_execution(self):
+        """kill_switch_fn is re-evaluated on each execute_action call."""
+        broker = _broker(prices={"AAPL": Decimal("175.00")})
+        state_flag = {"active": False}
+        svc = ExecutionEngineService(
+            settings=_settings(kill_switch=False),
+            broker=broker,
+            kill_switch_fn=lambda: state_flag["active"],
+        )
+        req = ExecutionRequest(action=_open_action(), current_price=Decimal("175.00"))
+        # Initially off — fills
+        assert svc.execute_action(req).status == ExecutionStatus.FILLED
+        # Flip on at runtime — blocks
+        state_flag["active"] = True
+        result = svc.execute_action(req)
+        assert result.status == ExecutionStatus.BLOCKED
+        assert "runtime" in result.error_message
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -289,3 +329,58 @@ class TestBatchExecution:
         svc = ExecutionEngineService(settings=_settings(), broker=broker)
         results = svc.execute_approved_actions([])
         assert results == []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TestIdempotencyKey
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestIdempotencyKey:
+    def test_idempotency_key_contains_action_id(self):
+        """Key must embed action.id so retries produce the same key."""
+        action = _open_action()
+        key = ExecutionEngineService._make_idempotency_key(action, "open")
+        assert action.id in key
+
+    def test_idempotency_key_contains_suffix(self):
+        """Key must contain the suffix to distinguish open/close/trim for the same action."""
+        action = _open_action()
+        open_key = ExecutionEngineService._make_idempotency_key(action, "open")
+        close_key = ExecutionEngineService._make_idempotency_key(action, "close")
+        assert "open" in open_key
+        assert "close" in close_key
+
+    def test_idempotency_key_is_stable_across_calls(self):
+        """Same action + same suffix must always yield the same key (deterministic)."""
+        action = _open_action()
+        key1 = ExecutionEngineService._make_idempotency_key(action, "open")
+        key2 = ExecutionEngineService._make_idempotency_key(action, "open")
+        assert key1 == key2
+
+    def test_different_actions_produce_different_keys(self):
+        """Two distinct PortfolioAction instances must produce different keys."""
+        action1 = _open_action("AAPL")
+        action2 = _open_action("AAPL")  # same ticker, but new action.id
+        key1 = ExecutionEngineService._make_idempotency_key(action1, "open")
+        key2 = ExecutionEngineService._make_idempotency_key(action2, "open")
+        assert key1 != key2
+
+    def test_retry_same_action_is_rejected_as_duplicate(self):
+        """Submitting the same action twice must raise DuplicateOrderError on the second call.
+
+        This is the end-to-end proof that deterministic keys enable broker-side deduplication.
+        """
+        broker = _broker(prices={"AAPL": Decimal("175.00")})
+        svc = ExecutionEngineService(settings=_settings(), broker=broker)
+
+        action = _open_action()
+        req = ExecutionRequest(action=action, current_price=Decimal("175.00"))
+
+        # First execution fills successfully
+        result1 = svc.execute_action(req)
+        assert result1.status == ExecutionStatus.FILLED
+
+        # Second execution with the same action (same action.id → same key) must be rejected
+        result2 = svc.execute_action(req)
+        assert result2.status == ExecutionStatus.REJECTED
+        assert result2.error_message is not None

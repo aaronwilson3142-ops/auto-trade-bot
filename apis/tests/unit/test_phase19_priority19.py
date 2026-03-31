@@ -24,9 +24,7 @@ from __future__ import annotations
 import datetime as dt
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, Mock, patch
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 # ── Repo root ──────────────────────────────────────────────────────────────────
 _REPO = Path(__file__).parent.parent.parent  # apis/
@@ -46,7 +44,7 @@ def _make_settings(**kwargs) -> Any:
 
 
 def _make_app_state() -> Any:
-    from apps.api.state import reset_app_state, get_app_state
+    from apps.api.state import get_app_state, reset_app_state
     reset_app_state()
     return get_app_state()
 
@@ -75,8 +73,9 @@ class TestSystemStateModel:
         assert SystemStateEntry.__tablename__ == "system_state"
 
     def test_key_column_is_primary_key(self):
-        from infra.db.models.system_state import SystemStateEntry
         from sqlalchemy import inspect as sa_inspect
+
+        from infra.db.models.system_state import SystemStateEntry
         mapper = sa_inspect(SystemStateEntry)
         pk_cols = [c.key for c in mapper.primary_key]
         assert "key" in pk_cols
@@ -87,9 +86,9 @@ class TestSystemStateModel:
 
     def test_key_constants_exist(self):
         from infra.db.models.system_state import (
-            KEY_KILL_SWITCH_ACTIVE,
             KEY_KILL_SWITCH_ACTIVATED_AT,
             KEY_KILL_SWITCH_ACTIVATED_BY,
+            KEY_KILL_SWITCH_ACTIVE,
             KEY_PAPER_CYCLE_COUNT,
         )
         assert KEY_KILL_SWITCH_ACTIVE == "kill_switch_active"
@@ -243,8 +242,10 @@ class TestLoadPersistedState:
 
         def _db_get(model, key):
             from infra.db.models.system_state import (
-                KEY_KILL_SWITCH_ACTIVE, KEY_KILL_SWITCH_ACTIVATED_AT,
-                KEY_KILL_SWITCH_ACTIVATED_BY, KEY_PAPER_CYCLE_COUNT,
+                KEY_KILL_SWITCH_ACTIVATED_AT,
+                KEY_KILL_SWITCH_ACTIVATED_BY,
+                KEY_KILL_SWITCH_ACTIVE,
+                KEY_PAPER_CYCLE_COUNT,
             )
             return {
                 KEY_KILL_SWITCH_ACTIVE: mock_entry_active,
@@ -315,7 +316,7 @@ class TestLoadPersistedState:
         state = _make_app_state()
 
         def _db_get(model, key):
-            from infra.db.models.system_state import KEY_PAPER_CYCLE_COUNT, KEY_KILL_SWITCH_ACTIVE
+            from infra.db.models.system_state import KEY_KILL_SWITCH_ACTIVE, KEY_PAPER_CYCLE_COUNT
             if key == KEY_PAPER_CYCLE_COUNT:
                 e = MagicMock(); e.value_text = "23"; return e
             if key == KEY_KILL_SWITCH_ACTIVE:
@@ -447,9 +448,10 @@ class TestPaperTradingKillSwitch:
 
     @staticmethod
     def _make_ranked() -> list:
-        import uuid
         import datetime as _dt
+        import uuid
         from decimal import Decimal
+
         from services.ranking_engine.models import RankedResult
         return [
             RankedResult(
@@ -531,8 +533,8 @@ class TestPaperTradingKillSwitch:
 
     def test_persist_paper_cycle_count_db_failure_silent(self):
         """_persist_paper_cycle_count must not raise on DB error."""
-        from apps.worker.jobs.paper_trading import _persist_paper_cycle_count
         import infra.db.session as db_sess
+        from apps.worker.jobs.paper_trading import _persist_paper_cycle_count
         original = getattr(db_sess, "db_session", None)
         def _raising():
             raise RuntimeError("db down")
@@ -554,7 +556,6 @@ class TestPaperCycleCounter:
     def _make_minimal_run_mocks(self):
         """Return injectable mocks for a minimal successful paper_trading cycle."""
         from decimal import Decimal
-        from services.portfolio_engine.models import PortfolioAction, ActionType, PortfolioState
 
         mock_portfolio_svc = MagicMock()
         mock_portfolio_svc.apply_ranked_opportunities.return_value = []
@@ -584,8 +585,10 @@ class TestPaperCycleCounter:
         )
 
     def test_successful_cycle_appends_to_paper_cycle_results(self):
-        import uuid, datetime as _dt
+        import datetime as _dt
+        import uuid
         from decimal import Decimal
+
         from apps.worker.jobs.paper_trading import run_paper_trading_cycle
         from services.ranking_engine.models import RankedResult
         state = _make_app_state()
@@ -610,8 +613,10 @@ class TestPaperCycleCounter:
         assert state.paper_cycle_results[0]["status"] == "ok"
 
     def test_successful_cycle_increments_paper_cycle_count(self):
-        import uuid, datetime as _dt
+        import datetime as _dt
+        import uuid
         from decimal import Decimal
+
         from apps.worker.jobs.paper_trading import run_paper_trading_cycle
         from services.ranking_engine.models import RankedResult
         state = _make_app_state()
@@ -652,8 +657,10 @@ class TestPaperCycleCounter:
         assert state.paper_cycle_count == 0
 
     def test_multiple_cycles_stack_correctly(self):
-        import uuid, datetime as _dt
+        import datetime as _dt
+        import uuid
         from decimal import Decimal
+
         from apps.worker.jobs.paper_trading import run_paper_trading_cycle
         from services.ranking_engine.models import RankedResult
         state = _make_app_state()
@@ -686,10 +693,11 @@ class TestKillSwitchEndpointPost:
     """POST /api/v1/admin/kill-switch activates/deactivates runtime kill switch."""
 
     def _get_client(self, cfg=None, state=None):
-        from fastapi.testclient import TestClient
         from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from apps.api.deps import get_app_state, get_settings
         from apps.api.routes.admin import router as admin_router
-        from apps.api.deps import get_settings, get_app_state
 
         test_app = FastAPI()
         test_app.include_router(admin_router, prefix="/api/v1")
@@ -820,7 +828,7 @@ class TestKillSwitchEndpointPost:
     def test_activated_at_cleared_on_deactivate(self):
         _, cfg, state = self._get_client()
         state.kill_switch_active = True
-        state.kill_switch_activated_at = dt.datetime.now(dt.timezone.utc)
+        state.kill_switch_activated_at = dt.datetime.now(dt.UTC)
         client, _, _ = self._get_client(cfg=cfg, state=state)
         with patch("apps.api.routes.admin._persist_kill_switch"):
             client.post(
@@ -832,7 +840,9 @@ class TestKillSwitchEndpointPost:
 
     def test_rate_limit_applied(self):
         """Kill switch endpoint is rate-limited (inherits existing admin rate limiter)."""
-        import inspect, apps.api.routes.admin as admin_mod
+        import inspect
+
+        import apps.api.routes.admin as admin_mod
         src = inspect.getsource(admin_mod.set_kill_switch)
         assert "_check_rate_limit" in src
 
@@ -851,10 +861,11 @@ class TestKillSwitchEndpointGet:
     """GET /api/v1/admin/kill-switch returns current state."""
 
     def _get_client(self, cfg=None, state=None):
-        from fastapi.testclient import TestClient
         from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from apps.api.deps import get_app_state, get_settings
         from apps.api.routes.admin import router as admin_router
-        from apps.api.deps import get_settings, get_app_state
 
         test_app = FastAPI()
         test_app.include_router(admin_router, prefix="/api/v1")
@@ -921,24 +932,28 @@ class TestConfigRoutes:
 
     def test_risk_status_reflects_runtime_kill_switch(self):
         import inspect
+
         import apps.api.routes.config as config_mod
         src = inspect.getsource(config_mod.get_risk_status)
         assert "kill_switch_active" in src
 
     def test_active_config_reflects_runtime_kill_switch(self):
         import inspect
+
         import apps.api.routes.config as config_mod
         src = inspect.getsource(config_mod.get_active_config)
         assert "kill_switch_active" in src
 
     def test_system_status_uses_runtime_state(self):
         import inspect
+
         import apps.api.main as main_mod
         src = inspect.getsource(main_mod.system_status)
         assert "kill_switch_active" in src
 
     def test_health_includes_kill_switch_component(self):
         import inspect
+
         import apps.api.main as main_mod
         src = inspect.getsource(main_mod.health)
         assert "kill_switch" in src
@@ -953,6 +968,7 @@ class TestMetrics:
 
     def test_metrics_uses_runtime_kill_switch(self):
         import inspect
+
         import apps.api.routes.metrics as metrics_mod
         src = inspect.getsource(metrics_mod.prometheus_metrics)
         assert "kill_switch_active" in src
@@ -960,6 +976,7 @@ class TestMetrics:
     def test_metrics_effective_or_notation(self):
         """Code must combine state.kill_switch_active OR settings.kill_switch."""
         import inspect
+
         import apps.api.routes.metrics as metrics_mod
         src = inspect.getsource(metrics_mod.prometheus_metrics)
         assert "kill_switch_active" in src
@@ -968,6 +985,7 @@ class TestMetrics:
     def test_metrics_help_text_unchanged(self):
         """apis_kill_switch_active metric help text is preserved."""
         import inspect
+
         import apps.api.routes.metrics as metrics_mod
         src = inspect.getsource(metrics_mod.prometheus_metrics)
         assert "apis_kill_switch_active" in src
@@ -987,8 +1005,8 @@ class TestLiveModeGateKillSwitch:
         return state
 
     def _run_gate(self, state, settings, current="paper", target="human_approved"):
-        from services.live_mode_gate.service import LiveModeGateService
         from config.settings import OperatingMode
+        from services.live_mode_gate.service import LiveModeGateService
         svc = LiveModeGateService()
         return svc.check_prerequisites(
             current_mode=OperatingMode(current),
@@ -1021,6 +1039,7 @@ class TestLiveModeGateKillSwitch:
     def test_gate_checks_getattr_fallback(self):
         """Gate must use getattr(app_state, 'kill_switch_active', False) safely."""
         import inspect
+
         from services.live_mode_gate import service as gate_mod
         src = inspect.getsource(gate_mod.LiveModeGateService.check_prerequisites)
         assert "kill_switch_active" in src
@@ -1050,8 +1069,8 @@ class TestLiveModeGateCycleCount:
         return state
 
     def _run_gate(self, state, settings, current="paper", target="human_approved"):
-        from services.live_mode_gate.service import LiveModeGateService
         from config.settings import OperatingMode
+        from services.live_mode_gate.service import LiveModeGateService
         svc = LiveModeGateService()
         return svc.check_prerequisites(
             current_mode=OperatingMode(current),
@@ -1095,6 +1114,7 @@ class TestLiveModeGateCycleCount:
 
     def test_ha_to_rl_gate_uses_cycle_count(self):
         import inspect
+
         from services.live_mode_gate import service as gate_mod
         src = inspect.getsource(gate_mod.LiveModeGateService._check_human_approved_to_restricted_live)
         assert "paper_cycle_count" in src
@@ -1110,8 +1130,8 @@ class TestPhase19Integration:
     def test_kill_switch_activated_blocks_paper_cycle_AND_gate(self):
         """Runtime kill switch simultaneously blocks trading AND gates promotion."""
         from apps.worker.jobs.paper_trading import run_paper_trading_cycle
-        from services.live_mode_gate.service import LiveModeGateService
         from config.settings import OperatingMode
+        from services.live_mode_gate.service import LiveModeGateService
 
         state = _make_app_state()
         state.kill_switch_active = True
@@ -1135,8 +1155,8 @@ class TestPhase19Integration:
     def test_paper_cycle_count_used_in_gate_after_restart_scenario(self):
         """Simulate: 7 cycles ran, process restarted (paper_cycle_results is empty),
         paper_cycle_count=7 was loaded from DB.  Gate should still see 7 cycles."""
-        from services.live_mode_gate.service import LiveModeGateService
         from config.settings import OperatingMode
+        from services.live_mode_gate.service import LiveModeGateService
 
         state = _make_app_state()
         state.paper_cycle_count = 7       # loaded from DB
@@ -1172,7 +1192,9 @@ class TestPhase19Integration:
 
     def test_health_has_kill_switch_key(self):
         """The /health handler must include kill_switch in components."""
-        import inspect, apps.api.main as main_mod
+        import inspect
+
+        import apps.api.main as main_mod
         src = inspect.getsource(main_mod.health)
         assert "components[\"kill_switch\"]" in src or "components['kill_switch']" in src
 

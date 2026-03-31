@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
-from typing import Any, Optional
+from typing import Any
 
 from services.feature_store.models import FeatureSet
 
@@ -64,9 +64,9 @@ class FeatureEnrichmentService:
     def enrich(
         self,
         feature_set: FeatureSet,
-        policy_signals: Optional[list] = None,
-        news_insights: Optional[list] = None,
-        fundamentals_store: Optional[dict] = None,
+        policy_signals: list | None = None,
+        news_insights: list | None = None,
+        fundamentals_store: dict | None = None,
     ) -> FeatureSet:
         """Return a new FeatureSet with all overlay fields populated.
 
@@ -120,9 +120,9 @@ class FeatureEnrichmentService:
     def enrich_batch(
         self,
         feature_sets: list[FeatureSet],
-        policy_signals: Optional[list] = None,
-        news_insights: Optional[list] = None,
-        fundamentals_store: Optional[dict] = None,
+        policy_signals: list | None = None,
+        news_insights: list | None = None,
+        fundamentals_store: dict | None = None,
     ) -> list[FeatureSet]:
         """Enrich a list of FeatureSets.
 

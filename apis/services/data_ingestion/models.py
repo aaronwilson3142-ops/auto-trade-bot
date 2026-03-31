@@ -11,7 +11,6 @@ import datetime as dt
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
-from typing import Optional
 
 
 class IngestionStatus(str, Enum):
@@ -27,13 +26,13 @@ class BarRecord:
     """Normalised single OHLCV bar from any market-data adapter."""
     ticker: str
     trade_date: dt.date
-    open: Optional[Decimal]
-    high: Optional[Decimal]
-    low: Optional[Decimal]
-    close: Optional[Decimal]
-    adjusted_close: Optional[Decimal]
-    volume: Optional[int]
-    vwap: Optional[Decimal] = None
+    open: Decimal | None
+    high: Decimal | None
+    low: Decimal | None
+    close: Decimal | None
+    adjusted_close: Decimal | None
+    volume: int | None
+    vwap: Decimal | None = None
     source_key: str = "yfinance"        # reliability tag — matches Source.source_key
 
 
@@ -42,8 +41,8 @@ class IngestionRequest:
     """Parameters for a batch ingestion run."""
     tickers: list[str]
     period: str = "1y"                  # yfinance period string e.g. "1y", "6mo", "3mo"
-    start_date: Optional[dt.date] = None
-    end_date: Optional[dt.date] = None
+    start_date: dt.date | None = None
+    end_date: dt.date | None = None
     source_key: str = "yfinance"
 
 
@@ -54,7 +53,7 @@ class TickerResult:
     status: IngestionStatus
     bars_fetched: int = 0
     bars_persisted: int = 0
-    error: Optional[str] = None
+    error: str | None = None
 
 
 @dataclass

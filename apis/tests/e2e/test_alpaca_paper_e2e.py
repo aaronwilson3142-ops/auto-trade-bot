@@ -1,4 +1,4 @@
-"""
+r"""
 E2E Tests — Alpaca Paper Sandbox Integration.
 
 These tests exercise the full APIS pipeline end-to-end against the Alpaca
@@ -54,7 +54,7 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -244,7 +244,7 @@ class TestAlpacaMarketHours:
         next_open = alpaca_adapter.next_market_open()
         # Should not be in the past by more than 1 hour (handles "currently open" case)
         from datetime import timedelta
-        assert next_open > datetime.now(tz=timezone.utc) - timedelta(hours=1)
+        assert next_open > datetime.now(tz=UTC) - timedelta(hours=1)
 
 
 # =============================================================================
@@ -262,9 +262,7 @@ class TestAlpacaOrderLifecycle:
         Submit a 1-share SPY market order (GTC so it's accepted outside hours),
         yield the Order, then cancel and clean up.
         """
-        from broker_adapters.base.models import (
-            OrderRequest, OrderSide, OrderType, TimeInForce
-        )
+        from broker_adapters.base.models import OrderRequest, OrderSide, OrderType, TimeInForce
         key = f"e2e-{uuid.uuid4().hex[:8]}"
         request = OrderRequest(
             idempotency_key=key,
@@ -307,16 +305,13 @@ class TestAlpacaOrderLifecycle:
         assert retrieved.broker_order_id == submitted_order.broker_order_id
 
     def test_cancel_order_succeeds(self, alpaca_adapter, submitted_order):
-        from broker_adapters.base.models import OrderStatus
         cancelled = alpaca_adapter.cancel_order(submitted_order.broker_order_id)
         # Cancellation may be async on Alpaca side; CANCELLED or SUBMITTED pending cancel
         assert cancelled.broker_order_id == submitted_order.broker_order_id
 
     def test_duplicate_idempotency_key_raises(self, alpaca_adapter):
         from broker_adapters.base.exceptions import DuplicateOrderError
-        from broker_adapters.base.models import (
-            OrderRequest, OrderSide, OrderType, TimeInForce
-        )
+        from broker_adapters.base.models import OrderRequest, OrderSide, OrderType, TimeInForce
         # Submit once with a unique key
         key = f"e2e-dup-{uuid.uuid4().hex[:8]}"
         req = OrderRequest(
@@ -368,12 +363,11 @@ class TestFullPaperTradingCycleIntegration:
         state (account balance) seeded into the internal paper portfolio.
         """
         from decimal import Decimal
+
         from apps.api.state import ApiAppState
         from apps.worker.jobs.paper_trading import run_paper_trading_cycle
         from broker_adapters.paper.adapter import PaperBrokerAdapter
         from config.settings import Settings
-        from services.ranking_engine.service import RankingEngineService
-        from services.signal_engine.service import SignalEngineService
 
         # Seed rankings so the cycle has something to work with
         state = ApiAppState()

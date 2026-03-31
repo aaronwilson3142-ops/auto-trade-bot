@@ -2,9 +2,8 @@
 from __future__ import annotations
 
 import datetime as dt
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
 
 
 class RumorSource(str, Enum):
@@ -34,7 +33,7 @@ class RumorScore:
     credibility_penalty: float = 0.0      # discount applied based on source type
     decay_factor: float = 1.0             # time-based decay [0.0, 1.0]
     influence_score: float = 0.0          # raw_confidence * (1-penalty) * decay
-    scored_at: Optional[dt.datetime] = None
+    scored_at: dt.datetime | None = None
 
     @property
     def is_actionable(self) -> bool:

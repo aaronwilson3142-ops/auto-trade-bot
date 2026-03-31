@@ -19,7 +19,7 @@ Design rules
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any, Optional
+from typing import Any
 
 from apps.api.state import ApiAppState
 from config.logging_config import get_logger
@@ -30,8 +30,8 @@ logger = get_logger(__name__)
 
 def run_correlation_refresh(
     app_state: ApiAppState,
-    settings: Optional[Settings] = None,
-    session_factory: Optional[Any] = None,
+    settings: Settings | None = None,
+    session_factory: Any | None = None,
 ) -> dict[str, Any]:
     """Load bar data and compute the pairwise correlation matrix.
 
@@ -44,7 +44,7 @@ def run_correlation_refresh(
         dict with keys: status, ticker_count, pair_count, computed_at, error.
     """
     cfg = settings or get_settings()
-    run_at = dt.datetime.now(dt.timezone.utc)
+    run_at = dt.datetime.now(dt.UTC)
 
     logger.info("correlation_refresh_starting", lookback_days=cfg.correlation_lookback_days)
 
@@ -68,17 +68,23 @@ def run_correlation_refresh(
 
         try:
             from infra.db.models.market_data import DailyMarketBar  # noqa: PLC0415
+            from infra.db.models.reference import Security  # noqa: PLC0415
 
             with session_factory() as session:
-                # Pull close prices for all tickers within the lookback window
+                # Pull close prices for all tickers within the lookback window.
+                # DailyMarketBar normalises through security_id FK; join Security
+                # to resolve the ticker symbol.  Correct column names:
+                #   bar_date  -> trade_date
+                #   close_price -> close
                 rows = (
                     session.query(
-                        DailyMarketBar.ticker,
-                        DailyMarketBar.bar_date,
-                        DailyMarketBar.close_price,
+                        Security.ticker,
+                        DailyMarketBar.trade_date,
+                        DailyMarketBar.close,
                     )
-                    .filter(DailyMarketBar.bar_date >= cutoff)
-                    .order_by(DailyMarketBar.ticker, DailyMarketBar.bar_date)
+                    .join(Security, Security.id == DailyMarketBar.security_id)
+                    .filter(DailyMarketBar.trade_date >= cutoff)
+                    .order_by(Security.ticker, DailyMarketBar.trade_date)
                     .all()
                 )
 

@@ -23,25 +23,23 @@ Guardrail rules enforced here
 """
 from __future__ import annotations
 
-import datetime as dt
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
 from services.self_improvement.config import SelfImprovementConfig
 from services.self_improvement.models import (
-    PROTECTED_COMPONENTS,
     ImprovementProposal,
+    PromotionDecision,
     ProposalEvaluation,
     ProposalStatus,
     ProposalType,
-    PromotionDecision,
 )
 
 
 class SelfImprovementService:
     """Proposal generator, challenger evaluator, and promotion guard."""
 
-    def __init__(self, config: Optional[SelfImprovementConfig] = None) -> None:
+    def __init__(self, config: SelfImprovementConfig | None = None) -> None:
         self._config = config or SelfImprovementConfig()
 
     # ── Proposal generation ────────────────────────────────────────────────────
@@ -50,7 +48,7 @@ class SelfImprovementService:
         self,
         scorecard_grade: str,
         attribution_summary: dict[str, Any],
-        current_versions: Optional[dict[str, str]] = None,
+        current_versions: dict[str, str] | None = None,
     ) -> list[ImprovementProposal]:
         """Generate a list of candidate improvement proposals.
 
@@ -341,7 +339,7 @@ class SelfImprovementService:
 
     # ── Internal helpers ───────────────────────────────────────────────────────
 
-    def _compute_confidence_score(self, evaluation: "ProposalEvaluation") -> float:
+    def _compute_confidence_score(self, evaluation: ProposalEvaluation) -> float:
         """Compute a [0.0, 1.0] confidence score for a proposal evaluation.
 
         Formula (Phase 36):

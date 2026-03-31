@@ -22,13 +22,9 @@ Tests cover:
 from __future__ import annotations
 
 import datetime as dt
-from dataclasses import dataclass, field
-from decimal import Decimal
-from typing import Any, Optional
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -66,7 +62,7 @@ def _make_tilt_event(
     from services.factor_alerts.service import FactorTiltEvent
 
     return FactorTiltEvent(
-        event_time=dt.datetime(2026, 3, 21, 10, 0, tzinfo=dt.timezone.utc),
+        event_time=dt.datetime(2026, 3, 21, 10, 0, tzinfo=dt.UTC),
         previous_factor=previous_factor,
         new_factor=new_factor,
         previous_weight=previous_weight,
@@ -85,7 +81,7 @@ class TestFactorTiltEventModel:
         from services.factor_alerts.service import FactorTiltEvent
 
         ev = FactorTiltEvent(
-            event_time=dt.datetime(2026, 3, 21, 9, 0, tzinfo=dt.timezone.utc),
+            event_time=dt.datetime(2026, 3, 21, 9, 0, tzinfo=dt.UTC),
             previous_factor="MOMENTUM",
             new_factor="VALUE",
             previous_weight=0.55,
@@ -102,7 +98,7 @@ class TestFactorTiltEventModel:
         from services.factor_alerts.service import FactorTiltEvent
 
         ev = FactorTiltEvent(
-            event_time=dt.datetime.now(dt.timezone.utc),
+            event_time=dt.datetime.now(dt.UTC),
             previous_factor=None,
             new_factor="GROWTH",
             previous_weight=None,
@@ -115,7 +111,7 @@ class TestFactorTiltEventModel:
         from services.factor_alerts.service import FactorTiltEvent
 
         ev = FactorTiltEvent(
-            event_time=dt.datetime.now(dt.timezone.utc),
+            event_time=dt.datetime.now(dt.UTC),
             previous_factor=None,
             new_factor="MOMENTUM",
             previous_weight=None,
@@ -128,7 +124,7 @@ class TestFactorTiltEventModel:
         from services.factor_alerts.service import FactorTiltEvent
 
         ev = FactorTiltEvent(
-            event_time=dt.datetime.now(dt.timezone.utc),
+            event_time=dt.datetime.now(dt.UTC),
             previous_factor="MOMENTUM",
             new_factor="MOMENTUM",
             previous_weight=0.40,
@@ -190,7 +186,7 @@ class TestDetectTiltFactorChange:
         from services.factor_alerts.service import FactorTiltAlertService
 
         result = _make_factor_result("QUALITY")
-        custom_time = dt.datetime(2026, 3, 21, 12, 0, tzinfo=dt.timezone.utc)
+        custom_time = dt.datetime(2026, 3, 21, 12, 0, tzinfo=dt.UTC)
         event = FactorTiltAlertService.detect_tilt(
             current_result=result,
             last_dominant_factor="MOMENTUM",
@@ -383,7 +379,7 @@ class TestBuildAlertPayload:
         from services.factor_alerts.service import FactorTiltAlertService, FactorTiltEvent
 
         ev = FactorTiltEvent(
-            event_time=dt.datetime.now(dt.timezone.utc),
+            event_time=dt.datetime.now(dt.UTC),
             previous_factor=None,
             new_factor="GROWTH",
             previous_weight=None,
@@ -416,7 +412,6 @@ class TestPaperCycleTiltIntegration:
     def _run_tilt_detection_block(self, app_state, fe_result):
         """Simulate the Phase 54 block from paper_trading.py."""
         from services.factor_alerts.service import FactorTiltAlertService
-        from services.alerting.models import AlertEvent, AlertSeverity
 
         fe_new = fe_result
         if fe_new is not None:
@@ -483,7 +478,6 @@ class TestLastDominantFactorUpdate:
 
     def test_last_dominant_factor_updates_each_cycle(self):
         from apps.api.state import ApiAppState
-        from services.factor_alerts.service import FactorTiltAlertService
 
         state = ApiAppState()
         for factor in ["MOMENTUM", "VALUE", "GROWTH"]:
@@ -498,8 +492,8 @@ class TestLastDominantFactorUpdate:
 
 class TestPaperCycleTiltWebhook:
     def test_webhook_fired_on_tilt(self):
-        from services.factor_alerts.service import FactorTiltAlertService
         from services.alerting.models import AlertEvent
+        from services.factor_alerts.service import FactorTiltAlertService
 
         mock_alert_svc = MagicMock()
         result = _make_factor_result("VALUE")
@@ -513,7 +507,7 @@ class TestPaperCycleTiltWebhook:
         mock_alert_svc.send_alert(AlertEvent(
             event_type="factor_tilt_detected",
             severity="info",
-            title=f"Factor tilt: MOMENTUM → VALUE",
+            title="Factor tilt: MOMENTUM → VALUE",
             payload=payload,
         ))
         mock_alert_svc.send_alert.assert_called_once()
@@ -557,6 +551,7 @@ class TestNoAlertServiceGraceful:
 class TestFactorTiltHistoryRouteEmpty:
     def test_empty_response_200(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import reset_app_state
 
@@ -570,6 +565,7 @@ class TestFactorTiltHistoryRouteEmpty:
 
     def test_empty_last_dominant_factor_none(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import reset_app_state
 
@@ -593,7 +589,7 @@ class TestFactorTiltHistoryRouteWithEvents:
         events = []
         for i in range(n):
             events.append(FactorTiltEvent(
-                event_time=dt.datetime(2026, 3, 21, 9, i, tzinfo=dt.timezone.utc),
+                event_time=dt.datetime(2026, 3, 21, 9, i, tzinfo=dt.UTC),
                 previous_factor=factors[i % len(factors)],
                 new_factor=factors[(i + 1) % len(factors)],
                 previous_weight=0.50,
@@ -606,6 +602,7 @@ class TestFactorTiltHistoryRouteWithEvents:
 
     def test_events_returned_newest_first(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import get_app_state, reset_app_state
 
@@ -624,6 +621,7 @@ class TestFactorTiltHistoryRouteWithEvents:
 
     def test_total_events_count(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import get_app_state, reset_app_state
 
@@ -639,6 +637,7 @@ class TestFactorTiltHistoryRouteWithEvents:
 
     def test_last_dominant_factor_in_response(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import get_app_state, reset_app_state
 
@@ -664,7 +663,7 @@ class TestFactorTiltHistoryLimit:
         events = []
         for i in range(n):
             events.append(FactorTiltEvent(
-                event_time=dt.datetime(2026, 3, 21, 9, 0, i % 60, tzinfo=dt.timezone.utc),
+                event_time=dt.datetime(2026, 3, 21, 9, 0, i % 60, tzinfo=dt.UTC),
                 previous_factor="MOMENTUM",
                 new_factor="VALUE",
                 previous_weight=0.50,
@@ -676,6 +675,7 @@ class TestFactorTiltHistoryLimit:
 
     def test_limit_respected(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import get_app_state, reset_app_state
 
@@ -692,6 +692,7 @@ class TestFactorTiltHistoryLimit:
 
     def test_limit_defaults_to_50(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import get_app_state, reset_app_state
 
@@ -712,8 +713,8 @@ class TestFactorTiltHistoryLimit:
 
 class TestDashboardFactorTiltSectionEmpty:
     def test_section_renders_no_events(self):
-        from apps.dashboard.router import _render_factor_tilt_section
         from apps.api.state import ApiAppState
+        from apps.dashboard.router import _render_factor_tilt_section
 
         state = ApiAppState()
         html = _render_factor_tilt_section(state)
@@ -721,8 +722,8 @@ class TestDashboardFactorTiltSectionEmpty:
         assert "No tilt events yet" in html
 
     def test_section_shows_none_dominant_factor(self):
-        from apps.dashboard.router import _render_factor_tilt_section
         from apps.api.state import ApiAppState
+        from apps.dashboard.router import _render_factor_tilt_section
 
         state = ApiAppState()
         html = _render_factor_tilt_section(state)
@@ -735,15 +736,15 @@ class TestDashboardFactorTiltSectionEmpty:
 
 class TestDashboardFactorTiltSectionWithEvents:
     def test_section_shows_event_count(self):
-        from apps.dashboard.router import _render_factor_tilt_section
         from apps.api.state import ApiAppState
+        from apps.dashboard.router import _render_factor_tilt_section
         from services.factor_alerts.service import FactorTiltEvent
 
         state = ApiAppState()
         state.last_dominant_factor = "VALUE"
         state.factor_tilt_events = [
             FactorTiltEvent(
-                event_time=dt.datetime(2026, 3, 21, 10, 0, tzinfo=dt.timezone.utc),
+                event_time=dt.datetime(2026, 3, 21, 10, 0, tzinfo=dt.UTC),
                 previous_factor="MOMENTUM",
                 new_factor="VALUE",
                 previous_weight=0.45,
@@ -757,15 +758,15 @@ class TestDashboardFactorTiltSectionWithEvents:
         assert "VALUE" in html
 
     def test_section_shows_last_tilt_type(self):
-        from apps.dashboard.router import _render_factor_tilt_section
         from apps.api.state import ApiAppState
+        from apps.dashboard.router import _render_factor_tilt_section
         from services.factor_alerts.service import FactorTiltEvent
 
         state = ApiAppState()
         state.last_dominant_factor = "MOMENTUM"
         state.factor_tilt_events = [
             FactorTiltEvent(
-                event_time=dt.datetime.now(dt.timezone.utc),
+                event_time=dt.datetime.now(dt.UTC),
                 previous_factor="MOMENTUM",
                 new_factor="MOMENTUM",
                 previous_weight=0.40,
@@ -778,8 +779,8 @@ class TestDashboardFactorTiltSectionWithEvents:
         assert "weight_shift" in html
 
     def test_section_renders_table_for_multiple_events(self):
-        from apps.dashboard.router import _render_factor_tilt_section
         from apps.api.state import ApiAppState
+        from apps.dashboard.router import _render_factor_tilt_section
         from services.factor_alerts.service import FactorTiltEvent
 
         state = ApiAppState()
@@ -787,7 +788,7 @@ class TestDashboardFactorTiltSectionWithEvents:
         for i in range(5):
             state.factor_tilt_events.append(
                 FactorTiltEvent(
-                    event_time=dt.datetime(2026, 3, 21, i, 0, tzinfo=dt.timezone.utc),
+                    event_time=dt.datetime(2026, 3, 21, i, 0, tzinfo=dt.UTC),
                     previous_factor="MOMENTUM",
                     new_factor="VALUE",
                     previous_weight=0.50,

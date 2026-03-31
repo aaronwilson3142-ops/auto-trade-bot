@@ -182,5 +182,5 @@ async def auto_execute(
         skipped_low_confidence=result.get("skipped_low_confidence", 0),
         error_count=result["error_count"],
         errors=result["errors"],
-        run_at=dt.datetime.now(dt.timezone.utc),
+        run_at=dt.datetime.now(dt.UTC),
     )

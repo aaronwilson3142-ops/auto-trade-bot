@@ -1,13 +1,14 @@
 """Evaluation models: evaluation_runs, evaluation_metrics, performance_attribution."""
 from __future__ import annotations
 
-import uuid
 import datetime as dt
+import uuid
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TimestampMixin
@@ -25,11 +26,11 @@ class EvaluationRun(Base, TimestampMixin):
         PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     run_timestamp: Mapped[dt.datetime] = mapped_column(sa.DateTime, nullable=False)
-    evaluation_period_start: Mapped[Optional[dt.date]] = mapped_column(sa.Date, nullable=True)
-    evaluation_period_end: Mapped[Optional[dt.date]] = mapped_column(sa.Date, nullable=True)
+    evaluation_period_start: Mapped[dt.date | None] = mapped_column(sa.Date, nullable=True)
+    evaluation_period_end: Mapped[dt.date | None] = mapped_column(sa.Date, nullable=True)
     mode: Mapped[str] = mapped_column(sa.String, nullable=False)
     status: Mapped[str] = mapped_column(sa.String, nullable=False)
-    benchmark_set: Mapped[Optional[str]] = mapped_column(sa.String, nullable=True)
+    benchmark_set: Mapped[str | None] = mapped_column(sa.String, nullable=True)
 
 
 class EvaluationMetric(Base, TimestampMixin):
@@ -44,8 +45,8 @@ class EvaluationMetric(Base, TimestampMixin):
         PG_UUID(as_uuid=True), sa.ForeignKey("evaluation_runs.id"), nullable=False
     )
     metric_key: Mapped[str] = mapped_column(sa.String, nullable=False)
-    metric_value: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(20, 8), nullable=True)
-    metric_text: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
+    metric_value: Mapped[Decimal | None] = mapped_column(sa.Numeric(20, 8), nullable=True)
+    metric_text: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
 
 class PerformanceAttribution(Base, TimestampMixin):
@@ -61,5 +62,5 @@ class PerformanceAttribution(Base, TimestampMixin):
     )
     attribution_type: Mapped[str] = mapped_column(sa.String, nullable=False)
     attribution_key: Mapped[str] = mapped_column(sa.String, nullable=False)
-    attribution_value: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(20, 8), nullable=True)
-    details_json: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
+    attribution_value: Mapped[Decimal | None] = mapped_column(sa.Numeric(20, 8), nullable=True)
+    details_json: Mapped[Any | None] = mapped_column(JSONB, nullable=True)

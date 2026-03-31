@@ -22,8 +22,9 @@ from __future__ import annotations
 
 import json
 import uuid
-from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
 
 from config.logging_config import get_logger
 
@@ -52,9 +53,9 @@ class WeightProfileRecord:
     weights: dict[str, float]       # strategy_key → normalised weight
     sharpe_metrics: dict[str, float]  # strategy_key → sharpe used
     is_active: bool
-    optimization_run_id: Optional[str] = None
-    notes: Optional[str] = None
-    created_at: Optional[Any] = None
+    optimization_run_id: str | None = None
+    notes: str | None = None
+    created_at: Any | None = None
 
 
 class WeightOptimizerService:
@@ -66,7 +67,7 @@ class WeightOptimizerService:
             persisted).
     """
 
-    def __init__(self, session_factory: Optional[Callable] = None) -> None:
+    def __init__(self, session_factory: Callable | None = None) -> None:
         self._session_factory = session_factory
 
     # ------------------------------------------------------------------
@@ -76,8 +77,8 @@ class WeightOptimizerService:
     def optimize_from_backtest(
         self,
         backtest_runs: list[Any],
-        comparison_id: Optional[str] = None,
-        profile_name: Optional[str] = None,
+        comparison_id: str | None = None,
+        profile_name: str | None = None,
         set_active: bool = True,
     ) -> WeightProfileRecord:
         """Compute Sharpe-proportional weights from a list of BacktestRun objects.
@@ -114,7 +115,7 @@ class WeightOptimizerService:
         weights: dict[str, float],
         profile_name: str,
         set_active: bool = True,
-        notes: Optional[str] = None,
+        notes: str | None = None,
     ) -> WeightProfileRecord:
         """Create a manually specified weight profile.
 
@@ -142,7 +143,7 @@ class WeightOptimizerService:
         self._persist_profile(profile, set_active=set_active)
         return profile
 
-    def get_active_profile(self) -> Optional[WeightProfileRecord]:
+    def get_active_profile(self) -> WeightProfileRecord | None:
         """Return the currently active WeightProfile from DB, or None."""
         if not self._session_factory:
             return None
@@ -182,7 +183,7 @@ class WeightOptimizerService:
             logger.warning("weight_optimizer_list_failed", error=str(exc))
             return []
 
-    def set_active_profile(self, profile_id: str) -> Optional[WeightProfileRecord]:
+    def set_active_profile(self, profile_id: str) -> WeightProfileRecord | None:
         """Set a specific profile as active, deactivating all others.
 
         Returns:
@@ -191,8 +192,9 @@ class WeightOptimizerService:
         if not self._session_factory:
             return None
         try:
-            from infra.db.models import WeightProfile
             import sqlalchemy as sa
+
+            from infra.db.models import WeightProfile
 
             with self._session_factory() as session:
                 # Deactivate all
@@ -282,8 +284,9 @@ class WeightOptimizerService:
         if not self._session_factory:
             return
         try:
-            from infra.db.models import WeightProfile
             import sqlalchemy as sa
+
+            from infra.db.models import WeightProfile
 
             with self._session_factory() as session:
                 if set_active:
@@ -336,7 +339,7 @@ class WeightOptimizerService:
         )
 
     @staticmethod
-    def _auto_name(comparison_id: Optional[str]) -> str:
+    def _auto_name(comparison_id: str | None) -> str:
         """Generate a human-readable profile name."""
         suffix = f"run-{comparison_id[:8]}" if comparison_id else "auto"
         return f"Optimized weights ({suffix})"

@@ -38,16 +38,14 @@ Design rules
 """
 from __future__ import annotations
 
-import dataclasses
 import datetime as dt
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Optional
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import structlog
 
 if TYPE_CHECKING:
     from config.settings import Settings
-    from services.portfolio_engine.models import PortfolioAction
 
 log = structlog.get_logger(__name__)
 
@@ -273,7 +271,7 @@ class VaRService:
             VaRResult with all VaR/CVaR metrics populated.  ``insufficient_data``
             is set True when fewer than MIN_OBSERVATIONS observations are available.
         """
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime.now(dt.UTC)
 
         if not positions or equity <= 0.0:
             return VaRResult(
@@ -366,8 +364,8 @@ class VaRService:
     @staticmethod
     def filter_for_var_limit(
         actions: list,              # list[PortfolioAction]
-        var_result: "VaRResult",
-        settings: "Settings",
+        var_result: VaRResult,
+        settings: Settings,
     ) -> tuple[list, int]:
         """Drop OPEN actions when portfolio VaR exceeds the configured limit.
 

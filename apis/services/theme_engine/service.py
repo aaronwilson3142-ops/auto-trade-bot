@@ -5,14 +5,11 @@ ThematicExposure objects for any requested ticker.  No DB or LLM needed.
 """
 from __future__ import annotations
 
-from typing import Optional
-
 import structlog
 
 from services.theme_engine.config import ThemeEngineConfig
-from services.theme_engine.models import BeneficiaryOrder, ThematicExposure, ThemeMapping
+from services.theme_engine.models import ThematicExposure, ThemeMapping
 from services.theme_engine.utils import (
-    TICKER_THEME_REGISTRY,
     get_theme_members_from_registry,
     get_ticker_mappings,
 )
@@ -27,7 +24,7 @@ class ThemeEngineService:
     Unknown tickers return an empty ThematicExposure rather than raising.
     """
 
-    def __init__(self, config: Optional[ThemeEngineConfig] = None) -> None:
+    def __init__(self, config: ThemeEngineConfig | None = None) -> None:
         self._config = config or ThemeEngineConfig()
         self._log = log.bind(service="theme_engine")
 

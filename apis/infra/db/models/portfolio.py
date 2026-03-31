@@ -5,10 +5,11 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TimestampMixin
@@ -24,12 +25,12 @@ class PortfolioSnapshot(Base, TimestampMixin):
     )
     snapshot_timestamp: Mapped[datetime] = mapped_column(sa.DateTime, nullable=False)
     mode: Mapped[str] = mapped_column(sa.String, nullable=False)
-    cash_balance: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(20, 4), nullable=True)
-    gross_exposure: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(20, 4), nullable=True)
-    net_exposure: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(20, 4), nullable=True)
-    equity_value: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(20, 4), nullable=True)
-    drawdown_pct: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(12, 6), nullable=True)
-    notes: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
+    cash_balance: Mapped[Decimal | None] = mapped_column(sa.Numeric(20, 4), nullable=True)
+    gross_exposure: Mapped[Decimal | None] = mapped_column(sa.Numeric(20, 4), nullable=True)
+    net_exposure: Mapped[Decimal | None] = mapped_column(sa.Numeric(20, 4), nullable=True)
+    equity_value: Mapped[Decimal | None] = mapped_column(sa.Numeric(20, 4), nullable=True)
+    drawdown_pct: Mapped[Decimal | None] = mapped_column(sa.Numeric(12, 6), nullable=True)
+    notes: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
 
 class Position(Base, TimestampMixin):
@@ -47,19 +48,19 @@ class Position(Base, TimestampMixin):
         PG_UUID(as_uuid=True), sa.ForeignKey("securities.id"), nullable=False
     )
     opened_at: Mapped[datetime] = mapped_column(sa.DateTime, nullable=False)
-    closed_at: Mapped[Optional[datetime]] = mapped_column(sa.DateTime, nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(sa.DateTime, nullable=True)
     status: Mapped[str] = mapped_column(sa.String, nullable=False)
-    entry_price: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(18, 6), nullable=True)
-    exit_price: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(18, 6), nullable=True)
-    quantity: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(20, 6), nullable=True)
-    cost_basis: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(20, 4), nullable=True)
-    market_value: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(20, 4), nullable=True)
-    unrealized_pnl: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(20, 4), nullable=True)
-    realized_pnl: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(20, 4), nullable=True)
-    strategy_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    entry_price: Mapped[Decimal | None] = mapped_column(sa.Numeric(18, 6), nullable=True)
+    exit_price: Mapped[Decimal | None] = mapped_column(sa.Numeric(18, 6), nullable=True)
+    quantity: Mapped[Decimal | None] = mapped_column(sa.Numeric(20, 6), nullable=True)
+    cost_basis: Mapped[Decimal | None] = mapped_column(sa.Numeric(20, 4), nullable=True)
+    market_value: Mapped[Decimal | None] = mapped_column(sa.Numeric(20, 4), nullable=True)
+    unrealized_pnl: Mapped[Decimal | None] = mapped_column(sa.Numeric(20, 4), nullable=True)
+    realized_pnl: Mapped[Decimal | None] = mapped_column(sa.Numeric(20, 4), nullable=True)
+    strategy_id: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True), sa.ForeignKey("strategies.id"), nullable=True
     )
-    thesis_snapshot_json: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
+    thesis_snapshot_json: Mapped[Any | None] = mapped_column(JSONB, nullable=True)
 
 
 class Order(Base, TimestampMixin):
@@ -73,23 +74,23 @@ class Order(Base, TimestampMixin):
     id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    broker_order_ref: Mapped[Optional[str]] = mapped_column(sa.String, nullable=True)
+    broker_order_ref: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     security_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True), sa.ForeignKey("securities.id"), nullable=False
     )
-    position_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    position_id: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True), sa.ForeignKey("positions.id"), nullable=True
     )
     order_timestamp: Mapped[datetime] = mapped_column(sa.DateTime, nullable=False)
     order_type: Mapped[str] = mapped_column(sa.String, nullable=False)
     side: Mapped[str] = mapped_column(sa.String, nullable=False)
-    quantity: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(20, 6), nullable=True)
-    notional_amount: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(20, 4), nullable=True)
-    limit_price: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(18, 6), nullable=True)
-    stop_price: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(18, 6), nullable=True)
+    quantity: Mapped[Decimal | None] = mapped_column(sa.Numeric(20, 6), nullable=True)
+    notional_amount: Mapped[Decimal | None] = mapped_column(sa.Numeric(20, 4), nullable=True)
+    limit_price: Mapped[Decimal | None] = mapped_column(sa.Numeric(18, 6), nullable=True)
+    stop_price: Mapped[Decimal | None] = mapped_column(sa.Numeric(18, 6), nullable=True)
     status: Mapped[str] = mapped_column(sa.String, nullable=False)
-    idempotency_key: Mapped[Optional[str]] = mapped_column(sa.String, nullable=True)
-    decision_snapshot_json: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    decision_snapshot_json: Mapped[Any | None] = mapped_column(JSONB, nullable=True)
 
 
 class Fill(Base, TimestampMixin):
@@ -107,10 +108,10 @@ class Fill(Base, TimestampMixin):
         PG_UUID(as_uuid=True), sa.ForeignKey("orders.id"), nullable=False
     )
     fill_timestamp: Mapped[datetime] = mapped_column(sa.DateTime, nullable=False)
-    fill_quantity: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(20, 6), nullable=True)
-    fill_price: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(18, 6), nullable=True)
-    fees: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(20, 4), nullable=True)
-    liquidity_flag: Mapped[Optional[str]] = mapped_column(sa.String, nullable=True)
+    fill_quantity: Mapped[Decimal | None] = mapped_column(sa.Numeric(20, 6), nullable=True)
+    fill_price: Mapped[Decimal | None] = mapped_column(sa.Numeric(18, 6), nullable=True)
+    fees: Mapped[Decimal | None] = mapped_column(sa.Numeric(20, 4), nullable=True)
+    liquidity_flag: Mapped[str | None] = mapped_column(sa.String, nullable=True)
 
 
 class PositionHistory(Base, TimestampMixin):
@@ -126,13 +127,13 @@ class PositionHistory(Base, TimestampMixin):
     )
     ticker: Mapped[str] = mapped_column(sa.String(16), nullable=False)
     snapshot_at: Mapped[datetime] = mapped_column(sa.DateTime, nullable=False)
-    quantity: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(20, 6), nullable=True)
-    avg_entry_price: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(18, 6), nullable=True)
-    current_price: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(18, 6), nullable=True)
-    market_value: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(20, 4), nullable=True)
-    cost_basis: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(20, 4), nullable=True)
-    unrealized_pnl: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(20, 4), nullable=True)
-    unrealized_pnl_pct: Mapped[Optional[Decimal]] = mapped_column(sa.Numeric(12, 6), nullable=True)
+    quantity: Mapped[Decimal | None] = mapped_column(sa.Numeric(20, 6), nullable=True)
+    avg_entry_price: Mapped[Decimal | None] = mapped_column(sa.Numeric(18, 6), nullable=True)
+    current_price: Mapped[Decimal | None] = mapped_column(sa.Numeric(18, 6), nullable=True)
+    market_value: Mapped[Decimal | None] = mapped_column(sa.Numeric(20, 4), nullable=True)
+    cost_basis: Mapped[Decimal | None] = mapped_column(sa.Numeric(20, 4), nullable=True)
+    unrealized_pnl: Mapped[Decimal | None] = mapped_column(sa.Numeric(20, 4), nullable=True)
+    unrealized_pnl_pct: Mapped[Decimal | None] = mapped_column(sa.Numeric(12, 6), nullable=True)
 
 
 class RiskEvent(Base, TimestampMixin):
@@ -146,11 +147,11 @@ class RiskEvent(Base, TimestampMixin):
     event_timestamp: Mapped[datetime] = mapped_column(sa.DateTime, nullable=False)
     event_type: Mapped[str] = mapped_column(sa.String, nullable=False)
     severity: Mapped[str] = mapped_column(sa.String, nullable=False)
-    security_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    security_id: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True), sa.ForeignKey("securities.id"), nullable=True
     )
-    position_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    position_id: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True), sa.ForeignKey("positions.id"), nullable=True
     )
-    details_json: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
-    resolved_at: Mapped[Optional[datetime]] = mapped_column(sa.DateTime, nullable=True)
+    details_json: Mapped[Any | None] = mapped_column(JSONB, nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(sa.DateTime, nullable=True)

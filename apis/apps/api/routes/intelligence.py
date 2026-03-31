@@ -19,7 +19,6 @@ from __future__ import annotations
 import datetime as dt
 import hmac
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException, Query, status
 
@@ -28,10 +27,10 @@ from apps.api.schemas.intelligence import (
     AlternativeDataRecordSchema,
     AlternativeDataResponse,
     MacroRegimeResponse,
-    NewsInsightSummary,
     NewsInsightsResponse,
-    PolicySignalSummary,
+    NewsInsightSummary,
     PolicySignalsResponse,
+    PolicySignalSummary,
     PushEventRequest,
     PushItemResponse,
     PushNewsItemRequest,
@@ -93,7 +92,7 @@ async def get_macro_regime(state: AppStateDep) -> MacroRegimeResponse:
     return MacroRegimeResponse(
         regime=getattr(state, "current_macro_regime", "NEUTRAL"),
         signal_count=len(getattr(state, "latest_policy_signals", [])),
-        as_of=dt.datetime.now(dt.timezone.utc),
+        as_of=dt.datetime.now(dt.UTC),
     )
 
 
@@ -125,14 +124,14 @@ async def get_policy_signals(
     return PolicySignalsResponse(
         count=len(summaries),
         signals=summaries,
-        as_of=dt.datetime.now(dt.timezone.utc),
+        as_of=dt.datetime.now(dt.UTC),
     )
 
 
 @router.get("/insights", response_model=NewsInsightsResponse)
 async def get_news_insights(
     state: AppStateDep,
-    ticker: Optional[str] = Query(
+    ticker: str | None = Query(
         None, description="Filter insights to those affecting this ticker symbol"
     ),
     limit: int = Query(20, ge=1, le=100),
@@ -168,7 +167,7 @@ async def get_news_insights(
     return NewsInsightsResponse(
         count=len(summaries),
         insights=summaries,
-        as_of=dt.datetime.now(dt.timezone.utc),
+        as_of=dt.datetime.now(dt.UTC),
     )
 
 
@@ -198,7 +197,7 @@ async def get_thematic_exposure(ticker: str) -> ThematicExposureResponse:
         primary_theme=exposure.primary_theme,
         max_score=round(exposure.max_score, 4),
         mappings=mappings,
-        as_of=dt.datetime.now(dt.timezone.utc),
+        as_of=dt.datetime.now(dt.UTC),
     )
 
 
@@ -211,7 +210,7 @@ async def push_policy_event(
     body: PushEventRequest,
     state: AppStateDep,
     settings: SettingsDep,
-    authorization: Optional[str] = Header(None),
+    authorization: str | None = Header(None),
 ) -> PushItemResponse:
     """Push a processed policy event into the active intelligence state.
 
@@ -240,7 +239,7 @@ async def push_policy_event(
             detail=f"Unknown event_type '{body.event_type}'. Valid: {valid}",
         )
 
-    now = dt.datetime.now(dt.timezone.utc)
+    now = dt.datetime.now(dt.UTC)
     event = PolicyEvent(
         event_id=body.event_id,
         headline=body.headline,
@@ -279,7 +278,7 @@ async def push_policy_event(
 @router.get("/alternative", response_model=AlternativeDataResponse)
 async def get_alternative_data(
     state: AppStateDep,
-    ticker: Optional[str] = Query(
+    ticker: str | None = Query(
         None, description="Filter records to this ticker symbol (case-insensitive)"
     ),
     limit: int = Query(50, ge=1, le=200),
@@ -309,7 +308,7 @@ async def get_alternative_data(
             )
             for r in records
         ],
-        as_of=dt.datetime.now(dt.timezone.utc),
+        as_of=dt.datetime.now(dt.UTC),
     )
 
 
@@ -318,7 +317,7 @@ async def push_news_item(
     body: PushNewsItemRequest,
     state: AppStateDep,
     settings: SettingsDep,
-    authorization: Optional[str] = Header(None),
+    authorization: str | None = Header(None),
 ) -> PushItemResponse:
     """Push a processed news insight into the active intelligence state.
 
@@ -338,7 +337,7 @@ async def push_news_item(
         SentimentLabel,
     )
 
-    now = dt.datetime.now(dt.timezone.utc)
+    now = dt.datetime.now(dt.UTC)
 
     # Infer credibility tier from credibility_weight
     if body.credibility_weight >= 0.7:

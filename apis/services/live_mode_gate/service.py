@@ -19,9 +19,8 @@ Spec references
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Optional
-
 import math
+from typing import TYPE_CHECKING
 
 from config.settings import OperatingMode, Settings
 from services.live_mode_gate.models import GateRequirement, GateStatus, LiveModeGateResult
@@ -77,7 +76,7 @@ class LiveModeGateService:
         self,
         current_mode: OperatingMode,
         target_mode: OperatingMode,
-        app_state: "ApiAppState",
+        app_state: ApiAppState,
         settings: Settings,
     ) -> LiveModeGateResult:
         """Evaluate all gate requirements for the current → target mode promotion.
@@ -154,7 +153,7 @@ class LiveModeGateService:
     def _check_paper_to_human_approved(
         self,
         result: LiveModeGateResult,
-        app_state: "ApiAppState",
+        app_state: ApiAppState,
     ) -> None:
         """Gate requirements for PAPER → HUMAN_APPROVED promotion."""
 
@@ -238,7 +237,7 @@ class LiveModeGateService:
     def _check_human_approved_to_restricted_live(
         self,
         result: LiveModeGateResult,
-        app_state: "ApiAppState",
+        app_state: ApiAppState,
     ) -> None:
         """Gate requirements for HUMAN_APPROVED → RESTRICTED_LIVE promotion.
 
@@ -378,7 +377,7 @@ class LiveModeGateService:
     def _check_sharpe_gate(
         self,
         result: LiveModeGateResult,
-        app_state: "ApiAppState",
+        app_state: ApiAppState,
         min_sharpe: float,
     ) -> None:
         """Require minimum annualised Sharpe from evaluation history daily returns.
@@ -419,7 +418,7 @@ class LiveModeGateService:
     @staticmethod
     def _check_drawdown_state_gate(
         result: LiveModeGateResult,
-        app_state: "ApiAppState",
+        app_state: ApiAppState,
     ) -> None:
         """Require drawdown state is not RECOVERY before promotion.
 
@@ -461,7 +460,7 @@ class LiveModeGateService:
     @staticmethod
     def _check_signal_quality_gate(
         result: LiveModeGateResult,
-        app_state: "ApiAppState",
+        app_state: ApiAppState,
         min_win_rate: float,
     ) -> None:
         """Require minimum average win rate across strategies in SignalQualityReport.

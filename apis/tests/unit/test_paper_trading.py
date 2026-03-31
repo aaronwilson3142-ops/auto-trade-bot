@@ -33,7 +33,7 @@ import datetime as dt
 import uuid
 from decimal import Decimal
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -53,7 +53,6 @@ from broker_adapters.base.models import (
     OrderSide,
     OrderStatus,
     OrderType,
-    TimeInForce,
 )
 from services.reporting.models import (
     DailyOperationalReport,
@@ -64,10 +63,9 @@ from services.reporting.models import (
 )
 from services.reporting.service import ReportingService
 
-
 # ─────────────────────── helpers ──────────────────────────────────────────────
 
-_NOW = dt.datetime(2026, 3, 17, 16, 0, 0, tzinfo=dt.timezone.utc)
+_NOW = dt.datetime(2026, 3, 17, 16, 0, 0, tzinfo=dt.UTC)
 _TODAY = _NOW.date()
 
 

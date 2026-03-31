@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TimestampMixin
@@ -23,8 +24,8 @@ class DecisionAudit(Base, TimestampMixin):
     decision_timestamp: Mapped[datetime] = mapped_column(sa.DateTime, nullable=False)
     decision_type: Mapped[str] = mapped_column(sa.String, nullable=False)
     summary: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    details_json: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
-    source_ref: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
+    details_json: Mapped[Any | None] = mapped_column(JSONB, nullable=True)
+    source_ref: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
 
 class SessionCheckpoint(Base, TimestampMixin):
@@ -36,15 +37,15 @@ class SessionCheckpoint(Base, TimestampMixin):
         PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     checkpoint_timestamp: Mapped[datetime] = mapped_column(sa.DateTime, nullable=False)
-    capacity_trigger: Mapped[Optional[str]] = mapped_column(sa.String, nullable=True)
-    objective: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
-    current_stage: Mapped[Optional[str]] = mapped_column(sa.String, nullable=True)
-    current_status: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
-    files_changed_json: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
-    qa_status: Mapped[Optional[str]] = mapped_column(sa.String, nullable=True)
-    open_items_json: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
-    risks_json: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
-    continuity_notes: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
+    capacity_trigger: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    objective: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    current_stage: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    current_status: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    files_changed_json: Mapped[Any | None] = mapped_column(JSONB, nullable=True)
+    qa_status: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    open_items_json: Mapped[Any | None] = mapped_column(JSONB, nullable=True)
+    risks_json: Mapped[Any | None] = mapped_column(JSONB, nullable=True)
+    continuity_notes: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
 
 class AdminEvent(Base, TimestampMixin):
@@ -70,10 +71,10 @@ class AdminEvent(Base, TimestampMixin):
     # "ok", "skipped_env_backend", "unauthorized", "disabled", "error"
     result: Mapped[str] = mapped_column(sa.String(50), nullable=False)
     # Remote IP from X-Forwarded-For or request.client.host
-    source_ip: Mapped[Optional[str]] = mapped_column(sa.String(50), nullable=True)
+    source_ip: Mapped[str | None] = mapped_column(sa.String(50), nullable=True)
     # Informational — which secret was named in the request body
-    secret_name: Mapped[Optional[str]] = mapped_column(sa.String(255), nullable=True)
+    secret_name: Mapped[str | None] = mapped_column(sa.String(255), nullable=True)
     # "aws" | "env" | None
-    secret_backend: Mapped[Optional[str]] = mapped_column(sa.String(50), nullable=True)
+    secret_backend: Mapped[str | None] = mapped_column(sa.String(50), nullable=True)
     # Catch-all structured payload for future fields
-    details_json: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
+    details_json: Mapped[Any | None] = mapped_column(JSONB, nullable=True)

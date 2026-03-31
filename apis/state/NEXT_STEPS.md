@@ -6,10 +6,12 @@ Last Updated: 2026-03-21 (Session 56 — Phase 56 Readiness Report History COMPL
 APIS system build is finished. 3626 tests passing (100 skipped). 30 scheduled jobs. 5 signal strategies.
 
 The only remaining work is **operational**:
+- **Immediate:** Monitor dashboard on 2026-03-31 after 09:35 ET to confirm worker cycles firing (cycle count should increment from 1 → 2+)
+- **Immediate:** Investigate Alpaca broker auth "unauthorized" — API keys may need refresh or re-generation
+- **Optional:** Restart Docker Compose stack to restore Prometheus/Grafana/Alertmanager monitoring
 - Set up live broker credentials (Interactive Brokers or equivalent)
-- Configure Kubernetes deployment (manifests already written in Phase 15)
 - Toggle to live mode via `POST /api/v1/live-gate/promote` then set `APIS_OPERATING_MODE=human_approved` and restart
-- Monitor via dashboard at `GET /dashboard`
+- Monitor via dashboard at `GET /dashboard` — new Infrastructure Health panel shows component status
 
 ## Phase 56 — COMPLETE
 

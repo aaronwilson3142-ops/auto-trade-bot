@@ -14,10 +14,12 @@ from __future__ import annotations
 import datetime as dt
 from decimal import Decimal
 
-import pytest
-
-from services.portfolio_engine.models import ActionType, PortfolioAction, PortfolioPosition, PortfolioState
-
+from services.portfolio_engine.models import (
+    ActionType,
+    PortfolioAction,
+    PortfolioPosition,
+    PortfolioState,
+)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -248,7 +250,7 @@ class TestTrimExecutionKillSwitch:
 
     def test_trim_blocked_by_kill_switch(self):
         from broker_adapters.paper.adapter import PaperBrokerAdapter
-        from services.execution_engine.models import ExecutionRequest, ExecutionStatus, ExecutionResult
+        from services.execution_engine.models import ExecutionRequest, ExecutionStatus
         from services.execution_engine.service import ExecutionEngineService
         settings = _make_settings(kill_switch=True)
         broker = PaperBrokerAdapter(market_open=True)
@@ -291,10 +293,10 @@ class TestTrimExecutionBrokerErrors:
     def test_trim_broker_error_returns_rejected(self):
         """BrokerError from place_order → ExecutionStatus.REJECTED."""
         from unittest.mock import MagicMock
-        from broker_adapters.base.exceptions import BrokerError, PositionNotFoundError
+
+        from broker_adapters.base.exceptions import BrokerError
         from services.execution_engine.models import ExecutionRequest, ExecutionStatus
         from services.execution_engine.service import ExecutionEngineService
-        from broker_adapters.base.models import Position
 
         mock_broker = MagicMock()
         mock_broker.adapter_name = "mock"
@@ -314,6 +316,7 @@ class TestTrimExecutionBrokerErrors:
     def test_trim_unexpected_error_returns_error_status(self):
         """Unexpected exception during TRIM → ExecutionStatus.ERROR."""
         from unittest.mock import MagicMock
+
         from services.execution_engine.models import ExecutionRequest, ExecutionStatus
         from services.execution_engine.service import ExecutionEngineService
 
@@ -332,9 +335,9 @@ class TestTrimExecutionBrokerErrors:
 
     def test_trim_result_always_has_action_reference(self):
         """REJECTED and ERROR results should preserve the original action."""
+        from broker_adapters.paper.adapter import PaperBrokerAdapter
         from services.execution_engine.models import ExecutionRequest
         from services.execution_engine.service import ExecutionEngineService
-        from broker_adapters.paper.adapter import PaperBrokerAdapter
         broker = PaperBrokerAdapter(market_open=True)
         svc = ExecutionEngineService(settings=_make_settings(), broker=broker)
         action = _make_trim_action(ticker="SPY", target_quantity=Decimal("5"))  # no position
@@ -627,6 +630,7 @@ class TestPaperCycleTrimIntegration:
     def _make_app_state_with_overconcentrated_position(self):
         """Build an ApiAppState with a large AAPL position (overconcentrated)."""
         import uuid as _uuid
+
         from apps.api.state import ApiAppState
         from broker_adapters.paper.adapter import PaperBrokerAdapter
         from services.ranking_engine.models import RankedResult
@@ -713,11 +717,9 @@ class TestPaperCycleTrimIntegration:
 
     def test_trim_fires_in_cycle_for_overconcentrated_position(self):
         """Full cycle: overconcentrated AAPL position → TRIM appears in proposed_actions."""
-        from apps.worker.jobs.paper_trading import run_paper_trading_cycle
-        from services.risk_engine.service import RiskEngineService
-        from services.portfolio_engine.service import PortfolioEngineService
-        from services.execution_engine.service import ExecutionEngineService
         from unittest.mock import MagicMock
+
+        from apps.worker.jobs.paper_trading import run_paper_trading_cycle
 
         app_state, broker = self._make_app_state_with_overconcentrated_position()
         settings = _make_settings(
@@ -748,8 +750,9 @@ class TestPaperCycleTrimIntegration:
     def test_trim_not_fired_when_within_limits(self):
         """No trim should fire when all positions are within concentration limits."""
         import uuid as _uuid
-        from apps.worker.jobs.paper_trading import run_paper_trading_cycle
+
         from apps.api.state import ApiAppState
+        from apps.worker.jobs.paper_trading import run_paper_trading_cycle
         from broker_adapters.paper.adapter import PaperBrokerAdapter
         from services.ranking_engine.models import RankedResult
 
@@ -802,8 +805,9 @@ class TestPaperCycleTrimIntegration:
     def test_trim_not_duplicated_with_close_for_same_ticker(self):
         """If a CLOSE is already generated for a ticker, no TRIM should be added."""
         import uuid as _uuid
-        from apps.worker.jobs.paper_trading import run_paper_trading_cycle
+
         from apps.api.state import ApiAppState
+        from apps.worker.jobs.paper_trading import run_paper_trading_cycle
         from broker_adapters.paper.adapter import PaperBrokerAdapter
         from services.ranking_engine.models import RankedResult
 
@@ -881,8 +885,9 @@ class TestPaperCycleTrimIntegration:
 
     def test_cycle_status_ok_with_trim(self):
         """Cycle status should be 'ok' even when a trim fires."""
-        from apps.worker.jobs.paper_trading import run_paper_trading_cycle
         from unittest.mock import MagicMock
+
+        from apps.worker.jobs.paper_trading import run_paper_trading_cycle
 
         app_state, broker = self._make_app_state_with_overconcentrated_position()
         settings = _make_settings(operating_mode="paper", max_single_name_pct=0.20)
@@ -902,8 +907,9 @@ class TestPaperCycleTrimIntegration:
 
     def test_cycle_proposed_count_includes_trim(self):
         """proposed_count in the result dict should include the TRIM action."""
-        from apps.worker.jobs.paper_trading import run_paper_trading_cycle
         from unittest.mock import MagicMock
+
+        from apps.worker.jobs.paper_trading import run_paper_trading_cycle
 
         app_state, broker = self._make_app_state_with_overconcentrated_position()
         settings = _make_settings(operating_mode="paper", max_single_name_pct=0.20)

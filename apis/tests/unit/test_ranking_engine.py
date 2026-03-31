@@ -16,8 +16,6 @@ import datetime as dt
 import uuid
 from decimal import Decimal
 
-import pytest
-
 from services.ranking_engine.models import RankedResult, RankingConfig
 from services.ranking_engine.service import RankingEngineService
 from services.signal_engine.models import HorizonClassification, SignalOutput, SignalType
@@ -205,9 +203,10 @@ class TestEndToEndPipeline:
         → RankedResult with thesis, source tag, and no rumour flag.
         """
         import datetime as dt
+
         from services.feature_store.models import ComputedFeature, FeatureSet
-        from services.signal_engine.strategies.momentum import MomentumStrategy
         from services.ranking_engine.service import RankingEngineService
+        from services.signal_engine.strategies.momentum import MomentumStrategy
 
         # Step 1: Build synthetic feature sets for 5 tickers
         tickers = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN"]

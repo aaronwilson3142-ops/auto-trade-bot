@@ -17,7 +17,7 @@ Design rules
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any, Optional
+from typing import Any
 
 from config.logging_config import get_logger
 from config.settings import Settings, get_settings
@@ -27,7 +27,7 @@ logger = get_logger(__name__)
 
 def run_rebalance_check(
     app_state: Any,
-    settings: Optional[Settings] = None,
+    settings: Settings | None = None,
 ) -> dict:
     """Compute rebalance targets and drift; persist to app_state.
 
@@ -39,7 +39,7 @@ def run_rebalance_check(
         Dict with status, drift_count, trim_count, open_count.
     """
     cfg = settings or get_settings()
-    run_at = dt.datetime.now(dt.timezone.utc)
+    run_at = dt.datetime.now(dt.UTC)
 
     try:
         if not getattr(cfg, "enable_rebalancing", True):

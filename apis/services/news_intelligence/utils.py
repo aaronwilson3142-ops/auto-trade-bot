@@ -7,7 +7,6 @@ All functions are stateless and fully testable in isolation.
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 # ---------------------------------------------------------------------------
 # Sentiment lexicons
@@ -110,7 +109,7 @@ _TICKER_PATTERN = re.compile(r"\b([A-Z]{1,5})(?:\.[A-Z])?\b")
 
 
 def extract_tickers_from_text(
-    text: str, known_tickers: Optional[frozenset[str]] = None
+    text: str, known_tickers: frozenset[str] | None = None
 ) -> list[str]:
     """Extract ticker symbols from free text.
 

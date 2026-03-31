@@ -25,8 +25,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import ROUND_DOWN, Decimal
-from typing import Any, Optional
-
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -90,7 +89,7 @@ class RebalancingService:
             return {}
         top = ranked_tickers[:n_positions]
         weight = 1.0 / len(top)
-        return {t: weight for t in top}
+        return dict.fromkeys(top, weight)
 
     # ------------------------------------------------------------------
     # Drift computation
@@ -265,7 +264,7 @@ class RebalancingService:
                 if target_usd < min_trade_usd:
                     continue
 
-                qty: Optional[Decimal] = None
+                qty: Decimal | None = None
                 if current_price > 0:
                     qty = Decimal(str(target_usd / current_price)).quantize(
                         Decimal("1"), rounding=ROUND_DOWN

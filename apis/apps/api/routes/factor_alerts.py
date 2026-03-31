@@ -8,8 +8,6 @@ GET /portfolio/factor-tilt-history
 """
 from __future__ import annotations
 
-import datetime as dt
-
 from fastapi import APIRouter, Query
 
 from apps.api.deps import AppStateDep

@@ -12,8 +12,7 @@ Spec references:
 from __future__ import annotations
 
 import datetime as dt
-from decimal import Decimal, ROUND_DOWN
-from typing import Optional
+from decimal import ROUND_DOWN, Decimal
 
 import structlog
 
@@ -21,7 +20,6 @@ from config.settings import Settings
 from services.portfolio_engine.models import (
     ActionType,
     PortfolioAction,
-    PortfolioPosition,
     PortfolioSnapshot,
     PortfolioState,
     SizingResult,

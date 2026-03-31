@@ -16,7 +16,7 @@ Phase 36 — Alternative Data Integration
 """
 from __future__ import annotations
 
-from typing import Optional, Sequence
+from collections.abc import Sequence
 
 from config.logging_config import get_logger
 from services.alternative_data.adapters import BaseAlternativeAdapter
@@ -66,7 +66,7 @@ class AlternativeDataService:
 
     def get_records(
         self,
-        ticker: Optional[str] = None,
+        ticker: str | None = None,
         limit: int = 100,
     ) -> list[AlternativeDataRecord]:
         """Return stored records, newest-first, optionally filtered by ticker.
@@ -81,7 +81,7 @@ class AlternativeDataService:
             records = [r for r in records if r.ticker == upper]
         return records[:limit]
 
-    def get_ticker_sentiment(self, ticker: str) -> Optional[float]:
+    def get_ticker_sentiment(self, ticker: str) -> float | None:
         """Return the average sentiment_score for ticker, or None if no data."""
         records = self.get_records(ticker=ticker)
         if not records:

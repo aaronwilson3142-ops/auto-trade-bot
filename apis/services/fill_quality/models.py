@@ -8,7 +8,6 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Optional
 
 
 @dataclass
@@ -35,8 +34,8 @@ class FillQualityRecord:
     slippage_pct: Decimal               # slippage_usd / (expected_price * qty)
     filled_at: dt.datetime
     # Alpha-decay attribution (Phase 55) — populated by run_fill_quality_attribution
-    alpha_captured_pct: Optional[float] = None          # N-day return from fill price (positive = alpha gained)
-    slippage_as_pct_of_move: Optional[float] = None     # slippage / |price_move| (0 = no cost)
+    alpha_captured_pct: float | None = None          # N-day return from fill price (positive = alpha gained)
+    slippage_as_pct_of_move: float | None = None     # slippage / |price_move| (0 = no cost)
 
 
 @dataclass
@@ -62,11 +61,11 @@ class FillQualitySummary:
     worst_slippage_pct: Decimal = Decimal("0")
 
     # Per-direction averages
-    avg_buy_slippage_usd: Optional[Decimal] = None
-    avg_sell_slippage_usd: Optional[Decimal] = None
+    avg_buy_slippage_usd: Decimal | None = None
+    avg_sell_slippage_usd: Decimal | None = None
 
     # Metadata
-    computed_at: Optional[dt.datetime] = None
+    computed_at: dt.datetime | None = None
     record_count: int = 0               # same as total_fills; explicit for clarity
     tickers_covered: list[str] = field(default_factory=list)
 
@@ -86,9 +85,9 @@ class AlphaDecaySummary:
     """
 
     records_with_alpha: int = 0
-    avg_alpha_captured_pct: Optional[float] = None
-    avg_slippage_as_pct_of_move: Optional[float] = None
+    avg_alpha_captured_pct: float | None = None
+    avg_slippage_as_pct_of_move: float | None = None
     positive_alpha_count: int = 0
     negative_alpha_count: int = 0
     n_days: int = 5
-    computed_at: Optional[dt.datetime] = None
+    computed_at: dt.datetime | None = None

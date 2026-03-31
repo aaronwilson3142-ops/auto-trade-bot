@@ -7,8 +7,7 @@ BacktestComparisonService.  A comparison stores one row per strategy
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
-from typing import Optional
+from datetime import date
 
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
@@ -31,15 +30,15 @@ class BacktestRun(Base, TimestampMixin):
     start_date: Mapped[date] = mapped_column(sa.Date, nullable=False)
     end_date: Mapped[date] = mapped_column(sa.Date, nullable=False)
     ticker_count: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
-    tickers_json: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
+    tickers_json: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     # Key performance metrics
-    total_return_pct: Mapped[Optional[float]] = mapped_column(sa.Float, nullable=True)
-    sharpe_ratio: Mapped[Optional[float]] = mapped_column(sa.Float, nullable=True)
-    max_drawdown_pct: Mapped[Optional[float]] = mapped_column(sa.Float, nullable=True)
-    win_rate: Mapped[Optional[float]] = mapped_column(sa.Float, nullable=True)
+    total_return_pct: Mapped[float | None] = mapped_column(sa.Float, nullable=True)
+    sharpe_ratio: Mapped[float | None] = mapped_column(sa.Float, nullable=True)
+    max_drawdown_pct: Mapped[float | None] = mapped_column(sa.Float, nullable=True)
+    win_rate: Mapped[float | None] = mapped_column(sa.Float, nullable=True)
     total_trades: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
     days_simulated: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
-    final_portfolio_value: Mapped[Optional[float]] = mapped_column(sa.Float, nullable=True)
-    initial_cash: Mapped[Optional[float]] = mapped_column(sa.Float, nullable=True)
+    final_portfolio_value: Mapped[float | None] = mapped_column(sa.Float, nullable=True)
+    initial_cash: Mapped[float | None] = mapped_column(sa.Float, nullable=True)
     status: Mapped[str] = mapped_column(sa.String(16), nullable=False, default="completed")
-    run_note: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
+    run_note: Mapped[str | None] = mapped_column(sa.Text, nullable=True)

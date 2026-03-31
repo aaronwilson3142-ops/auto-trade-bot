@@ -19,9 +19,8 @@ Spec reference:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
-from decimal import Decimal, ROUND_HALF_UP
-from typing import Optional
+from datetime import UTC, datetime
+from decimal import ROUND_HALF_UP, Decimal
 
 from broker_adapters.base.adapter import BaseBrokerAdapter
 from broker_adapters.base.exceptions import (
@@ -138,7 +137,7 @@ class PaperBrokerAdapter(BaseBrokerAdapter):
             positions=positions,
             is_pattern_day_trader=False,
             is_account_blocked=self._kill_switch,
-            snapshot_at=datetime.now(tz=timezone.utc),
+            snapshot_at=datetime.now(tz=UTC),
         )
 
     # ── Orders ────────────────────────────────────────────────────────────────
@@ -180,7 +179,7 @@ class PaperBrokerAdapter(BaseBrokerAdapter):
                 )
 
         broker_order_id = str(uuid.uuid4())
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
 
         order = Order(
             idempotency_key=request.idempotency_key,
@@ -258,7 +257,7 @@ class PaperBrokerAdapter(BaseBrokerAdapter):
         # Default: treat market as open Monday–Friday 09:30–16:00 ET
         # This is a simplified approximation for paper testing.
         # Production should check an authoritative calendar.
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         weekday = now.weekday()
         if weekday >= 5:  # Saturday=5, Sunday=6
             return False
@@ -272,7 +271,7 @@ class PaperBrokerAdapter(BaseBrokerAdapter):
         # Simplified: return next Monday 13:30 UTC or today's open if before open
         from datetime import timedelta
 
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         today_open = now.replace(hour=13, minute=30, second=0, microsecond=0)
         if now.weekday() < 5 and now < today_open:
             return today_open
@@ -298,7 +297,7 @@ class PaperBrokerAdapter(BaseBrokerAdapter):
 
     def _resolve_price(
         self, ticker: str, order_type: OrderType
-    ) -> Optional[Decimal]:
+    ) -> Decimal | None:
         return self._price_overrides.get(ticker)
 
     def _apply_slippage(

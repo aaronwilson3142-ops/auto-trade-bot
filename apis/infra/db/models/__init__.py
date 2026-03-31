@@ -3,23 +3,23 @@
 Importing this package registers ALL model classes with ``Base.metadata``,
 which is required for Alembic autogenerate to detect all tables.
 """
-from .base import Base
-from .reference import Security, Theme, SecurityTheme
-from .source import Source, SourceEvent, SecurityEventLink
-from .market_data import DailyMarketBar, SecurityLiquidityMetric
 from .analytics import Feature, SecurityFeatureValue
-from .signal import Strategy, SignalRun, SecuritySignal, RankingRun, RankedOpportunity
-from .portfolio import PortfolioSnapshot, Position, Order, Fill, RiskEvent, PositionHistory
-from .evaluation import EvaluationRun, EvaluationMetric, PerformanceAttribution
-from .self_improvement import ImprovementProposal, ImprovementEvaluation, PromotedVersion
-from .audit import DecisionAudit, SessionCheckpoint, AdminEvent
-from .system_state import SystemStateEntry
+from .audit import AdminEvent, DecisionAudit, SessionCheckpoint
 from .backtest import BacktestRun
+from .base import Base
+from .evaluation import EvaluationMetric, EvaluationRun, PerformanceAttribution
+from .market_data import DailyMarketBar, SecurityLiquidityMetric
+from .portfolio import Fill, Order, PortfolioSnapshot, Position, PositionHistory, RiskEvent
 from .proposal_execution import ProposalExecution
-from .weight_profile import WeightProfile
-from .regime_detection import RegimeSnapshot
-from .signal_quality import SignalOutcome
 from .readiness import ReadinessSnapshot
+from .reference import Security, SecurityTheme, Theme
+from .regime_detection import RegimeSnapshot
+from .self_improvement import ImprovementEvaluation, ImprovementProposal, PromotedVersion
+from .signal import RankedOpportunity, RankingRun, SecuritySignal, SignalRun, Strategy
+from .signal_quality import SignalOutcome
+from .source import SecurityEventLink, Source, SourceEvent
+from .system_state import SystemStateEntry
+from .weight_profile import WeightProfile
 
 __all__ = [
     "Base",

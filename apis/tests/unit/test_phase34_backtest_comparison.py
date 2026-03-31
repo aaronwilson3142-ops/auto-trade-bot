@@ -28,7 +28,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -195,11 +194,6 @@ class TestBacktestSchemas:
     def test_import_all(self):
         from apps.api.schemas.backtest import (
             BacktestCompareRequest,
-            BacktestComparisonResponse,
-            BacktestComparisonSummary,
-            BacktestRunDetailResponse,
-            BacktestRunListResponse,
-            BacktestRunRecord,
         )
         assert BacktestCompareRequest is not None
 
@@ -267,7 +261,7 @@ class TestBacktestSchemas:
         assert resp.comparisons[0].best_strategy == "momentum_v1"
 
     def test_run_detail_response(self):
-        from apps.api.schemas.backtest import BacktestRunDetailResponse, BacktestRunRecord
+        from apps.api.schemas.backtest import BacktestRunDetailResponse
         resp = BacktestRunDetailResponse(
             comparison_id="xyz",
             run_count=0,
@@ -413,7 +407,6 @@ class TestBacktestComparisonPersist:
         assert mock_session.commit.call_count == 6
 
     def test_persist_row_fields(self):
-        from infra.db.models.backtest import BacktestRun
         from services.backtest.comparison import BacktestComparisonService
 
         mock_result = _make_backtest_result(total_return_pct=7.5, sharpe_ratio=1.8)

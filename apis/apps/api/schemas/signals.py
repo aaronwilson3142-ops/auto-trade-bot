@@ -5,10 +5,8 @@ Phase 30 — DB-backed signal/rank persistence.
 from __future__ import annotations
 
 import datetime as dt
-from typing import Optional
 
 from pydantic import BaseModel
-
 
 # ---------------------------------------------------------------------------
 # Signal run schemas
@@ -19,7 +17,7 @@ class SignalRunRecord(BaseModel):
     run_id: str
     run_timestamp: dt.datetime
     run_mode: str
-    universe_name: Optional[str]
+    universe_name: str | None
     status: str
     signal_count: int           # number of security_signal rows for this run
     strategy_count: int         # number of distinct strategy_ids in this run
@@ -38,14 +36,14 @@ class SignalRunHistoryResponse(BaseModel):
 class RankedOpportunityRecord(BaseModel):
     """One ranked opportunity row from a ranking run."""
     rank_position: int
-    ticker: Optional[str]           # resolved via securities join; None if unknown
-    composite_score: Optional[float]
-    portfolio_fit_score: Optional[float]
+    ticker: str | None           # resolved via securities join; None if unknown
+    composite_score: float | None
+    portfolio_fit_score: float | None
     recommended_action: str
-    target_horizon: Optional[str]
-    thesis_summary: Optional[str]
-    disconfirming_factors: Optional[str]
-    sizing_hint_pct: Optional[float]
+    target_horizon: str | None
+    thesis_summary: str | None
+    disconfirming_factors: str | None
+    sizing_hint_pct: float | None
 
 
 class RankingRunRecord(BaseModel):

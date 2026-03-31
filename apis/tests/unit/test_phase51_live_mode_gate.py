@@ -27,7 +27,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-
 # ── Reset shared state between tests ──────────────────────────────────────────
 
 @pytest.fixture(autouse=True)
@@ -171,8 +170,8 @@ class TestSharpeGatePaperToHA:
     """Sharpe gate in PAPER → HUMAN_APPROVED (threshold = 0.5)."""
 
     def _run_gate(self, evaluation_history):
-        from services.live_mode_gate.service import LiveModeGateService
         from services.live_mode_gate.models import LiveModeGateResult
+        from services.live_mode_gate.service import LiveModeGateService
         svc = LiveModeGateService()
         result = LiveModeGateResult(current_mode="paper", target_mode="human_approved")
         state = MagicMock()
@@ -249,8 +248,8 @@ class TestSharpeGateHAToRL:
     """Sharpe gate in HUMAN_APPROVED → RESTRICTED_LIVE (threshold = 1.0)."""
 
     def _run_gate(self, evaluation_history):
-        from services.live_mode_gate.service import LiveModeGateService
         from services.live_mode_gate.models import LiveModeGateResult
+        from services.live_mode_gate.service import LiveModeGateService
         svc = LiveModeGateService()
         result = LiveModeGateResult(current_mode="human_approved", target_mode="restricted_live")
         state = MagicMock()
@@ -307,8 +306,8 @@ class TestDrawdownGatePaperToHA:
     """Drawdown state gate in PAPER → HUMAN_APPROVED context."""
 
     def _run_gate(self, drawdown_state: str):
-        from services.live_mode_gate.service import LiveModeGateService
         from services.live_mode_gate.models import LiveModeGateResult
+        from services.live_mode_gate.service import LiveModeGateService
         svc = LiveModeGateService()
         result = LiveModeGateResult(current_mode="paper", target_mode="human_approved")
         state = MagicMock()
@@ -369,8 +368,8 @@ class TestDrawdownGateHAToRL:
     """
 
     def _run_gate(self, drawdown_state: str):
-        from services.live_mode_gate.service import LiveModeGateService
         from services.live_mode_gate.models import LiveModeGateResult
+        from services.live_mode_gate.service import LiveModeGateService
         svc = LiveModeGateService()
         result = LiveModeGateResult(current_mode="human_approved", target_mode="restricted_live")
         state = MagicMock()
@@ -407,8 +406,8 @@ class TestSignalQualityGatePaperToHA:
     """Signal quality gate in PAPER → HUMAN_APPROVED (threshold = 40%)."""
 
     def _run_gate(self, quality_report):
-        from services.live_mode_gate.service import LiveModeGateService
         from services.live_mode_gate.models import LiveModeGateResult
+        from services.live_mode_gate.service import LiveModeGateService
         svc = LiveModeGateService()
         result = LiveModeGateResult(current_mode="paper", target_mode="human_approved")
         state = MagicMock()
@@ -478,8 +477,8 @@ class TestSignalQualityGateHAToRL:
     """Signal quality gate in HUMAN_APPROVED → RESTRICTED_LIVE (threshold = 45%)."""
 
     def _run_gate(self, quality_report):
-        from services.live_mode_gate.service import LiveModeGateService
         from services.live_mode_gate.models import LiveModeGateResult
+        from services.live_mode_gate.service import LiveModeGateService
         svc = LiveModeGateService()
         result = LiveModeGateResult(current_mode="human_approved", target_mode="restricted_live")
         state = MagicMock()

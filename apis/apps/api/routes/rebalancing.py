@@ -9,8 +9,6 @@ GET /portfolio/rebalance-status
 """
 from __future__ import annotations
 
-import datetime as dt
-
 from fastapi import APIRouter
 
 from apps.api.deps import AppStateDep, SettingsDep

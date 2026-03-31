@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
-import uuid
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
@@ -24,7 +23,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-
 
 # ===========================================================================
 # Event-loop fixture (required by ib_insync which uses eventkit at import time)
@@ -91,13 +89,15 @@ def _make_mock_adapter(tickers: list[str], n_bars: int = 80) -> MagicMock:
 
 def _make_policy_signal(bias: float = 0.3):
     from services.macro_policy_engine.models import (
-        PolicyEvent, PolicyEventType, PolicySignal,
+        PolicyEvent,
+        PolicyEventType,
+        PolicySignal,
     )
     evt = PolicyEvent(
         event_id="test_evt",
         headline="Fed holds rates steady",
         event_type=PolicyEventType.INTEREST_RATE,
-        published_at=dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=2),
+        published_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=2),
     )
     return PolicySignal(
         event=evt,
@@ -106,18 +106,21 @@ def _make_policy_signal(bias: float = 0.3):
         directional_bias=bias,
         confidence=0.7,
         implication_summary="Neutral to positive for equities",
-        generated_at=dt.datetime.now(dt.timezone.utc),
+        generated_at=dt.datetime.now(dt.UTC),
     )
 
 
 def _make_news_insight(ticker: str = "NVDA", score: float = 0.5):
     from services.news_intelligence.models import (
-        CredibilityTier, NewsInsight, NewsItem, SentimentLabel,
+        CredibilityTier,
+        NewsInsight,
+        NewsItem,
+        SentimentLabel,
     )
     item = NewsItem(
         source_id="news_001",
         headline="NVDA beats earnings expectations",
-        published_at=dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=1),
+        published_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=1),
         credibility_tier=CredibilityTier.SECONDARY_VERIFIED,
         tickers_mentioned=[ticker],
     )
@@ -130,7 +133,7 @@ def _make_news_insight(ticker: str = "NVDA", score: float = 0.5):
         affected_themes=["ai_infrastructure"],
         market_implication="Positive for GPU demand",
         contains_rumor=False,
-        processed_at=dt.datetime.now(dt.timezone.utc),
+        processed_at=dt.datetime.now(dt.UTC),
     )
 
 
@@ -322,7 +325,6 @@ class TestBacktestEnrichmentService:
         from services.backtest.config import BacktestConfig
         from services.backtest.engine import BacktestEngine
         from services.feature_store.enrichment import FeatureEnrichmentService
-        from services.feature_store.models import FeatureSet
 
         mock_adapter = _make_mock_adapter(["AAPL"], n_bars=80)
 
@@ -393,9 +395,8 @@ class TestBacktestEnrichmentService:
 
 def _make_app_with_state(state_obj):
     """Build a TestClient with the given app_state injected via override."""
+    from apps.api.deps import get_app_state
     from apps.api.main import app
-    from apps.api.deps import get_app_state, get_settings
-    from config.settings import get_settings as real_get_settings
 
     app.dependency_overrides[get_app_state] = lambda: state_obj
     return TestClient(app)
@@ -412,8 +413,8 @@ class TestPushPolicyEvent:
     """POST /api/v1/intelligence/events"""
 
     def _client(self, operator_key: str = "secret123"):
-        from apps.api.main import app
         from apps.api.deps import get_app_state, get_settings
+        from apps.api.main import app
         state = _FakeAppState()
 
         def _override_state():
@@ -580,8 +581,8 @@ class TestPushNewsItem:
     """POST /api/v1/intelligence/news"""
 
     def _client(self, operator_key: str = "news_secret"):
-        from apps.api.main import app
         from apps.api.deps import get_app_state, get_settings
+        from apps.api.main import app
         state = _FakeAppState()
 
         app.dependency_overrides[get_app_state] = lambda: state
@@ -770,8 +771,8 @@ class TestMetricsExpansion:
     def _get_metrics(self, macro_regime: str = "RISK_ON",
                      policy_signals_count: int = 3,
                      news_insights_count: int = 5) -> str:
+        from apps.api.deps import get_app_state
         from apps.api.main import app
-        from apps.api.deps import get_app_state, get_settings
 
         state = _FakeAppState(
             current_macro_regime=macro_regime,

@@ -18,7 +18,6 @@ DELETE /api/v1/universe/tickers/{ticker}/override
 """
 from __future__ import annotations
 
-import datetime as dt
 import uuid
 
 from fastapi import APIRouter, HTTPException

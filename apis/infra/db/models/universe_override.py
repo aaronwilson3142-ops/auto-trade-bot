@@ -9,7 +9,6 @@ Phase 48 — Dynamic Universe Management
 from __future__ import annotations
 
 import datetime as dt
-from typing import Optional
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column
@@ -37,16 +36,16 @@ class UniverseOverride(Base, TimestampMixin):
     # "ADD" or "REMOVE"
     action: Mapped[str] = mapped_column(sa.String(8), nullable=False)
 
-    reason: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
+    reason: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
     # Optional: the operator identity who created the override
-    operator_id: Mapped[Optional[str]] = mapped_column(sa.String(128), nullable=True)
+    operator_id: Mapped[str | None] = mapped_column(sa.String(128), nullable=True)
 
     # When True the override is currently active
     active: Mapped[bool] = mapped_column(sa.Boolean, default=True, nullable=False)
 
     # Optional expiry — NULL = no expiry
-    expires_at: Mapped[Optional[dt.datetime]] = mapped_column(
+    expires_at: Mapped[dt.datetime | None] = mapped_column(
         sa.DateTime(timezone=True), nullable=True
     )
 

@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import datetime as dt
 from decimal import Decimal, InvalidOperation
-from typing import Optional
 
 import pandas as pd
 
@@ -16,7 +15,7 @@ from services.market_data.models import LiquidityMetrics, NormalizedBar
 _Q = Decimal("0.000001")
 
 
-def _d(value: object) -> Optional[Decimal]:
+def _d(value: object) -> Decimal | None:
     """Safely convert any numeric value to Decimal."""
     if value is None:
         return None
@@ -65,7 +64,7 @@ def df_to_normalized_bars(ticker: str, df: pd.DataFrame) -> list[NormalizedBar]:
 
 
 def classify_liquidity_tier(
-    avg_dollar_volume: Optional[Decimal],
+    avg_dollar_volume: Decimal | None,
     high_threshold: float = 100_000_000.0,
     mid_threshold: float = 10_000_000.0,
     low_threshold: float = 1_000_000.0,
@@ -98,18 +97,18 @@ def compute_liquidity_metrics(
     recent_short = bars[-short_window:] if len(bars) >= short_window else bars
     recent_long = bars[-long_window:] if len(bars) >= long_window else bars
 
-    def _avg_dv(b_list: list[NormalizedBar]) -> Optional[Decimal]:
+    def _avg_dv(b_list: list[NormalizedBar]) -> Decimal | None:
         if not b_list:
             return None
         total = sum(float(b.dollar_volume) for b in b_list)
         return _d(total / len(b_list))
 
-    def _avg_vol(b_list: list[NormalizedBar]) -> Optional[int]:
+    def _avg_vol(b_list: list[NormalizedBar]) -> int | None:
         if not b_list:
             return None
         return int(sum(b.volume for b in b_list) / len(b_list))
 
-    def _avg_range_pct(b_list: list[NormalizedBar]) -> Optional[Decimal]:
+    def _avg_range_pct(b_list: list[NormalizedBar]) -> Decimal | None:
         if not b_list:
             return None
         pcts = []

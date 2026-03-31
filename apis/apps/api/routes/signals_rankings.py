@@ -6,7 +6,6 @@ All endpoints are read-only.
 from __future__ import annotations
 
 import uuid
-from typing import Optional
 
 import sqlalchemy as sa
 from fastapi import APIRouter, HTTPException, Query

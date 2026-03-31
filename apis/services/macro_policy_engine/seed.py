@@ -11,7 +11,6 @@ policy/news API or an internal event bus.
 from __future__ import annotations
 
 import datetime as dt
-from typing import Optional
 
 from services.macro_policy_engine.models import PolicyEvent, PolicyEventType
 
@@ -86,7 +85,7 @@ class PolicyEventSeedService:
                to use the built-in APIS seed set.
     """
 
-    def __init__(self, seeds: Optional[list[dict]] = None) -> None:
+    def __init__(self, seeds: list[dict] | None = None) -> None:
         self._seeds = seeds if seeds is not None else _DEFAULT_SEEDS
 
     @property
@@ -96,7 +95,7 @@ class PolicyEventSeedService:
 
     def get_daily_events(
         self,
-        reference_dt: Optional[dt.datetime] = None,
+        reference_dt: dt.datetime | None = None,
     ) -> list[PolicyEvent]:
         """Return a fresh list of PolicyEvent objects stamped to *today*.
 
@@ -110,7 +109,7 @@ class PolicyEventSeedService:
             list[PolicyEvent] ready for
             MacroPolicyEngineService.process_batch().
         """
-        now = reference_dt or dt.datetime.now(dt.timezone.utc)
+        now = reference_dt or dt.datetime.now(dt.UTC)
         published = now - dt.timedelta(hours=3)
         events: list[PolicyEvent] = []
         for tmpl in self._seeds:

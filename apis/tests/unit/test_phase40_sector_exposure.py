@@ -18,12 +18,11 @@ from __future__ import annotations
 
 import datetime as dt
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
-from services.risk_engine.sector_exposure import SectorExposureService, _UNKNOWN_SECTOR
-
+from services.risk_engine.sector_exposure import _UNKNOWN_SECTOR, SectorExposureService
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -43,7 +42,7 @@ def _make_position(
         quantity=Decimal(str(quantity)),
         avg_entry_price=Decimal(str(current_price)),
         current_price=Decimal(str(current_price)),
-        opened_at=dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc),
+        opened_at=dt.datetime(2026, 1, 1, tzinfo=dt.UTC),
     )
 
 
@@ -450,6 +449,7 @@ class TestSectorRestEndpoints:
 
     def _get_client(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import reset_app_state
         reset_app_state()
@@ -596,7 +596,6 @@ class TestPaperCycleSectorIntegration:
 
     def test_sector_weights_populated_after_cycle(self):
         from apps.api.state import ApiAppState
-        from services.ranking_engine.models import RankedResult
         from services.portfolio_engine.models import PortfolioState
 
         state = ApiAppState()

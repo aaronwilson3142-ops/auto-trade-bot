@@ -18,6 +18,7 @@ Test coverage:
 """
 from __future__ import annotations
 
+from datetime import UTC
 from decimal import Decimal
 
 import pytest
@@ -301,19 +302,19 @@ class TestFillRetrieval:
     def test_list_fills_since_returns_fills_after_timestamp(
         self, paper_broker: PaperBrokerAdapter
     ) -> None:
-        from datetime import datetime, timezone, timedelta
+        from datetime import datetime, timedelta
 
         paper_broker.place_order(_buy_request())
-        since = datetime.now(tz=timezone.utc) - timedelta(minutes=5)
+        since = datetime.now(tz=UTC) - timedelta(minutes=5)
         fills = paper_broker.list_fills_since(since)
         assert len(fills) >= 1
 
     def test_list_fills_since_empty_for_future_timestamp(
         self, paper_broker: PaperBrokerAdapter
     ) -> None:
-        from datetime import datetime, timezone, timedelta
+        from datetime import datetime, timedelta
 
         paper_broker.place_order(_buy_request())
-        future = datetime.now(tz=timezone.utc) + timedelta(hours=1)
+        future = datetime.now(tz=UTC) + timedelta(hours=1)
         fills = paper_broker.list_fills_since(future)
         assert fills == []

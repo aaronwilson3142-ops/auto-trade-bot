@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import datetime as dt
 import math
-from typing import Optional
 
 import structlog
 
@@ -21,7 +20,7 @@ log = structlog.get_logger(__name__)
 class RumorScoringService:
     """Scores rumor events using credibility penalties and time decay."""
 
-    def __init__(self, config: Optional[RumorScoringConfig] = None) -> None:
+    def __init__(self, config: RumorScoringConfig | None = None) -> None:
         self._config = config or RumorScoringConfig()
         self._log = log.bind(service="rumor_scoring")
 
@@ -30,12 +29,12 @@ class RumorScoringService:
 
         influence_score = raw_confidence * (1 - credibility_penalty) * decay_factor
         """
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime.now(dt.UTC)
         penalty = self._config.source_penalties.get(rumor.source.value, 0.7)
 
         received = rumor.received_at
         if received.tzinfo is None:
-            received = received.replace(tzinfo=dt.timezone.utc)
+            received = received.replace(tzinfo=dt.UTC)
         age_hours = (now - received).total_seconds() / 3600.0
         decay = math.exp(-math.log(2) * age_hours / self._config.decay_half_life_hours)
 

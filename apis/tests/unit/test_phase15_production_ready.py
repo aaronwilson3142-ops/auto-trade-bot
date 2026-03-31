@@ -46,12 +46,9 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
-import json
-import os
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -242,7 +239,7 @@ class TestEnvExample:
 class TestSchwabRefreshAuth:
     """SchwabBrokerAdapter.refresh_auth() re-authenticates via disconnect+connect."""
 
-    def _make_adapter(self) -> "SchwabBrokerAdapter":  # noqa: F821
+    def _make_adapter(self) -> SchwabBrokerAdapter:  # noqa: F821
         from broker_adapters.schwab.adapter import SchwabBrokerAdapter
         return SchwabBrokerAdapter(
             api_key="key",
@@ -319,9 +316,10 @@ class TestHealthEndpointComponents:
     def _get_health(self, db_ok: bool = True, broker_adapter=None,
                     last_cycle: dt.datetime | None = None) -> tuple[int, dict]:
         """Call the health endpoint with controlled state."""
+        from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import get_app_state, reset_app_state
-        from fastapi.testclient import TestClient
 
         reset_app_state()
         state = get_app_state()
@@ -395,22 +393,22 @@ class TestHealthEndpointComponents:
         assert body["components"]["scheduler"] == "no_data"
 
     def test_health_scheduler_ok_when_recent_cycle(self):
-        recent = dt.datetime.now(tz=dt.timezone.utc) - dt.timedelta(minutes=15)
+        recent = dt.datetime.now(tz=dt.UTC) - dt.timedelta(minutes=15)
         _, body = self._get_health(db_ok=True, last_cycle=recent)
         assert body["components"]["scheduler"] == "ok"
 
     def test_health_scheduler_stale_when_old_cycle(self):
-        old = dt.datetime.now(tz=dt.timezone.utc) - dt.timedelta(hours=3)
+        old = dt.datetime.now(tz=dt.UTC) - dt.timedelta(hours=3)
         _, body = self._get_health(db_ok=True, last_cycle=old)
         assert body["components"]["scheduler"] == "stale"
 
     def test_health_overall_degraded_when_scheduler_stale(self):
-        old = dt.datetime.now(tz=dt.timezone.utc) - dt.timedelta(hours=3)
+        old = dt.datetime.now(tz=dt.UTC) - dt.timedelta(hours=3)
         _, body = self._get_health(db_ok=True, last_cycle=old)
         assert body["status"] in ("degraded",)
 
     def test_health_overall_ok_when_all_healthy(self):
-        recent = dt.datetime.now(tz=dt.timezone.utc) - dt.timedelta(minutes=5)
+        recent = dt.datetime.now(tz=dt.UTC) - dt.timedelta(minutes=5)
         mock_adapter = MagicMock()
         mock_adapter.ping.return_value = True
         _, body = self._get_health(db_ok=True, broker_adapter=mock_adapter, last_cycle=recent)
@@ -432,7 +430,7 @@ class TestHealthEndpointComponents:
 class TestSchwabMockIntegration:
     """End-to-end Schwab workflow tests using a fully mocked schwab-py client."""
 
-    def _make_connected(self) -> tuple["SchwabBrokerAdapter", MagicMock]:  # noqa: F821
+    def _make_connected(self) -> tuple[SchwabBrokerAdapter, MagicMock]:  # noqa: F821
         """Return an adapter that is already 'connected' with a mock client."""
         from broker_adapters.schwab.adapter import SchwabBrokerAdapter
         adapter = SchwabBrokerAdapter(
@@ -507,7 +505,7 @@ class TestSchwabMockIntegration:
         assert order.ticker == "AAPL"
 
     def test_place_sell_limit_order_sets_broker_id(self):
-        from broker_adapters.base.models import OrderRequest, OrderSide, OrderStatus, OrderType
+        from broker_adapters.base.models import OrderRequest, OrderSide, OrderType
         adapter, mock_client = self._make_connected()
         mock_resp = MagicMock()
         mock_resp.status_code = 201
@@ -601,7 +599,7 @@ class TestSchwabMockIntegration:
         mock_resp = MagicMock()
         mock_resp.json.return_value = []
         mock_client.get_transactions.return_value = mock_resp
-        since = dt.datetime.now(tz=dt.timezone.utc) - dt.timedelta(hours=8)
+        since = dt.datetime.now(tz=dt.UTC) - dt.timedelta(hours=8)
         fills = adapter.list_fills_since(since)
         assert fills == []
 
@@ -692,7 +690,7 @@ class TestIBKRMockIntegration:
         assert adapter.ping() is False
 
     def test_ibkr_position_not_found_error_raised(self):
-        from broker_adapters.base.exceptions import BrokerConnectionError, PositionNotFoundError
+        from broker_adapters.base.exceptions import BrokerConnectionError
         cls = self._import()
         adapter = cls(paper=True)
         with pytest.raises(BrokerConnectionError):

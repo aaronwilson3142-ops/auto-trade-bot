@@ -28,7 +28,8 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 from apps.api.state import ApiAppState
 from config.logging_config import get_logger
@@ -44,9 +45,9 @@ logger = get_logger(__name__)
 
 def run_signal_generation(
     app_state: ApiAppState,
-    settings: Optional[Settings] = None,
-    session_factory: Optional[Callable] = None,
-    signal_service: Optional[Any] = None,
+    settings: Settings | None = None,
+    session_factory: Callable | None = None,
+    signal_service: Any | None = None,
 ) -> dict[str, Any]:
     """Generate and persist signals for the universe using the DB path.
 
@@ -62,7 +63,7 @@ def run_signal_generation(
         dict with keys: status, signal_run_id, tickers, errors, run_at.
     """
     cfg = settings or get_settings()
-    run_at = dt.datetime.now(dt.timezone.utc)
+    run_at = dt.datetime.now(dt.UTC)
 
     logger.info("signal_generation_job_starting", run_at=run_at.isoformat())
 
@@ -135,10 +136,10 @@ def run_signal_generation(
 
 def run_ranking_generation(
     app_state: ApiAppState,
-    settings: Optional[Settings] = None,
-    signals: Optional[list[Any]] = None,
-    ranking_service: Optional[Any] = None,
-    session_factory: Optional[Any] = None,
+    settings: Settings | None = None,
+    signals: list[Any] | None = None,
+    ranking_service: Any | None = None,
+    session_factory: Any | None = None,
 ) -> dict[str, Any]:
     """Rank signals and write the result list to app_state.latest_rankings.
 
@@ -165,7 +166,7 @@ def run_ranking_generation(
     from services.ranking_engine.service import RankingEngineService
 
     cfg = settings or get_settings()
-    run_at = dt.datetime.now(dt.timezone.utc)
+    run_at = dt.datetime.now(dt.UTC)
     ranking_run_id = str(uuid.uuid4())
 
     logger.info("ranking_generation_job_starting", run_at=run_at.isoformat())
@@ -173,20 +174,22 @@ def run_ranking_generation(
     try:
         svc = ranking_service or RankingEngineService()
 
-        # Accept injected signals or use an empty list (produces empty rankings)
-        signal_list: list[Any] = signals if signals is not None else []
-
+        # Preserve None so svc.run() can trigger its own DB load when no
+        # signals are explicitly injected.  Only fall back to [] on the
+        # in-memory path where there is no DB to load from.
         signal_run_id_str = getattr(app_state, "last_signal_run_id", None)
 
         if session_factory is not None and signal_run_id_str is not None:
-            # --- DB path: persist RankingRun + RankedOpportunity rows
+            # --- DB path: persist RankingRun + RankedOpportunity rows.
+            # Pass signals=None (unless caller injected them) so svc.run()
+            # loads the full SignalOutput list from the DB via signal_run_id.
             import uuid as _uuid
             signal_run_uuid = _uuid.UUID(signal_run_id_str)
             with session_factory() as session:
                 db_run_id, ranked = svc.run(
                     session=session,
                     signal_run_id=signal_run_uuid,
-                    signals=signal_list,
+                    signals=signals,  # None → DB load; list → use as-is
                 )
                 session.commit()
             ranking_run_id = str(db_run_id)
@@ -196,8 +199,8 @@ def run_ranking_generation(
                 ranked_count=len(ranked),
             )
         else:
-            # --- In-memory fallback
-            ranked = svc.rank_signals(signal_list, max_results=cfg.max_positions)
+            # --- In-memory fallback (no DB available)
+            ranked = svc.rank_signals(signals or [], max_results=cfg.max_positions)
             logger.info(
                 "ranking_generation_job_complete_memory",
                 ranking_run_id=ranking_run_id,
@@ -233,8 +236,8 @@ def run_ranking_generation(
 
 def run_weight_optimization(
     app_state: ApiAppState,
-    settings: Optional[Settings] = None,
-    session_factory: Optional[Callable] = None,
+    settings: Settings | None = None,
+    session_factory: Callable | None = None,
 ) -> dict[str, Any]:
     """Derive Sharpe-proportional strategy weights from the latest backtest.
 
@@ -255,7 +258,7 @@ def run_weight_optimization(
     Returns:
         dict with keys: status, profile_id, profile_name, weights, run_at.
     """
-    run_at = dt.datetime.now(dt.timezone.utc)
+    run_at = dt.datetime.now(dt.UTC)
     logger.info("weight_optimization_job_starting", run_at=run_at.isoformat())
 
     if session_factory is None:
@@ -270,6 +273,7 @@ def run_weight_optimization(
 
     try:
         import sqlalchemy as sa
+
         from infra.db.models.backtest import BacktestRun
         from services.signal_engine.weight_optimizer import WeightOptimizerService
 
@@ -337,8 +341,8 @@ def run_weight_optimization(
 
 def run_regime_detection(
     app_state: ApiAppState,
-    settings: Optional[Settings] = None,
-    session_factory: Optional[Callable] = None,
+    settings: Settings | None = None,
+    session_factory: Callable | None = None,
 ) -> dict[str, Any]:
     """Classify market regime from latest ranking signals.
 
@@ -363,7 +367,7 @@ def run_regime_detection(
     Returns:
         dict with keys: status, regime, confidence, regime_changed, run_at.
     """
-    run_at = dt.datetime.now(dt.timezone.utc)
+    run_at = dt.datetime.now(dt.UTC)
     logger.info("regime_detection_job_starting", run_at=run_at.isoformat())
 
     try:

@@ -5,8 +5,6 @@ All endpoints are read-only (Gate G: Phase A Read APIs).
 """
 from __future__ import annotations
 
-from typing import Optional
-
 from fastapi import APIRouter, Query
 
 from apps.api.deps import AppStateDep
@@ -42,9 +40,9 @@ def _to_item(r: object) -> RecommendationItem:
 async def get_latest_recommendations(
     state: AppStateDep,
     limit: int = Query(default=20, ge=1, le=50),
-    min_score: Optional[float] = Query(default=None),
-    contains_rumor: Optional[bool] = Query(default=None),
-    recommended_action: Optional[str] = Query(default=None),
+    min_score: float | None = Query(default=None),
+    contains_rumor: bool | None = Query(default=None),
+    recommended_action: str | None = Query(default=None),
 ) -> RecommendationListResponse:
     """Return the latest ranked opportunities with optional filters."""
     rankings = list(state.latest_rankings)

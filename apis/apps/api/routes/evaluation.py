@@ -5,8 +5,6 @@ All endpoints are read-only (Gate G: Phase A Read APIs).
 """
 from __future__ import annotations
 
-from typing import Optional
-
 from fastapi import APIRouter, Query
 
 from apps.api.deps import AppStateDep
@@ -22,7 +20,7 @@ router = APIRouter(prefix="/evaluation", tags=["Evaluation"])
 
 
 def _to_scorecard_response(
-    sc: object, run_id: Optional[str] = None
+    sc: object, run_id: str | None = None
 ) -> DailyScorecardResponse:
     """Convert a DailyScorecard dataclass to the API response schema."""
     benchmark_returns: dict[str, float] = {}
@@ -109,7 +107,7 @@ async def get_evaluation_runs(
                     .filter_by(evaluation_run_id=row.id)
                     .all()
                 )
-                metrics: dict[str, Optional[float]] = {
+                metrics: dict[str, float | None] = {
                     m.metric_key: (
                         float(m.metric_value) if m.metric_value is not None else None
                     )

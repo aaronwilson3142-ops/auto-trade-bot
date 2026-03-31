@@ -158,6 +158,7 @@ class TestPaperTradingCycleFullCycle:
 
     def _make_ranked_result(self, ticker: str = "AAPL") -> Any:
         import uuid
+
         from services.ranking_engine.models import RankedResult
         return RankedResult(
             rank_position=1,
@@ -199,7 +200,6 @@ class TestPaperTradingCycleFullCycle:
         from apps.worker.jobs.paper_trading import run_paper_trading_cycle
         from config.settings import Settings
         from services.execution_engine.models import ExecutionResult, ExecutionStatus
-        from services.reporting.models import FillReconciliationSummary
 
         state = ApiAppState()
         state.latest_rankings = [self._make_ranked_result()]
@@ -227,7 +227,6 @@ class TestPaperTradingCycleFullCycle:
         mock_md.get_snapshot.return_value = mock_snapshot
 
         # Mock execution service
-        from services.execution_engine.models import ExecutionResult, ExecutionStatus
         action = self._make_portfolio_action()
         mock_exec = MagicMock()
         mock_exec.execute_approved_actions.return_value = [
@@ -481,7 +480,6 @@ class TestPaperTradingCycleBrokerConnect:
         from apps.api.state import ApiAppState
         from apps.worker.jobs.paper_trading import run_paper_trading_cycle
         from config.settings import Settings
-        from services.risk_engine.models import RiskCheckResult
 
         state = ApiAppState()
         state.latest_rankings = [MagicMock(recommended_action="buy", ticker="AAPL")]
@@ -605,7 +603,7 @@ class TestApiAppStateNewFields:
 
     def test_can_set_last_paper_cycle_at(self):
         from apps.api.state import ApiAppState
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime.now(dt.UTC)
         state = ApiAppState()
         state.last_paper_cycle_at = now
         assert state.last_paper_cycle_at == now
@@ -800,7 +798,7 @@ class TestSchwabAdapterMethodStubs:
     def test_list_fills_since_raises_connection_error(self):
         from broker_adapters.base.exceptions import BrokerConnectionError
         with pytest.raises(BrokerConnectionError):
-            self._adapter().list_fills_since(dt.datetime.now(dt.timezone.utc))
+            self._adapter().list_fills_since(dt.datetime.now(dt.UTC))
 
     def test_is_market_open_raises_connection_error(self):
         from broker_adapters.base.exceptions import BrokerConnectionError
@@ -865,6 +863,7 @@ class TestSchwabAdapterDuplicateGuard:
 class TestMetricsRoute:
     def _client(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         return TestClient(app)
 

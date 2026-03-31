@@ -22,7 +22,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import uuid
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from services.readiness.models import ReadinessGateRow, ReadinessReport
 
@@ -36,8 +36,8 @@ class ReadinessReportService:
 
     def generate_report(
         self,
-        app_state: "ApiAppState",
-        settings: "Settings",
+        app_state: ApiAppState,
+        settings: Settings,
     ) -> ReadinessReport:
         """Evaluate all live-gate requirements and return a ReadinessReport.
 
@@ -51,7 +51,7 @@ class ReadinessReportService:
         from config.settings import OperatingMode
         from services.live_mode_gate.service import LiveModeGateService
 
-        generated_at = dt.datetime.now(dt.timezone.utc)
+        generated_at = dt.datetime.now(dt.UTC)
         current_mode_enum = settings.operating_mode
         current_mode = current_mode_enum.value
 

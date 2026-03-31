@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TimestampMixin
@@ -27,10 +28,10 @@ class ImprovementProposal(Base, TimestampMixin):
     proposal_timestamp: Mapped[datetime] = mapped_column(sa.DateTime, nullable=False)
     proposal_type: Mapped[str] = mapped_column(sa.String, nullable=False)
     target_component: Mapped[str] = mapped_column(sa.String, nullable=False)
-    baseline_version: Mapped[Optional[str]] = mapped_column(sa.String, nullable=True)
-    candidate_version: Mapped[Optional[str]] = mapped_column(sa.String, nullable=True)
-    proposal_summary: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
-    expected_benefit: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
+    baseline_version: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    candidate_version: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    proposal_summary: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    expected_benefit: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     status: Mapped[str] = mapped_column(sa.String, nullable=False)
 
 
@@ -47,10 +48,10 @@ class ImprovementEvaluation(Base, TimestampMixin):
     )
     evaluation_timestamp: Mapped[datetime] = mapped_column(sa.DateTime, nullable=False)
     result_status: Mapped[str] = mapped_column(sa.String, nullable=False)
-    baseline_metrics_json: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
-    candidate_metrics_json: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
-    comparison_summary: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
-    guardrail_passed: Mapped[Optional[bool]] = mapped_column(sa.Boolean, nullable=True)
+    baseline_metrics_json: Mapped[Any | None] = mapped_column(JSONB, nullable=True)
+    candidate_metrics_json: Mapped[Any | None] = mapped_column(JSONB, nullable=True)
+    comparison_summary: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    guardrail_passed: Mapped[bool | None] = mapped_column(sa.Boolean, nullable=True)
 
 
 class PromotedVersion(Base, TimestampMixin):
@@ -65,5 +66,5 @@ class PromotedVersion(Base, TimestampMixin):
     component_key: Mapped[str] = mapped_column(sa.String, nullable=False)
     version_label: Mapped[str] = mapped_column(sa.String, nullable=False)
     promotion_timestamp: Mapped[datetime] = mapped_column(sa.DateTime, nullable=False)
-    promotion_reason: Mapped[Optional[str]] = mapped_column(sa.Text, nullable=True)
-    rollback_reference: Mapped[Optional[str]] = mapped_column(sa.String, nullable=True)
+    promotion_reason: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    rollback_reference: Mapped[str | None] = mapped_column(sa.String, nullable=True)

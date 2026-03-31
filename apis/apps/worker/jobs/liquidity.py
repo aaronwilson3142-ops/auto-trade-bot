@@ -20,7 +20,7 @@ Design rules
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any, Optional
+from typing import Any
 
 from apps.api.state import ApiAppState
 from config.logging_config import get_logger
@@ -31,8 +31,8 @@ logger = get_logger(__name__)
 
 def run_liquidity_refresh(
     app_state: ApiAppState,
-    settings: Optional[Settings] = None,
-    session_factory: Optional[Any] = None,
+    settings: Settings | None = None,
+    session_factory: Any | None = None,
 ) -> dict[str, Any]:
     """Load latest dollar_volume_20d per ticker from the feature store DB.
 
@@ -45,7 +45,7 @@ def run_liquidity_refresh(
         dict with keys: status, ticker_count, computed_at, error.
     """
     cfg = settings or get_settings()  # noqa: F841 — kept for future use
-    run_at = dt.datetime.now(dt.timezone.utc)
+    run_at = dt.datetime.now(dt.UTC)
 
     logger.info("liquidity_refresh_starting")
 
@@ -62,9 +62,10 @@ def run_liquidity_refresh(
         dollar_volumes: dict[str, float] = {}
 
         try:
-            from infra.db.models.analytics import Feature, SecurityFeatureValue  # noqa: PLC0415
-            from infra.db.models import Security  # noqa: PLC0415
             import sqlalchemy as sa  # noqa: PLC0415
+
+            from infra.db.models import Security  # noqa: PLC0415
+            from infra.db.models.analytics import Feature, SecurityFeatureValue  # noqa: PLC0415
 
             with session_factory() as session:
                 # Find the Feature row for dollar_volume_20d

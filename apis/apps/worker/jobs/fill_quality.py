@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any, Optional
+from typing import Any
 
 from apps.api.state import ApiAppState
 from config.logging_config import get_logger
@@ -21,7 +21,7 @@ logger = get_logger(__name__)
 
 def run_fill_quality_update(
     app_state: ApiAppState,
-    settings: Optional[Settings] = None,
+    settings: Settings | None = None,
 ) -> dict[str, Any]:
     """Compute fill quality summary from accumulated fill records.
 
@@ -34,7 +34,7 @@ def run_fill_quality_update(
         dict with keys: status, record_count, computed_at, errors.
     """
     cfg = settings or get_settings()  # noqa: F841 — available for future config use
-    run_at = dt.datetime.now(dt.timezone.utc)
+    run_at = dt.datetime.now(dt.UTC)
     errors: list[str] = []
 
     try:

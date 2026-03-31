@@ -22,14 +22,9 @@ Test classes (60 tests total):
 """
 from __future__ import annotations
 
-import datetime as dt
 import uuid
-from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 from unittest.mock import MagicMock, patch
-
-import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -527,7 +522,7 @@ class TestRegimeSchemas:
         assert s.regime == "SIDEWAYS"
 
     def test_regime_history_response(self):
-        from apps.api.schemas.regime import RegimeHistoryResponse, RegimeSnapshotSchema
+        from apps.api.schemas.regime import RegimeHistoryResponse
         r = RegimeHistoryResponse(
             snapshots=[],
             count=0,
@@ -545,6 +540,7 @@ class TestRegimeRoutes:
 
     def _client(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import reset_app_state
         reset_app_state()

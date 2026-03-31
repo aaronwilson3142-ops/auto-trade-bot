@@ -10,7 +10,6 @@ GET /api/v1/portfolio/earnings-risk/{ticker}
 from __future__ import annotations
 
 import datetime as dt
-from typing import Optional
 
 from pydantic import BaseModel
 
@@ -19,8 +18,8 @@ class EarningsEntrySchema(BaseModel):
     """Earnings data for a single ticker."""
 
     ticker: str
-    earnings_date: Optional[dt.date]
-    days_to_earnings: Optional[int]
+    earnings_date: dt.date | None
+    days_to_earnings: int | None
     earnings_within_window: bool
     max_earnings_proximity_days: int
 
@@ -33,8 +32,8 @@ class EarningsCalendarResponse(BaseModel):
         the gate is enabled (max_earnings_proximity_days > 0).
     """
 
-    computed_at: Optional[dt.datetime]
-    reference_date: Optional[dt.date]
+    computed_at: dt.datetime | None
+    reference_date: dt.date | None
     max_earnings_proximity_days: int
     tickers_checked: int
     at_risk_count: int
@@ -53,8 +52,8 @@ class EarningsTickerResponse(BaseModel):
 
     ticker: str
     data_available: bool
-    computed_at: Optional[dt.datetime] = None
-    earnings_date: Optional[dt.date] = None
-    days_to_earnings: Optional[int] = None
+    computed_at: dt.datetime | None = None
+    earnings_date: dt.date | None = None
+    days_to_earnings: int | None = None
     earnings_within_window: bool = False
     max_earnings_proximity_days: int = 0

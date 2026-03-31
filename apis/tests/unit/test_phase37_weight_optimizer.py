@@ -22,21 +22,16 @@ Test classes (55 tests total):
 """
 from __future__ import annotations
 
-import json
 import uuid
-from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 from unittest.mock import MagicMock, patch
-
-import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_backtest_run(strategy_name: str, sharpe: Optional[float]) -> Any:
+def _make_backtest_run(strategy_name: str, sharpe: float | None) -> Any:
     """Create a duck-typed BacktestRun-like object for testing."""
     obj = MagicMock()
     obj.strategy_name = strategy_name
@@ -152,8 +147,8 @@ class TestWeightOptimizerEqualWeights:
 
     def test_equal_weights_contains_all_strategies(self):
         from services.signal_engine.weight_optimizer import (
-            WeightOptimizerService,
             _INDIVIDUAL_STRATEGY_KEYS,
+            WeightOptimizerService,
         )
         w = WeightOptimizerService.equal_weights()
         assert set(w.keys()) == _INDIVIDUAL_STRATEGY_KEYS
@@ -204,8 +199,8 @@ class TestWeightOptimizerComputeWeights:
 
     def test_all_strategies_present(self):
         from services.signal_engine.weight_optimizer import (
-            WeightOptimizerService,
             _INDIVIDUAL_STRATEGY_KEYS,
+            WeightOptimizerService,
         )
         svc = WeightOptimizerService()
         runs = self._make_runs({
@@ -458,6 +453,7 @@ class TestWeightsRoutes:
 
     def _client(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         return TestClient(app)
 
@@ -658,7 +654,10 @@ class TestWeightOptimizationJob:
 
     def test_successful_optimization_updates_app_state(self):
         from apps.worker.jobs.signal_ranking import run_weight_optimization
-        from services.signal_engine.weight_optimizer import WeightOptimizerService, WeightProfileRecord
+        from services.signal_engine.weight_optimizer import (
+            WeightOptimizerService,
+            WeightProfileRecord,
+        )
 
         state = _make_app_state()
         mock_profile = WeightProfileRecord(

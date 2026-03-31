@@ -37,13 +37,12 @@ from __future__ import annotations
 
 import datetime as dt
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import structlog
 
 if TYPE_CHECKING:
     from config.settings import Settings
-    from services.portfolio_engine.models import PortfolioAction
 
 log = structlog.get_logger(__name__)
 
@@ -61,8 +60,8 @@ class EarningsEntry:
     """
 
     ticker: str
-    earnings_date: Optional[dt.date]          # next confirmed earnings date or None
-    days_to_earnings: Optional[int]           # positive = future, 0 = today, negative = past
+    earnings_date: dt.date | None          # next confirmed earnings date or None
+    days_to_earnings: int | None           # positive = future, 0 = today, negative = past
     earnings_within_window: bool              # True if days_to_earnings in [0, max_days]
     max_earnings_proximity_days: int          # window used for this computation
 
@@ -100,7 +99,7 @@ class EarningsCalendarService:
     # ── Data fetch ─────────────────────────────────────────────────────────
 
     @staticmethod
-    def _fetch_next_earnings_date(ticker: str) -> Optional[dt.date]:
+    def _fetch_next_earnings_date(ticker: str) -> dt.date | None:
         """Return the next earnings date for *ticker* from yfinance.
 
         Returns None when:
@@ -159,7 +158,7 @@ class EarningsCalendarService:
         cls,
         tickers: list[str],
         max_earnings_proximity_days: int,
-        reference_date: Optional[dt.date] = None,
+        reference_date: dt.date | None = None,
     ) -> EarningsCalendarResult:
         """Fetch earnings dates for all *tickers* and build a calendar result.
 
@@ -173,7 +172,7 @@ class EarningsCalendarService:
         Returns:
             EarningsCalendarResult with per-ticker entries and at-risk set.
         """
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime.now(dt.UTC)
         ref = reference_date or now.date()
 
         entries: dict[str, EarningsEntry] = {}
@@ -226,8 +225,8 @@ class EarningsCalendarService:
     @staticmethod
     def filter_for_earnings_proximity(
         actions: list,                          # list[PortfolioAction]
-        calendar_result: "EarningsCalendarResult",
-        settings: "Settings",
+        calendar_result: EarningsCalendarResult,
+        settings: Settings,
     ) -> tuple[list, int]:
         """Block OPEN actions for tickers with earnings within the proximity window.
 

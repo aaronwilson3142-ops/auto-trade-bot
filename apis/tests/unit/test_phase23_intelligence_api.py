@@ -19,9 +19,8 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass, field
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
 from fastapi.testclient import TestClient
 
 # ---------------------------------------------------------------------------
@@ -34,14 +33,14 @@ def _make_policy_event(event_id: str = "e1", event_type_val: str = "fiscal_polic
         event_id=event_id,
         headline=f"Headline for {event_id}",
         event_type=PolicyEventType(event_type_val),
-        published_at=dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=1),
+        published_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=1),
         source="TestSource",
         body_snippet="Some body text",
     )
 
 
 def _make_policy_signal(bias: float = 0.4, confidence: float = 0.6):
-    from services.macro_policy_engine.models import PolicyEvent, PolicyEventType, PolicySignal
+    from services.macro_policy_engine.models import PolicySignal
     evt = _make_policy_event()
     return PolicySignal(
         event=evt,
@@ -51,7 +50,7 @@ def _make_policy_signal(bias: float = 0.4, confidence: float = 0.6):
         directional_bias=bias,
         confidence=confidence,
         implication_summary="A positive macro signal",
-        generated_at=dt.datetime.now(dt.timezone.utc),
+        generated_at=dt.datetime.now(dt.UTC),
     )
 
 
@@ -60,7 +59,7 @@ def _make_news_item(source_id: str = "ni1", ticker: str = "NVDA"):
     return NewsItem(
         source_id=source_id,
         headline=f"Headline for {source_id}",
-        published_at=dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=1),
+        published_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=1),
         body_snippet="Some news body",
         credibility_tier=CredibilityTier.SECONDARY_VERIFIED,
         tickers_mentioned=[ticker],
@@ -69,7 +68,8 @@ def _make_news_item(source_id: str = "ni1", ticker: str = "NVDA"):
 
 def _make_news_insight(source_id: str = "ni1", ticker: str = "NVDA", score: float = 0.4):
     from services.news_intelligence.models import (
-        CredibilityTier, NewsInsight, NewsItem, SentimentLabel,
+        NewsInsight,
+        SentimentLabel,
     )
     item = _make_news_item(source_id, ticker)
     return NewsInsight(
@@ -81,7 +81,7 @@ def _make_news_insight(source_id: str = "ni1", ticker: str = "NVDA", score: floa
         affected_themes=["ai_infrastructure"],
         market_implication="Positive for tech",
         contains_rumor=False,
-        processed_at=dt.datetime.now(dt.timezone.utc),
+        processed_at=dt.datetime.now(dt.UTC),
     )
 
 
@@ -98,7 +98,7 @@ class _FakeAppState:
 
 class TestNewsSeedServiceInit:
     def test_default_seeds_loaded(self):
-        from services.news_intelligence.seed import NewsSeedService, _DEFAULT_SEEDS
+        from services.news_intelligence.seed import _DEFAULT_SEEDS, NewsSeedService
         svc = NewsSeedService()
         assert svc.seed_count == len(_DEFAULT_SEEDS)
 
@@ -121,7 +121,7 @@ class TestNewsSeedServiceGetDailyItems:
         assert isinstance(items, list)
 
     def test_count_matches_seeds(self):
-        from services.news_intelligence.seed import NewsSeedService, _DEFAULT_SEEDS
+        from services.news_intelligence.seed import _DEFAULT_SEEDS, NewsSeedService
         items = NewsSeedService().get_daily_items()
         assert len(items) == len(_DEFAULT_SEEDS)
 
@@ -138,7 +138,7 @@ class TestNewsSeedServiceGetDailyItems:
 
     def test_published_at_uses_reference_dt(self):
         from services.news_intelligence.seed import NewsSeedService
-        ref = dt.datetime(2026, 1, 15, 10, 0, 0, tzinfo=dt.timezone.utc)
+        ref = dt.datetime(2026, 1, 15, 10, 0, 0, tzinfo=dt.UTC)
         items = NewsSeedService().get_daily_items(reference_dt=ref)
         expected = ref - dt.timedelta(hours=2)
         for item in items:
@@ -154,7 +154,7 @@ class TestNewsSeedServiceGetDailyItems:
         assert NewsSeedService(seeds=[]).get_daily_items() == []
 
     def test_tickers_not_mutated_between_calls(self):
-        from services.news_intelligence.seed import NewsSeedService, _DEFAULT_SEEDS
+        from services.news_intelligence.seed import NewsSeedService
         svc = NewsSeedService()
         items1 = svc.get_daily_items()
         items1[0].tickers_mentioned.append("ZZZZ")
@@ -170,14 +170,15 @@ class TestNewsSeedServiceGetDailyItems:
 class TestPolicyEventSeedServiceInit:
     def test_default_seeds_loaded(self):
         from services.macro_policy_engine.seed import (
-            PolicyEventSeedService, _DEFAULT_SEEDS,
+            _DEFAULT_SEEDS,
+            PolicyEventSeedService,
         )
         svc = PolicyEventSeedService()
         assert svc.seed_count == len(_DEFAULT_SEEDS)
 
     def test_custom_seeds_override(self):
-        from services.macro_policy_engine.seed import PolicyEventSeedService
         from services.macro_policy_engine.models import PolicyEventType
+        from services.macro_policy_engine.seed import PolicyEventSeedService
         seeds = [{
             "event_id": "x1", "headline": "H", "event_type": PolicyEventType.OTHER,
         }]
@@ -198,7 +199,8 @@ class TestPolicyEventSeedServiceGetDailyEvents:
 
     def test_count_matches_seeds(self):
         from services.macro_policy_engine.seed import (
-            PolicyEventSeedService, _DEFAULT_SEEDS,
+            _DEFAULT_SEEDS,
+            PolicyEventSeedService,
         )
         events = PolicyEventSeedService().get_daily_events()
         assert len(events) == len(_DEFAULT_SEEDS)
@@ -216,7 +218,7 @@ class TestPolicyEventSeedServiceGetDailyEvents:
 
     def test_published_at_uses_reference_dt(self):
         from services.macro_policy_engine.seed import PolicyEventSeedService
-        ref = dt.datetime(2026, 3, 1, 8, 0, 0, tzinfo=dt.timezone.utc)
+        ref = dt.datetime(2026, 3, 1, 8, 0, 0, tzinfo=dt.UTC)
         events = PolicyEventSeedService().get_daily_events(reference_dt=ref)
         expected = ref - dt.timedelta(hours=3)
         for ev in events:
@@ -228,7 +230,8 @@ class TestPolicyEventSeedServiceGetDailyEvents:
 
     def test_event_ids_match_seeds(self):
         from services.macro_policy_engine.seed import (
-            PolicyEventSeedService, _DEFAULT_SEEDS,
+            _DEFAULT_SEEDS,
+            PolicyEventSeedService,
         )
         events = PolicyEventSeedService().get_daily_events()
         ids = {ev.event_id for ev in events}
@@ -442,7 +445,8 @@ class TestRunIntelFeedIngestion:
 def _make_test_client(state_override=None):
     """Create a TestClient with app_state dependency overridden."""
     from fastapi import FastAPI
-    from apps.api.deps import AppStateDep, get_app_state
+
+    from apps.api.deps import get_app_state
     from apps.api.routes.intelligence import router
 
     test_app = FastAPI()
@@ -732,12 +736,12 @@ class TestPhase23Integration:
         run_intel_feed_ingestion(app_state=state)
 
         enrichment_svc = FeatureEnrichmentService()
-        import uuid
         import datetime as dt
+        import uuid
         fs = FeatureSet(
             ticker="NVDA",
             security_id=uuid.uuid4(),
-            as_of_timestamp=dt.datetime.now(dt.timezone.utc),
+            as_of_timestamp=dt.datetime.now(dt.UTC),
             features=[],
         )
         enriched = enrichment_svc.enrich(

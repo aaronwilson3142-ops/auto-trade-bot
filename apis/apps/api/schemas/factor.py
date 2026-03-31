@@ -1,8 +1,6 @@
 """Phase 50 — Factor Exposure API schemas."""
 from __future__ import annotations
 
-from typing import Optional
-
 from pydantic import BaseModel
 
 
@@ -24,7 +22,7 @@ class FactorExposureResponse(BaseModel):
     ``portfolio_factor_weights`` is the market-value-weighted mean of all
     per-ticker factor scores, one entry per factor.
     """
-    computed_at: Optional[str]
+    computed_at: str | None
     position_count: int
     total_market_value: float
     dominant_factor: str
@@ -49,4 +47,4 @@ class FactorDetailResponse(BaseModel):
     portfolio_weight: float
     top_tickers: list[FactorTopBottomEntry]
     bottom_tickers: list[FactorTopBottomEntry]
-    computed_at: Optional[str]
+    computed_at: str | None

@@ -8,17 +8,17 @@ Priority 17 — Admin Audit Log
 Adds the admin_events table to persist every admin HTTP API call for
 operator traceability (rotation events, list-events queries, etc.).
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = 'b1c2d3e4f5a6'
-down_revision: Union[str, None] = '9ed5639351bb'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = '9ed5639351bb'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:

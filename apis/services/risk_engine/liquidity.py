@@ -27,14 +27,13 @@ Design rules
 from __future__ import annotations
 
 import dataclasses
-from decimal import Decimal, ROUND_DOWN
-from typing import TYPE_CHECKING, Optional
+from decimal import ROUND_DOWN, Decimal
+from typing import TYPE_CHECKING
 
 import structlog
 
 if TYPE_CHECKING:
     from config.settings import Settings
-    from services.portfolio_engine.models import PortfolioAction
 
 log = structlog.get_logger(__name__)
 
@@ -55,7 +54,7 @@ class LiquidityService:
     @staticmethod
     def is_liquid(
         dollar_volume_20d: float,
-        settings: "Settings",
+        settings: Settings,
     ) -> bool:
         """Return True if dollar_volume_20d meets the minimum threshold.
 
@@ -75,7 +74,7 @@ class LiquidityService:
     def adv_capped_notional(
         target_notional: Decimal,
         dollar_volume_20d: float,
-        settings: "Settings",
+        settings: Settings,
     ) -> Decimal:
         """Return target_notional capped to max_position_as_pct_of_adv × ADV.
 
@@ -103,7 +102,7 @@ class LiquidityService:
         cls,
         actions: list,  # list[PortfolioAction]
         dollar_volumes: dict[str, float],  # ticker → dollar_volume_20d
-        settings: "Settings",
+        settings: Settings,
     ) -> list:
         """Drop illiquid OPENs and apply ADV caps to surviving OPEN actions.
 
@@ -131,7 +130,7 @@ class LiquidityService:
                 continue
 
             ticker = action.ticker
-            dv: Optional[float] = dollar_volumes.get(ticker)
+            dv: float | None = dollar_volumes.get(ticker)
 
             # Missing ADV data → pass through (safe: don't block unknown tickers)
             if dv is None:
@@ -158,7 +157,7 @@ class LiquidityService:
 
             if capped_notional < original_notional:
                 # Scale target_quantity proportionally
-                new_qty: Optional[Decimal] = None
+                new_qty: Decimal | None = None
                 if action.target_quantity is not None and action.target_quantity > Decimal("0"):
                     scale = capped_notional / original_notional
                     new_qty = (
@@ -196,7 +195,7 @@ class LiquidityService:
     def liquidity_summary(
         cls,
         dollar_volumes: dict[str, float],
-        settings: "Settings",
+        settings: Settings,
     ) -> list[dict]:
         """Return per-ticker liquidity status dicts (sorted by ADV descending).
 

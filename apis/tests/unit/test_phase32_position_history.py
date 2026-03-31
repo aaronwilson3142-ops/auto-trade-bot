@@ -22,10 +22,9 @@ import uuid
 from contextlib import contextmanager
 from decimal import Decimal
 from typing import Any
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -52,7 +51,7 @@ def _make_position(
         quantity=Decimal(str(quantity)),
         avg_entry_price=Decimal(str(avg_entry_price)),
         current_price=Decimal(str(current_price)),
-        opened_at=dt.datetime(2026, 3, 1, tzinfo=dt.timezone.utc),
+        opened_at=dt.datetime(2026, 3, 1, tzinfo=dt.UTC),
     )
 
 
@@ -121,7 +120,7 @@ class TestPositionHistoryORM:
         from infra.db.models.portfolio import PositionHistory
         row = PositionHistory(
             ticker="NVDA",
-            snapshot_at=dt.datetime(2026, 3, 20, 10, 0, tzinfo=dt.timezone.utc),
+            snapshot_at=dt.datetime(2026, 3, 20, 10, 0, tzinfo=dt.UTC),
             quantity=Decimal("5.0"),
             avg_entry_price=Decimal("800.00"),
             current_price=Decimal("850.00"),
@@ -147,7 +146,8 @@ class TestPositionHistoryMigration:
         assert os.path.exists(base), f"Migration not found at {base}"
 
     def test_revision_id(self):
-        import importlib.util, os
+        import importlib.util
+        import os
         path = os.path.join(
             "infra", "db", "versions", "d4e5f6a7b8c9_add_position_history.py"
         )
@@ -157,7 +157,8 @@ class TestPositionHistoryMigration:
         assert mod.revision == "d4e5f6a7b8c9"
 
     def test_down_revision(self):
-        import importlib.util, os
+        import importlib.util
+        import os
         path = os.path.join(
             "infra", "db", "versions", "d4e5f6a7b8c9_add_position_history.py"
         )
@@ -186,7 +187,7 @@ class TestPositionHistorySchemas:
 
     def test_record_roundtrip(self):
         from apps.api.schemas.portfolio import PositionHistoryRecord
-        snap = dt.datetime(2026, 3, 20, 9, 35, tzinfo=dt.timezone.utc)
+        snap = dt.datetime(2026, 3, 20, 9, 35, tzinfo=dt.UTC)
         rec = PositionHistoryRecord(
             id=str(uuid.uuid4()),
             ticker="AAPL",
@@ -207,7 +208,7 @@ class TestPositionHistorySchemas:
         rec = PositionHistoryRecord(
             id=str(uuid.uuid4()),
             ticker="MSFT",
-            snapshot_at=dt.datetime.now(dt.timezone.utc),
+            snapshot_at=dt.datetime.now(dt.UTC),
             quantity=None,
             avg_entry_price=None,
             current_price=None,
@@ -219,7 +220,7 @@ class TestPositionHistorySchemas:
         assert rec.quantity is None
 
     def test_history_response_fields(self):
-        from apps.api.schemas.portfolio import PositionHistoryResponse, PositionHistoryRecord
+        from apps.api.schemas.portfolio import PositionHistoryResponse
         resp = PositionHistoryResponse(
             ticker="GOOG",
             count=0,
@@ -247,7 +248,7 @@ class TestPersistPositionHistory:
         pos_b = _make_position("MSFT", quantity=5, avg_entry_price=300.0,
                                current_price=310.0)
         ps = _make_portfolio_state({"AAPL": pos_a, "MSFT": pos_b})
-        snap_at = dt.datetime(2026, 3, 20, 9, 35, tzinfo=dt.timezone.utc)
+        snap_at = dt.datetime(2026, 3, 20, 9, 35, tzinfo=dt.UTC)
 
         added_rows = []
 
@@ -274,7 +275,7 @@ class TestPersistPositionHistory:
         from apps.worker.jobs.paper_trading import _persist_position_history
 
         ps = _make_portfolio_state({"AAPL": _make_position("AAPL")})
-        snap_at = dt.datetime(2026, 3, 20, 9, 35, tzinfo=dt.timezone.utc)
+        snap_at = dt.datetime(2026, 3, 20, 9, 35, tzinfo=dt.UTC)
 
         @contextmanager
         def bad_session():
@@ -288,10 +289,11 @@ class TestPersistPositionHistory:
 
     def test_logs_warning_on_error(self, caplog):
         import logging
+
         from apps.worker.jobs.paper_trading import _persist_position_history
 
         ps = _make_portfolio_state({"AAPL": _make_position("AAPL")})
-        snap_at = dt.datetime.now(dt.timezone.utc)
+        snap_at = dt.datetime.now(dt.UTC)
 
         @contextmanager
         def bad_session():
@@ -347,7 +349,7 @@ class TestPersistPositionHistoryInPaperCycle:
     def test_called_when_positions_exist(self):
         from apps.api.state import ApiAppState
         from config.settings import OperatingMode
-        from services.portfolio_engine.models import PortfolioState, PortfolioPosition
+        from services.portfolio_engine.models import PortfolioState
 
         state = ApiAppState()
         ps = PortfolioState(
@@ -441,8 +443,9 @@ class TestPositionHistoryEndpoint:
 
     def _client(self, state=None):
         from fastapi.testclient import TestClient
-        from apps.api.main import app
+
         from apps.api.deps import get_app_state
+        from apps.api.main import app
         _state = state or _make_app_state()
         app.dependency_overrides[get_app_state] = lambda: _state
         return TestClient(app, raise_server_exceptions=False), _state
@@ -551,8 +554,9 @@ class TestPositionHistoryEndpointFallback:
 
     def _client(self):
         from fastapi.testclient import TestClient
-        from apps.api.main import app
+
         from apps.api.deps import get_app_state
+        from apps.api.main import app
         state = _make_app_state()
         app.dependency_overrides[get_app_state] = lambda: state
         return TestClient(app, raise_server_exceptions=False)
@@ -592,8 +596,9 @@ class TestPositionSnapshotsEndpoint:
 
     def _client(self, state=None):
         from fastapi.testclient import TestClient
-        from apps.api.main import app
+
         from apps.api.deps import get_app_state
+        from apps.api.main import app
         _state = state or _make_app_state()
         app.dependency_overrides[get_app_state] = lambda: _state
         return TestClient(app, raise_server_exceptions=False), _state
@@ -682,8 +687,9 @@ class TestPositionSnapshotsEndpointFallback:
 
     def _client(self):
         from fastapi.testclient import TestClient
-        from apps.api.main import app
+
         from apps.api.deps import get_app_state
+        from apps.api.main import app
         state = _make_app_state()
         app.dependency_overrides[get_app_state] = lambda: state
         return TestClient(app, raise_server_exceptions=False)

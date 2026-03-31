@@ -15,7 +15,6 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import uuid
-from typing import Optional
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
@@ -25,10 +24,10 @@ from services.feature_store.enrichment import FeatureEnrichmentService
 from services.feature_store.models import FeatureSet
 from services.feature_store.service import FeatureStoreService
 from services.signal_engine.models import SignalOutput
-from services.signal_engine.strategies.momentum import MomentumStrategy
-from services.signal_engine.strategies.theme_alignment import ThemeAlignmentStrategy
 from services.signal_engine.strategies.macro_tailwind import MacroTailwindStrategy
+from services.signal_engine.strategies.momentum import MomentumStrategy
 from services.signal_engine.strategies.sentiment import SentimentStrategy
+from services.signal_engine.strategies.theme_alignment import ThemeAlignmentStrategy
 from services.signal_engine.strategies.valuation import ValuationStrategy
 
 logger = logging.getLogger(__name__)
@@ -44,9 +43,9 @@ class SignalEngineService:
 
     def __init__(
         self,
-        feature_store: Optional[FeatureStoreService] = None,
-        strategies: Optional[list] = None,
-        enrichment_service: Optional[FeatureEnrichmentService] = None,
+        feature_store: FeatureStoreService | None = None,
+        strategies: list | None = None,
+        enrichment_service: FeatureEnrichmentService | None = None,
     ) -> None:
         self._feature_store = feature_store or FeatureStoreService()
         self._strategies: list = strategies if strategies is not None else [
@@ -67,10 +66,10 @@ class SignalEngineService:
         session: Session,
         signal_run_id: uuid.UUID,
         tickers: list[str],
-        security_id_map: Optional[dict[str, uuid.UUID]] = None,
-        policy_signals: Optional[list] = None,
-        news_insights: Optional[list] = None,
-        fundamentals_store: Optional[dict] = None,
+        security_id_map: dict[str, uuid.UUID] | None = None,
+        policy_signals: list | None = None,
+        news_insights: list | None = None,
+        fundamentals_store: dict | None = None,
     ) -> list[SignalOutput]:
         """Generate and persist signals for all tickers in the given signal run.
 
@@ -101,7 +100,7 @@ class SignalEngineService:
         # Create the SignalRun header row so SecuritySignal FK constraint is satisfied
         signal_run_row = SignalRun(
             id=signal_run_id,
-            run_timestamp=dt.datetime.now(dt.timezone.utc),
+            run_timestamp=dt.datetime.now(dt.UTC),
             run_mode="paper",
             universe_name="default",
             status="in_progress",
@@ -233,7 +232,7 @@ class SignalEngineService:
         session: Session,
         security_id: uuid.UUID,
         ticker: str,
-    ) -> Optional[FeatureSet]:
+    ) -> FeatureSet | None:
         """Attempt to compute a feature set from persisted bars."""
         try:
             return self._feature_store.compute_and_persist(

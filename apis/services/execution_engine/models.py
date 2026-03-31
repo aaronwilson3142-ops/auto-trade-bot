@@ -4,10 +4,9 @@ Execution engine domain models (plain dataclasses, no ORM dependency).
 from __future__ import annotations
 
 import datetime as dt
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from decimal import Decimal
 from enum import Enum
-from typing import Optional
 
 from services.portfolio_engine.models import PortfolioAction
 
@@ -40,10 +39,10 @@ class ExecutionResult:
 
     status: ExecutionStatus
     action: PortfolioAction
-    broker_order_id: Optional[str] = None
-    fill_price: Optional[Decimal] = None
-    fill_quantity: Optional[Decimal] = None
+    broker_order_id: str | None = None
+    fill_price: Decimal | None = None
+    fill_quantity: Decimal | None = None
     fees: Decimal = Decimal("0")
-    filled_at: Optional[dt.datetime] = None
-    error_message: Optional[str] = None
+    filled_at: dt.datetime | None = None
+    error_message: str | None = None
 

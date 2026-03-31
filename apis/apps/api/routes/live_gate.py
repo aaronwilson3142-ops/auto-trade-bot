@@ -31,7 +31,7 @@ Spec references
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
 from apps.api.deps import AppStateDep, SettingsDep
 from apps.api.schemas.live_gate import (
@@ -39,7 +39,6 @@ from apps.api.schemas.live_gate import (
     LiveGatePromoteRequest,
     LiveGatePromoteResponse,
     LiveGateStatusResponse,
-    PromotableMode,
 )
 from config.settings import OperatingMode
 from services.live_mode_gate.service import LiveModeGateService

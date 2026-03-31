@@ -37,19 +37,19 @@ Spec references
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any, Optional
+from typing import Any
 
 from apps.api.state import ApiAppState
 from config.logging_config import get_logger
-from config.settings import Settings, get_settings
+from config.settings import Settings
 
 logger = get_logger(__name__)
 
 
 def run_broker_token_refresh(
     app_state: ApiAppState,
-    settings: Optional[Settings] = None,  # reserved for future use
-    broker: Optional[Any] = None,         # injected in tests; else from app_state
+    settings: Settings | None = None,  # reserved for future use
+    broker: Any | None = None,         # injected in tests; else from app_state
 ) -> dict[str, Any]:
     """Attempt to refresh the Schwab OAuth token.
 
@@ -108,7 +108,7 @@ def run_broker_token_refresh(
                 extra={"error": str(exc)},
             )
             app_state.broker_auth_expired = True
-            app_state.broker_auth_expired_at = dt.datetime.now(dt.timezone.utc)
+            app_state.broker_auth_expired_at = dt.datetime.now(dt.UTC)
             return {"status": "error_auth", "error": str(exc)}
 
         logger.warning(

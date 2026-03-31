@@ -24,9 +24,6 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from datetime import datetime
-from decimal import Decimal
-from typing import Optional
-
 
 # ---------------------------------------------------------------------------
 # Result dataclasses
@@ -154,7 +151,7 @@ class SignalQualityService:
     def compute_quality_report(
         cls,
         outcomes: list[dict],
-        computed_at: Optional[datetime] = None,
+        computed_at: datetime | None = None,
     ) -> SignalQualityReport:
         """Compute a full quality report across all strategies.
 
@@ -168,7 +165,7 @@ class SignalQualityService:
         """
         import datetime as _dt  # noqa: PLC0415
 
-        ts = computed_at or _dt.datetime.now(_dt.timezone.utc)
+        ts = computed_at or _dt.datetime.now(_dt.UTC)
 
         if not outcomes:
             return SignalQualityReport(

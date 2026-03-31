@@ -82,7 +82,6 @@ Test classes
 """
 from __future__ import annotations
 
-import hmac
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -208,8 +207,9 @@ class TestAdminRouteHelpers:
 
     def test_token_matches_uses_hmac_compare_digest(self):
         """Verify constant-time comparison is used (not == operator)."""
-        from apps.api.routes.admin import _token_matches
         import inspect
+
+        from apps.api.routes.admin import _token_matches
         source = inspect.getsource(_token_matches)
         assert "hmac.compare_digest" in source
 
@@ -279,7 +279,8 @@ class TestAdminRouteEndpoint:
 
     def test_returns_503_when_token_not_configured(self):
         from fastapi import HTTPException
-        from apps.api.routes.admin import invalidate_secrets, InvalidateSecretsRequest
+
+        from apps.api.routes.admin import InvalidateSecretsRequest, invalidate_secrets
 
         cfg = self._make_settings(token="")
         with pytest.raises(HTTPException) as exc_info:
@@ -293,7 +294,8 @@ class TestAdminRouteEndpoint:
 
     def test_returns_401_when_no_auth_header(self):
         from fastapi import HTTPException
-        from apps.api.routes.admin import invalidate_secrets, InvalidateSecretsRequest
+
+        from apps.api.routes.admin import InvalidateSecretsRequest, invalidate_secrets
 
         cfg = self._make_settings(token="valid_token")
         with pytest.raises(HTTPException) as exc_info:
@@ -307,7 +309,8 @@ class TestAdminRouteEndpoint:
 
     def test_returns_401_when_wrong_token(self):
         from fastapi import HTTPException
-        from apps.api.routes.admin import invalidate_secrets, InvalidateSecretsRequest
+
+        from apps.api.routes.admin import InvalidateSecretsRequest, invalidate_secrets
 
         cfg = self._make_settings(token="correct_token")
         with pytest.raises(HTTPException) as exc_info:
@@ -321,7 +324,8 @@ class TestAdminRouteEndpoint:
 
     def test_returns_401_malformed_bearer(self):
         from fastapi import HTTPException
-        from apps.api.routes.admin import invalidate_secrets, InvalidateSecretsRequest
+
+        from apps.api.routes.admin import InvalidateSecretsRequest, invalidate_secrets
 
         cfg = self._make_settings(token="correct_token")
         with pytest.raises(HTTPException) as exc_info:
@@ -334,9 +338,9 @@ class TestAdminRouteEndpoint:
         assert exc_info.value.status_code == 401
 
     def test_returns_200_ok_with_aws_backend(self):
-        from apps.api.routes.admin import invalidate_secrets, InvalidateSecretsRequest
-        from config.settings import Settings, Environment
+        from apps.api.routes.admin import InvalidateSecretsRequest, invalidate_secrets
         from config.secrets import AWSSecretManager
+        from config.settings import Environment, Settings
 
         cfg = Settings(
             admin_rotation_token="correct_token",
@@ -361,9 +365,9 @@ class TestAdminRouteEndpoint:
         real_mgr.invalidate_cache.assert_called_once()
 
     def test_invalidate_cache_called_exactly_once(self):
-        from apps.api.routes.admin import invalidate_secrets, InvalidateSecretsRequest
-        from config.settings import Settings, Environment
+        from apps.api.routes.admin import InvalidateSecretsRequest, invalidate_secrets
         from config.secrets import AWSSecretManager
+        from config.settings import Environment, Settings
 
         cfg = Settings(
             admin_rotation_token="token_abc",
@@ -398,7 +402,8 @@ class TestAdminRouteEndpoint:
 
     def test_401_has_www_authenticate_header(self):
         from fastapi import HTTPException
-        from apps.api.routes.admin import invalidate_secrets, InvalidateSecretsRequest
+
+        from apps.api.routes.admin import InvalidateSecretsRequest, invalidate_secrets
 
         cfg = self._make_settings(token="valid_token")
         with pytest.raises(HTTPException) as exc_info:
@@ -419,9 +424,9 @@ class TestAdminRouteEnvBackend:
     """skipped_env_backend path when running with EnvSecretManager."""
 
     def test_returns_skipped_with_env_backend(self):
-        from apps.api.routes.admin import invalidate_secrets, InvalidateSecretsRequest
-        from config.settings import Settings, Environment
+        from apps.api.routes.admin import InvalidateSecretsRequest, invalidate_secrets
         from config.secrets import EnvSecretManager
+        from config.settings import Environment, Settings
 
         cfg = Settings(
             admin_rotation_token="tok123",
@@ -442,9 +447,9 @@ class TestAdminRouteEnvBackend:
         assert result.secret_backend == "env"
 
     def test_skipped_message_mentions_env(self):
-        from apps.api.routes.admin import invalidate_secrets, InvalidateSecretsRequest
-        from config.settings import Settings, Environment
+        from apps.api.routes.admin import InvalidateSecretsRequest, invalidate_secrets
         from config.secrets import EnvSecretManager
+        from config.settings import Environment, Settings
 
         cfg = Settings(
             admin_rotation_token="tok123",
@@ -471,8 +476,9 @@ class TestAdminRouteIntegration:
 
     def _make_client(self, token: str = ""):
         from fastapi.testclient import TestClient
-        from apps.api.main import app
+
         from apps.api.deps import SettingsDep
+        from apps.api.main import app
         from config.settings import Settings
 
         def override_settings():
@@ -483,9 +489,7 @@ class TestAdminRouteIntegration:
         return client, app
 
     def test_integration_503_when_no_token_configured(self):
-        from fastapi.testclient import TestClient
-        from apps.api.main import app
-        from config.settings import get_settings, Settings
+        from config.settings import Settings, get_settings
 
         original = get_settings.__wrapped__ if hasattr(get_settings, "__wrapped__") else None
 
@@ -495,9 +499,9 @@ class TestAdminRouteIntegration:
             pass
 
         # Simpler approach: call invalidate_secrets directly with empty-token settings
-        from apps.api.routes.admin import invalidate_secrets, InvalidateSecretsRequest
         from fastapi import HTTPException
-        from config.settings import Settings
+
+        from apps.api.routes.admin import InvalidateSecretsRequest, invalidate_secrets
 
         with pytest.raises(HTTPException) as exc_info:
             invalidate_secrets(
@@ -509,8 +513,9 @@ class TestAdminRouteIntegration:
         assert exc_info.value.status_code == 503
 
     def test_integration_401_wrong_token(self):
-        from apps.api.routes.admin import invalidate_secrets, InvalidateSecretsRequest
         from fastapi import HTTPException
+
+        from apps.api.routes.admin import InvalidateSecretsRequest, invalidate_secrets
         from config.settings import Settings
 
         with pytest.raises(HTTPException) as exc_info:
@@ -523,9 +528,9 @@ class TestAdminRouteIntegration:
         assert exc_info.value.status_code == 401
 
     def test_integration_200_ok_aws(self):
-        from apps.api.routes.admin import invalidate_secrets, InvalidateSecretsRequest
-        from config.settings import Settings, Environment
+        from apps.api.routes.admin import InvalidateSecretsRequest, invalidate_secrets
         from config.secrets import AWSSecretManager
+        from config.settings import Environment, Settings
 
         cfg = Settings(admin_rotation_token="my_token", env=Environment.PRODUCTION)
         mock_mgr = AWSSecretManager.__new__(AWSSecretManager)

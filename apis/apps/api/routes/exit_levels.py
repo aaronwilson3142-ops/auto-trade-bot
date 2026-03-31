@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import datetime as dt
-from decimal import Decimal
 
 from fastapi import APIRouter
 
@@ -67,5 +66,5 @@ def get_exit_levels(app_state: AppStateDep, settings: SettingsDep) -> ExitLevels
         trailing_stop_pct=trailing_stop_pct,
         trailing_stop_activation_pct=trailing_stop_activation_pct,
         take_profit_pct=take_profit_pct,
-        computed_at=dt.datetime.now(dt.timezone.utc).isoformat(),
+        computed_at=dt.datetime.now(dt.UTC).isoformat(),
     )

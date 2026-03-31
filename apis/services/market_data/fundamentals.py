@@ -30,7 +30,6 @@ from __future__ import annotations
 import datetime as dt
 import logging
 from dataclasses import dataclass, replace
-from typing import Optional
 
 from services.feature_store.models import FeatureSet
 
@@ -42,21 +41,21 @@ class FundamentalsData:
     """Fundamental metrics for a single security at one point in time."""
 
     ticker: str
-    pe_ratio: Optional[float]              # trailing 12-month P/E (None if negative / unavailable)
-    forward_pe: Optional[float]            # forward P/E from consensus estimate
-    peg_ratio: Optional[float]             # price/earnings-to-growth ratio
-    price_to_sales: Optional[float]        # trailing 12-month P/S
-    eps_growth: Optional[float]            # YoY EPS growth as decimal (0.15 = +15%)
-    revenue_growth: Optional[float]        # YoY revenue growth as decimal
-    earnings_surprise_pct: Optional[float] # latest quarterly EPS surprise %
+    pe_ratio: float | None              # trailing 12-month P/E (None if negative / unavailable)
+    forward_pe: float | None            # forward P/E from consensus estimate
+    peg_ratio: float | None             # price/earnings-to-growth ratio
+    price_to_sales: float | None        # trailing 12-month P/S
+    eps_growth: float | None            # YoY EPS growth as decimal (0.15 = +15%)
+    revenue_growth: float | None        # YoY revenue growth as decimal
+    earnings_surprise_pct: float | None # latest quarterly EPS surprise %
     fetched_at: dt.datetime = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
         if self.fetched_at is None:
-            self.fetched_at = dt.datetime.now(dt.timezone.utc)
+            self.fetched_at = dt.datetime.now(dt.UTC)
 
 
-def _safe_positive_float(info: dict, key: str) -> Optional[float]:
+def _safe_positive_float(info: dict, key: str) -> float | None:
     """Extract a positive float from the yfinance info dict.
 
     Returns None if absent, non-numeric, or <= 0 (e.g. negative P/E for
@@ -72,7 +71,7 @@ def _safe_positive_float(info: dict, key: str) -> Optional[float]:
     return f if f > 0 else None
 
 
-def _safe_float(info: dict, key: str) -> Optional[float]:
+def _safe_float(info: dict, key: str) -> float | None:
     """Extract any float (positive or negative) from the yfinance info dict."""
     val = info.get(key)
     if val is None:
@@ -192,7 +191,7 @@ class FundamentalsService:
         )
 
     @staticmethod
-    def _extract_earnings_surprise(info: dict) -> Optional[float]:
+    def _extract_earnings_surprise(info: dict) -> float | None:
         """Return the most recent quarterly EPS surprise as a decimal fraction.
 
         yfinance 0.2+ sometimes provides ``earningsSurprise`` directly;

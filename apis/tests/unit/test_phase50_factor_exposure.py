@@ -22,11 +22,7 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any
 from unittest.mock import MagicMock, patch
-
-import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -131,7 +127,6 @@ class TestFactorScoreComputation:
 
     def test_quality_score_high_adv(self):
         from services.risk_engine.factor_exposure import FactorExposureService
-        import math
         # $5B ADV → score = log10(5e9) / log10(5e9) = 1.0
         score = FactorExposureService._score_quality(5_000_000_000.0)
         assert abs(score - 1.0) < 0.01
@@ -248,7 +243,7 @@ class TestFactorScoreBoundaries:
 
 class TestComputeFactorScores:
     def test_returns_all_five_factors(self):
-        from services.risk_engine.factor_exposure import FactorExposureService, FACTORS
+        from services.risk_engine.factor_exposure import FACTORS, FactorExposureService
         scores = FactorExposureService.compute_factor_scores({})
         assert set(scores.keys()) == set(FACTORS)
 
@@ -449,7 +444,7 @@ class TestFactorExposureAppState:
     def test_fields_assignable(self):
         from services.risk_engine.factor_exposure import FactorExposureResult
         state = _make_app_state()
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime.now(dt.UTC)
         state.latest_factor_exposure = FactorExposureResult()
         state.factor_exposure_computed_at = now
         assert state.latest_factor_exposure is not None
@@ -463,6 +458,7 @@ class TestFactorExposureAppState:
 class TestFactorExposureRouteEmpty:
     def test_returns_200_with_neutral_defaults_when_no_data(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import reset_app_state
         reset_app_state()
@@ -481,6 +477,7 @@ class TestFactorExposureRouteEmpty:
 
     def test_response_schema_has_all_factor_fields(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import reset_app_state
         reset_app_state()
@@ -501,7 +498,8 @@ class TestFactorExposureRouteEmpty:
 class TestFactorExposureRouteWithData:
     def _build_factor_result(self):
         from services.risk_engine.factor_exposure import (
-            FactorExposureResult, TickerFactorScores,
+            FactorExposureResult,
+            TickerFactorScores,
         )
         ts = [
             TickerFactorScores("AAPL", {"MOMENTUM": 0.8, "VALUE": 0.6, "GROWTH": 0.7, "QUALITY": 0.9, "LOW_VOL": 0.4}, 5000.0),
@@ -517,12 +515,13 @@ class TestFactorExposureRouteWithData:
 
     def test_returns_factor_weights_from_cached_result(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
-        from apps.api.state import reset_app_state, get_app_state
+        from apps.api.state import get_app_state, reset_app_state
         reset_app_state()
         state = get_app_state()
         state.latest_factor_exposure = self._build_factor_result()
-        state.factor_exposure_computed_at = dt.datetime(2026, 3, 21, 9, 35, tzinfo=dt.timezone.utc)
+        state.factor_exposure_computed_at = dt.datetime(2026, 3, 21, 9, 35, tzinfo=dt.UTC)
         client = TestClient(app)
         resp = client.get("/api/v1/portfolio/factor-exposure")
         assert resp.status_code == 200
@@ -534,8 +533,9 @@ class TestFactorExposureRouteWithData:
 
     def test_ticker_scores_serialised(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
-        from apps.api.state import reset_app_state, get_app_state
+        from apps.api.state import get_app_state, reset_app_state
         reset_app_state()
         state = get_app_state()
         state.latest_factor_exposure = self._build_factor_result()
@@ -548,8 +548,9 @@ class TestFactorExposureRouteWithData:
 
     def test_ticker_score_fields_present(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
-        from apps.api.state import reset_app_state, get_app_state
+        from apps.api.state import get_app_state, reset_app_state
         reset_app_state()
         state = get_app_state()
         state.latest_factor_exposure = self._build_factor_result()
@@ -567,10 +568,11 @@ class TestFactorExposureRouteWithData:
 
 class TestFactorDetailRouteValid:
     def _setup(self):
+        from apps.api.state import get_app_state, reset_app_state
         from services.risk_engine.factor_exposure import (
-            FactorExposureResult, TickerFactorScores,
+            FactorExposureResult,
+            TickerFactorScores,
         )
-        from apps.api.state import reset_app_state, get_app_state
         reset_app_state()
         ts = [
             TickerFactorScores("AAPL", {"MOMENTUM": 0.9, "VALUE": 0.5, "GROWTH": 0.5, "QUALITY": 0.5, "LOW_VOL": 0.5}, 5000.0),
@@ -588,6 +590,7 @@ class TestFactorDetailRouteValid:
 
     def test_valid_factor_returns_200(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         self._setup()
         client = TestClient(app)
@@ -596,6 +599,7 @@ class TestFactorDetailRouteValid:
 
     def test_case_insensitive_factor_name(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         self._setup()
         client = TestClient(app)
@@ -606,6 +610,7 @@ class TestFactorDetailRouteValid:
 
     def test_top_tickers_present(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         self._setup()
         client = TestClient(app)
@@ -617,6 +622,7 @@ class TestFactorDetailRouteValid:
 
     def test_bottom_tickers_present(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         self._setup()
         client = TestClient(app)
@@ -628,6 +634,7 @@ class TestFactorDetailRouteValid:
 
     def test_portfolio_weight_in_response(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         self._setup()
         client = TestClient(app)
@@ -637,6 +644,7 @@ class TestFactorDetailRouteValid:
 
     def test_all_valid_factors_respond_200(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from services.risk_engine.factor_exposure import FACTORS
         self._setup()
@@ -653,6 +661,7 @@ class TestFactorDetailRouteValid:
 class TestFactorDetailRouteInvalid:
     def test_unknown_factor_returns_404(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import reset_app_state
         reset_app_state()
@@ -662,6 +671,7 @@ class TestFactorDetailRouteInvalid:
 
     def test_404_message_mentions_valid_factors(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import reset_app_state
         reset_app_state()
@@ -672,6 +682,7 @@ class TestFactorDetailRouteInvalid:
 
     def test_empty_factor_name_returns_404(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import reset_app_state
         reset_app_state()
@@ -682,6 +693,7 @@ class TestFactorDetailRouteInvalid:
 
     def test_detail_no_data_returns_200_empty_lists(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import reset_app_state
         reset_app_state()
@@ -700,17 +712,17 @@ class TestFactorDetailRouteInvalid:
 
 class TestFactorDashboard:
     def test_renders_no_data_message_when_empty(self):
-        from apps.dashboard.router import _render_factor_section
         from apps.api.state import ApiAppState
+        from apps.dashboard.router import _render_factor_section
         state = ApiAppState()
         html = _render_factor_section(state)
         assert "Factor Exposure" in html
         assert "No data yet" in html
 
     def test_renders_dominant_factor_when_data_available(self):
+        from apps.api.state import ApiAppState
         from apps.dashboard.router import _render_factor_section
         from services.risk_engine.factor_exposure import FactorExposureResult, TickerFactorScores
-        from apps.api.state import ApiAppState
         state = ApiAppState()
         ts = [TickerFactorScores("AAPL", {"MOMENTUM": 0.9, "VALUE": 0.3, "GROWTH": 0.4, "QUALITY": 0.6, "LOW_VOL": 0.5}, 5000.0)]
         result = FactorExposureResult(
@@ -725,9 +737,9 @@ class TestFactorDashboard:
         assert "AAPL" in html
 
     def test_renders_factor_bars(self):
+        from apps.api.state import ApiAppState
         from apps.dashboard.router import _render_factor_section
         from services.risk_engine.factor_exposure import FactorExposureResult
-        from apps.api.state import ApiAppState
         state = ApiAppState()
         state.latest_factor_exposure = FactorExposureResult(
             portfolio_factor_weights={"MOMENTUM": 0.7, "VALUE": 0.4, "GROWTH": 0.5, "QUALITY": 0.6, "LOW_VOL": 0.3},
@@ -740,9 +752,9 @@ class TestFactorDashboard:
             assert factor in html
 
     def test_renders_ticker_table_when_positions(self):
+        from apps.api.state import ApiAppState
         from apps.dashboard.router import _render_factor_section
         from services.risk_engine.factor_exposure import FactorExposureResult, TickerFactorScores
-        from apps.api.state import ApiAppState
         state = ApiAppState()
         ts = [
             TickerFactorScores("AAPL", {"MOMENTUM": 0.9, "VALUE": 0.5, "GROWTH": 0.5, "QUALITY": 0.5, "LOW_VOL": 0.5}, 5000.0),
@@ -760,9 +772,9 @@ class TestFactorDashboard:
         assert "MSFT" in html
 
     def test_no_xss_in_ticker_names(self):
+        from apps.api.state import ApiAppState
         from apps.dashboard.router import _render_factor_section
         from services.risk_engine.factor_exposure import FactorExposureResult, TickerFactorScores
-        from apps.api.state import ApiAppState
         state = ApiAppState()
         ts = [TickerFactorScores("<script>alert(1)</script>", {"MOMENTUM": 0.5, "VALUE": 0.5, "GROWTH": 0.5, "QUALITY": 0.5, "LOW_VOL": 0.5}, 1000.0)]
         state.latest_factor_exposure = FactorExposureResult(
@@ -775,8 +787,8 @@ class TestFactorDashboard:
         assert "<script>" not in html
 
     def test_phase_label_in_section_title(self):
-        from apps.dashboard.router import _render_factor_section
         from apps.api.state import ApiAppState
+        from apps.dashboard.router import _render_factor_section
         html = _render_factor_section(ApiAppState())
         assert "Phase 50" in html
 
@@ -790,9 +802,9 @@ class TestFactorPaperCycleIntegration:
 
     def _run_minimal_cycle(self, positions, fundamentals=None, dollar_vols=None, rankings=None):
         """Run a paper trading cycle with mocked dependencies and return app_state."""
-        from apps.api.state import reset_app_state, get_app_state
-        from config.settings import Settings, OperatingMode
         import apps.worker.jobs.paper_trading as pt_module
+        from apps.api.state import get_app_state, reset_app_state
+        from config.settings import OperatingMode, Settings
 
         reset_app_state()
         state = get_app_state()
@@ -814,7 +826,8 @@ class TestFactorPaperCycleIntegration:
         state.broker_adapter = mock_broker
 
         # Build fake portfolio state with positions
-        from dataclasses import dataclass as _dc, field as _f
+        from dataclasses import dataclass as _dc
+        from dataclasses import field as _f
         @_dc
         class _FakePState:
             equity: Decimal = Decimal("10000")
@@ -872,7 +885,7 @@ class TestFactorPaperCycleIntegration:
                     equity=float(ps.equity),
                 )
                 state.latest_factor_exposure = result
-                state.factor_exposure_computed_at = dt.datetime.now(dt.timezone.utc)
+                state.factor_exposure_computed_at = dt.datetime.now(dt.UTC)
 
         return state
 

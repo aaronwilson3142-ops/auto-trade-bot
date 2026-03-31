@@ -25,7 +25,7 @@ Phase 38 — Market Regime Detection + Regime-Adaptive Weight Profiles
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -60,7 +60,7 @@ def _build_current_response(state: Any) -> RegimeCurrentResponse:
         MarketRegime,
     )
 
-    result: Optional[Any] = getattr(state, "current_regime_result", None)
+    result: Any | None = getattr(state, "current_regime_result", None)
 
     if result is None:
         return RegimeCurrentResponse(
@@ -211,6 +211,7 @@ def get_regime_history(
     """
     try:
         import sqlalchemy as sa
+
         from infra.db.models.regime_detection import RegimeSnapshot
         from infra.db.session import SessionLocal
 

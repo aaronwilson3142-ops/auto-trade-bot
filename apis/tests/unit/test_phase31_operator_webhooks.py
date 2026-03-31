@@ -27,13 +27,8 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import hmac
-import json
 from decimal import Decimal
-from typing import Any
-from unittest.mock import MagicMock, patch, PropertyMock
-
-import pytest
-
+from unittest.mock import MagicMock, patch
 
 # ---------------------------------------------------------------------------
 # TestAlertModels
@@ -57,14 +52,14 @@ class TestAlertModels:
 
     def test_alert_event_default_timestamp(self):
         from services.alerting.models import AlertEvent
-        before = dt.datetime.now(dt.timezone.utc)
+        before = dt.datetime.now(dt.UTC)
         event = AlertEvent(event_type="test", severity="info", title="hi")
-        after = dt.datetime.now(dt.timezone.utc)
+        after = dt.datetime.now(dt.UTC)
         assert before <= event.timestamp <= after
 
     def test_alert_event_custom_timestamp(self):
         from services.alerting.models import AlertEvent
-        ts = dt.datetime(2026, 3, 19, 12, 0, 0, tzinfo=dt.timezone.utc)
+        ts = dt.datetime(2026, 3, 19, 12, 0, 0, tzinfo=dt.UTC)
         event = AlertEvent(event_type="test", severity="info", title="hi", timestamp=ts)
         assert event.timestamp == ts
 
@@ -173,7 +168,7 @@ class TestBuildPayload:
     def test_payload_timestamp_is_isoformat(self):
         from services.alerting.models import AlertEvent
         svc = self._make_svc()
-        ts = dt.datetime(2026, 3, 19, 17, 0, 0, tzinfo=dt.timezone.utc)
+        ts = dt.datetime(2026, 3, 19, 17, 0, 0, tzinfo=dt.UTC)
         event = AlertEvent(event_type="test", severity="info", title="x", timestamp=ts)
         assert svc._build_payload(event)["timestamp"] == ts.isoformat()
 
@@ -442,8 +437,6 @@ class TestKillSwitchAlertWiring:
         return state, mock_svc
 
     def test_kill_switch_activate_fires_alert(self):
-        from apps.worker.jobs.paper_trading import run_paper_trading_cycle
-        from apps.api.state import ApiAppState
 
         state, mock_svc = self._make_state_with_mock_alert()
         mock_svc.send_alert = MagicMock(return_value=True)
@@ -472,8 +465,8 @@ class TestKillSwitchAlertWiring:
         assert call_args.severity == AlertSeverity.CRITICAL.value
 
     def test_kill_switch_deactivate_fires_warning_alert(self):
-        from services.alerting.models import AlertEvent, AlertEventType, AlertSeverity
         from config.settings import Settings
+        from services.alerting.models import AlertEvent, AlertEventType, AlertSeverity
 
         _, mock_svc = self._make_state_with_mock_alert()
         mock_svc.send_alert = MagicMock(return_value=True)
@@ -774,17 +767,15 @@ class TestDailyEvaluationAlert:
 class TestTestWebhookEndpoint:
     def _client(self, alert_service=None, admin_token="testtoken"):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
-        from apps.api.state import reset_app_state, get_app_state
-        from config.settings import get_settings
-        from functools import lru_cache
+        from apps.api.state import get_app_state, reset_app_state
 
         reset_app_state()
         if alert_service is not None:
             get_app_state().alert_service = alert_service
 
         # Patch settings to have admin token
-        from apps.api.deps import SettingsDep
         from config.settings import Settings
 
         def override_settings():
@@ -798,6 +789,7 @@ class TestTestWebhookEndpoint:
 
     def test_test_webhook_503_when_no_admin_token(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import reset_app_state
         reset_app_state()
@@ -811,10 +803,9 @@ class TestTestWebhookEndpoint:
 
     def test_test_webhook_503_when_no_webhook_url(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
-        from apps.api.state import reset_app_state, get_app_state
-        from apps.api.deps import SettingsDep
-        from config.settings import Settings
+        from apps.api.state import reset_app_state
 
         reset_app_state()
         # alert_service is None (no webhook URL configured)
@@ -832,8 +823,9 @@ class TestTestWebhookEndpoint:
 
     def test_test_webhook_delivers_test_event(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
-        from apps.api.state import reset_app_state, get_app_state
+        from apps.api.state import get_app_state, reset_app_state
         from services.alerting.service import WebhookAlertService
 
         reset_app_state()
@@ -874,6 +866,6 @@ class TestMakeAlertServiceFactory:
         assert svc.is_enabled is False
 
     def test_factory_returns_webhook_alert_service(self):
-        from services.alerting.service import make_alert_service, WebhookAlertService
+        from services.alerting.service import WebhookAlertService, make_alert_service
         svc = make_alert_service(webhook_url="https://x.com")
         assert isinstance(svc, WebhookAlertService)

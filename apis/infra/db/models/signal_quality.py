@@ -10,7 +10,6 @@ Phase 46 — Signal Quality Tracking + Per-Strategy Attribution
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Optional
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Mapped, mapped_column
@@ -43,7 +42,7 @@ class SignalOutcome(Base, TimestampMixin):
     strategy_name: Mapped[str] = mapped_column(sa.String(64), nullable=False)
 
     # Signal score from SecuritySignal on the day the position was opened
-    signal_score: Mapped[Optional[Decimal]] = mapped_column(
+    signal_score: Mapped[Decimal | None] = mapped_column(
         sa.Numeric(12, 6), nullable=True
     )
 

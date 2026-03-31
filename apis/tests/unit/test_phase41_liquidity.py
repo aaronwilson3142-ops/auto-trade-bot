@@ -14,14 +14,11 @@ TestLiquidityRouteDetail                — GET /portfolio/liquidity/{ticker}
 """
 from __future__ import annotations
 
-import dataclasses
 import datetime as dt
 from decimal import Decimal
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -391,8 +388,8 @@ class TestLiquidityRefreshJob:
     """run_liquidity_refresh() — happy path and graceful degradation."""
 
     def test_skipped_when_no_session_factory(self):
-        from apps.worker.jobs.liquidity import run_liquidity_refresh
         from apps.api.state import ApiAppState
+        from apps.worker.jobs.liquidity import run_liquidity_refresh
 
         state = ApiAppState()
         result = run_liquidity_refresh(app_state=state, session_factory=None)
@@ -400,8 +397,8 @@ class TestLiquidityRefreshJob:
         assert result["ticker_count"] == 0
 
     def test_state_not_modified_on_skip(self):
-        from apps.worker.jobs.liquidity import run_liquidity_refresh
         from apps.api.state import ApiAppState
+        from apps.worker.jobs.liquidity import run_liquidity_refresh
 
         state = ApiAppState()
         run_liquidity_refresh(app_state=state, session_factory=None)
@@ -409,8 +406,8 @@ class TestLiquidityRefreshJob:
         assert state.liquidity_computed_at is None
 
     def test_returns_ok_on_success(self):
-        from apps.worker.jobs.liquidity import run_liquidity_refresh
         from apps.api.state import ApiAppState
+        from apps.worker.jobs.liquidity import run_liquidity_refresh
 
         state = ApiAppState()
 
@@ -452,8 +449,8 @@ class TestLiquidityRefreshJob:
         assert isinstance(result, dict)
 
     def test_result_has_required_keys(self):
-        from apps.worker.jobs.liquidity import run_liquidity_refresh
         from apps.api.state import ApiAppState
+        from apps.worker.jobs.liquidity import run_liquidity_refresh
 
         state = ApiAppState()
         result = run_liquidity_refresh(app_state=state, session_factory=None)
@@ -461,8 +458,8 @@ class TestLiquidityRefreshJob:
             assert key in result
 
     def test_computed_at_is_iso_string(self):
-        from apps.worker.jobs.liquidity import run_liquidity_refresh
         from apps.api.state import ApiAppState
+        from apps.worker.jobs.liquidity import run_liquidity_refresh
 
         state = ApiAppState()
         result = run_liquidity_refresh(app_state=state, session_factory=None)
@@ -478,8 +475,8 @@ class TestLiquidityRefreshJobNoDb:
     """run_liquidity_refresh() error paths."""
 
     def test_db_exception_returns_error_status(self):
-        from apps.worker.jobs.liquidity import run_liquidity_refresh
         from apps.api.state import ApiAppState
+        from apps.worker.jobs.liquidity import run_liquidity_refresh
 
         state = ApiAppState()
 
@@ -491,8 +488,8 @@ class TestLiquidityRefreshJobNoDb:
         assert result["ticker_count"] == 0
 
     def test_state_unchanged_on_db_error(self):
-        from apps.worker.jobs.liquidity import run_liquidity_refresh
         from apps.api.state import ApiAppState
+        from apps.worker.jobs.liquidity import run_liquidity_refresh
 
         state = ApiAppState()
         state.latest_dollar_volumes = {"AAPL": 500_000_000.0}
@@ -534,8 +531,9 @@ class TestLiquidityRouteScreen:
 
     def _client(self, state_overrides: dict | None = None):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
-        from apps.api.state import reset_app_state, get_app_state
+        from apps.api.state import get_app_state, reset_app_state
 
         reset_app_state()
         if state_overrides:
@@ -603,8 +601,9 @@ class TestLiquidityRouteDetail:
 
     def _client(self, state_overrides: dict | None = None):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
-        from apps.api.state import reset_app_state, get_app_state
+        from apps.api.state import get_app_state, reset_app_state
 
         reset_app_state()
         if state_overrides:
@@ -674,7 +673,7 @@ class TestPaperCycleLiquidityIntegration:
     def _run_cycle(self, dollar_volumes: dict, actions_pre: list) -> dict:
         """Run a minimal paper cycle with injected dollar volumes and pre-built actions."""
         from apps.api.state import ApiAppState, reset_app_state
-        from config.settings import Settings, OperatingMode
+        from config.settings import OperatingMode, Settings
 
         reset_app_state()
 
@@ -697,8 +696,8 @@ class TestPaperCycleLiquidityIntegration:
         cfg.daily_loss_limit_pct = 0.02
         cfg.weekly_drawdown_limit_pct = 0.05
 
-        from services.risk_engine.liquidity import LiquidityService
         from services.portfolio_engine.models import ActionType
+        from services.risk_engine.liquidity import LiquidityService
 
         before_count = len([a for a in actions_pre if a.action_type == ActionType.OPEN])
         filtered = LiquidityService.filter_for_liquidity(actions_pre, dollar_volumes, cfg)

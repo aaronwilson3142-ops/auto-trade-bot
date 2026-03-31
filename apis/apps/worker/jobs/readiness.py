@@ -15,7 +15,7 @@ Worker job: Automated Live-Mode Readiness Report (Phase 53).
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any, Optional
+from typing import Any
 
 from apps.api.state import ApiAppState
 from config.logging_config import get_logger
@@ -26,7 +26,7 @@ logger = get_logger(__name__)
 
 def run_readiness_report_update(
     app_state: ApiAppState,
-    settings: Optional[Settings] = None,
+    settings: Settings | None = None,
     session_factory: Any = None,
 ) -> dict[str, Any]:
     """Generate and cache the live-mode readiness report.
@@ -42,7 +42,7 @@ def run_readiness_report_update(
         dict with keys: status, overall_status, gate_count, computed_at, error.
     """
     cfg = settings or get_settings()
-    run_at = dt.datetime.now(dt.timezone.utc)
+    run_at = dt.datetime.now(dt.UTC)
 
     try:
         from services.readiness.service import ReadinessReportService

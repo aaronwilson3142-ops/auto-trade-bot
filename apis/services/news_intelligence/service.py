@@ -6,7 +6,6 @@ detection, and market implication generation.  No external NLP dependencies.
 from __future__ import annotations
 
 import datetime as dt
-from typing import Optional
 
 import structlog
 
@@ -45,7 +44,7 @@ class NewsIntelligenceService:
     determined by source tier and applied as a discount to the raw score.
     """
 
-    def __init__(self, config: Optional[NewsIntelligenceConfig] = None) -> None:
+    def __init__(self, config: NewsIntelligenceConfig | None = None) -> None:
         self._config = config or NewsIntelligenceConfig()
         self._log = log.bind(service="news_intelligence")
 
@@ -76,19 +75,19 @@ class NewsIntelligenceService:
             affected_themes=themes,
             market_implication=implication,
             contains_rumor=(item.credibility_tier == CredibilityTier.RUMOR),
-            processed_at=dt.datetime.now(dt.timezone.utc),
+            processed_at=dt.datetime.now(dt.UTC),
         )
 
     def process_batch(self, items: list[NewsItem]) -> list[NewsInsight]:
         """Process a batch of NewsItems, filtering by age and credibility."""
-        cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(
+        cutoff = dt.datetime.now(dt.UTC) - dt.timedelta(
             hours=self._config.max_item_age_hours
         )
         results: list[NewsInsight] = []
         for item in items:
             ts = item.published_at
             if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=dt.timezone.utc)
+                ts = ts.replace(tzinfo=dt.UTC)
             if ts < cutoff:
                 continue
             insight = self.process_item(item)

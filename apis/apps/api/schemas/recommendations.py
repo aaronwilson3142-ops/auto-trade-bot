@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -10,13 +10,13 @@ from pydantic import BaseModel
 class RecommendationItem(BaseModel):
     rank_position: int
     ticker: str
-    composite_score: Optional[float]
-    portfolio_fit_score: Optional[float]
+    composite_score: float | None
+    portfolio_fit_score: float | None
     recommended_action: str
     target_horizon: str
     thesis_summary: str
     disconfirming_factors: str
-    sizing_hint_pct: Optional[float]
+    sizing_hint_pct: float | None
     source_reliability_tier: str
     contains_rumor: bool
     as_of: dt.datetime
@@ -25,11 +25,11 @@ class RecommendationItem(BaseModel):
 
 class RecommendationListResponse(BaseModel):
     count: int
-    run_id: Optional[str]
-    as_of: Optional[dt.datetime]
+    run_id: str | None
+    as_of: dt.datetime | None
     items: list[RecommendationItem]
 
 
 class RecommendationDetailResponse(BaseModel):
     found: bool
-    item: Optional[RecommendationItem]
+    item: RecommendationItem | None

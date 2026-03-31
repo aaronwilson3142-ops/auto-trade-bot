@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import json
 from decimal import Decimal
-from typing import List, Optional
 
 import sqlalchemy as sa
 from fastapi import APIRouter, HTTPException, Query
@@ -230,7 +229,7 @@ async def get_backtest_comparison(
 
         records: list[BacktestRunRecord] = []
         for row in rows:
-            tickers: Optional[List[str]] = None
+            tickers: list[str] | None = None
             if row.tickers_json:
                 try:
                     tickers = json.loads(row.tickers_json)

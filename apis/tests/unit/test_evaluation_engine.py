@@ -15,13 +15,9 @@ from __future__ import annotations
 import datetime as dt
 from decimal import Decimal
 
-import pytest
-
-from services.evaluation_engine.config import EvaluationConfig
 from services.evaluation_engine.models import TradeRecord
 from services.evaluation_engine.service import EvaluationEngineService
 from services.portfolio_engine.models import PortfolioPosition, PortfolioSnapshot
-
 
 # ─────────────────────── helpers ─────────────────────────────────────────────
 

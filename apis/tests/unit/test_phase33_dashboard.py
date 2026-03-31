@@ -13,7 +13,6 @@ Verifies that the enhanced dashboard:
 from __future__ import annotations
 
 import datetime as dt
-from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
 
@@ -23,7 +22,6 @@ from fastapi.testclient import TestClient
 from apps.api.main import app
 from apps.api.state import ApiAppState, get_app_state
 from config.settings import Settings, get_settings
-
 
 # ---------------------------------------------------------------------------
 # Dependency override helpers
@@ -99,7 +97,7 @@ def _make_position(
         quantity=Decimal(str(quantity)),
         avg_entry_price=Decimal(str(entry)),
         current_price=Decimal(str(current)),
-        opened_at=dt.datetime(2026, 3, 15, 9, 35, tzinfo=dt.timezone.utc),
+        opened_at=dt.datetime(2026, 3, 15, 9, 35, tzinfo=dt.UTC),
         thesis_summary="test thesis",
         strategy_key="momentum_v1",
     )
@@ -122,8 +120,8 @@ def _make_closed_trade(
         realized_pnl=Decimal(str(pnl)),
         realized_pnl_pct=Decimal(str(pnl_pct)),
         reason=reason,
-        opened_at=dt.datetime(2026, 3, 10, tzinfo=dt.timezone.utc),
-        closed_at=dt.datetime(2026, 3, 18, tzinfo=dt.timezone.utc),
+        opened_at=dt.datetime(2026, 3, 10, tzinfo=dt.UTC),
+        closed_at=dt.datetime(2026, 3, 18, tzinfo=dt.UTC),
         hold_duration_days=8,
     )
     return trade

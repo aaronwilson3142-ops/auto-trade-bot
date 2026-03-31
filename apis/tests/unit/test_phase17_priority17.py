@@ -23,13 +23,9 @@ Total: ~106 tests
 from __future__ import annotations
 
 import datetime as dt
-import importlib
-import io
-import os
-import sys
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, Mock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -49,7 +45,7 @@ def _make_settings(token: str = "secret-tok", env: str = "development") -> Any:
 
 
 def _make_app_state() -> Any:
-    from apps.api.state import reset_app_state, get_app_state
+    from apps.api.state import get_app_state, reset_app_state
     reset_app_state()
     return get_app_state()
 
@@ -74,23 +70,24 @@ class TestStateFields:
 
     def test_broker_auth_expired_at_can_be_set(self):
         state = _make_app_state()
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime.now(dt.UTC)
         state.broker_auth_expired_at = now
         assert state.broker_auth_expired_at == now
 
     def test_reset_clears_broker_auth_fields(self):
-        from apps.api.state import reset_app_state, get_app_state
+        from apps.api.state import get_app_state, reset_app_state
         state = get_app_state()
         state.broker_auth_expired = True
-        state.broker_auth_expired_at = dt.datetime.now(dt.timezone.utc)
+        state.broker_auth_expired_at = dt.datetime.now(dt.UTC)
         reset_app_state()
         fresh = get_app_state()
         assert fresh.broker_auth_expired is False
         assert fresh.broker_auth_expired_at is None
 
     def test_state_has_live_gate_and_broker_auth_fields(self):
-        from apps.api.state import ApiAppState
         import dataclasses
+
+        from apps.api.state import ApiAppState
         fields = {f.name for f in dataclasses.fields(ApiAppState)}
         assert "broker_auth_expired" in fields
         assert "broker_auth_expired_at" in fields
@@ -124,9 +121,9 @@ class TestPaperTradingBrokerAuth:
         from broker_adapters.base.exceptions import BrokerAuthenticationError
         broker = MagicMock()
         broker.ping.side_effect = BrokerAuthenticationError("token expired")
-        before = dt.datetime.now(dt.timezone.utc)
+        before = dt.datetime.now(dt.UTC)
         result, state = self._run(broker=broker)
-        after = dt.datetime.now(dt.timezone.utc)
+        after = dt.datetime.now(dt.UTC)
         assert state.broker_auth_expired_at is not None
         assert before <= state.broker_auth_expired_at <= after
 
@@ -173,7 +170,7 @@ class TestPaperTradingBrokerAuth:
         state = _make_app_state()
         state.latest_rankings = [MagicMock(ticker="SPY", composite_score=0.8)]
         state.broker_auth_expired = True
-        state.broker_auth_expired_at = dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc)
+        state.broker_auth_expired_at = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
         broker = MagicMock()
         broker.ping.return_value = True
         broker.get_account_state.return_value = MagicMock(cash_balance=__import__("decimal").Decimal("100000"))
@@ -216,8 +213,9 @@ class TestPaperTradingBrokerAuth:
 class TestHealthBrokerAuth:
     def _get_health(self, broker_auth_expired: bool = False):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
-        from apps.api.state import reset_app_state, get_app_state
+        from apps.api.state import get_app_state, reset_app_state
 
         reset_app_state()
         state = get_app_state()
@@ -262,8 +260,9 @@ class TestHealthBrokerAuth:
 
     def test_health_expired_string_triggers_degraded_in_any_check(self):
         # Regression: "expired" must be in the set that triggers "degraded"
-        import apps.api.main as mod
         import inspect
+
+        import apps.api.main as mod
         src = inspect.getsource(mod.health)
         assert "expired" in src
 
@@ -275,8 +274,9 @@ class TestHealthBrokerAuth:
 class TestMetricsBrokerAuth:
     def _get_metrics(self, broker_auth_expired: bool = False) -> str:
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
-        from apps.api.state import reset_app_state, get_app_state
+        from apps.api.state import get_app_state, reset_app_state
         reset_app_state()
         state = get_app_state()
         state.broker_auth_expired = broker_auth_expired
@@ -356,7 +356,7 @@ class TestAdminEventModel:
     def test_admin_event_can_be_instantiated(self):
         cls = self._cls()
         obj = cls(
-            event_timestamp=dt.datetime.now(dt.timezone.utc),
+            event_timestamp=dt.datetime.now(dt.UTC),
             event_type="invalidate_secrets",
             result="ok",
         )
@@ -364,7 +364,6 @@ class TestAdminEventModel:
         assert obj.result == "ok"
 
     def test_admin_event_source_ip_nullable(self):
-        import sqlalchemy as sa
         col = self._cls().__table__.columns["source_ip"]
         assert col.nullable is True
 
@@ -472,6 +471,7 @@ class TestLogAdminEvent:
 
     def test_warns_on_db_failure(self, caplog):
         import logging
+
         from apps.api.routes.admin import _log_admin_event
         with patch("infra.db.session.db_session", side_effect=Exception("db gone")):
             with caplog.at_level(logging.WARNING):
@@ -487,6 +487,7 @@ class TestLogAdminEvent:
 class TestAdminEventsEndpoint:
     def _client(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         return TestClient(app, raise_server_exceptions=False)
 
@@ -494,22 +495,18 @@ class TestAdminEventsEndpoint:
         return {"Authorization": "Bearer test-token-123"}
 
     def _settings_override(self, token: str = "test-token-123"):
-        from config.settings import Settings, Environment
         cfg = _make_settings(token=token)
         return cfg
 
     def _patch_settings(self, token: str = "test-token-123"):
-        from apps.api.deps import SettingsDep
-        from config.settings import Settings
         cfg = _make_settings(token=token)
         return patch("apps.api.routes.admin.get_settings", return_value=cfg)
 
     def test_disabled_when_token_empty(self):
         client = self._client()
         # Override the SettingsDep dependency on the FastAPI app directly
-        from apps.api.main import app
         from apps.api.deps import get_settings
-        from config.settings import Settings
+        from apps.api.main import app
         empty_cfg = _make_settings(token="")
         app.dependency_overrides[get_settings] = lambda: empty_cfg
         try:
@@ -540,14 +537,14 @@ class TestAdminEventsEndpoint:
         assert resp.status_code in (401, 503)
 
     def test_returns_list_on_success(self):
-        from apps.api.main import app
         from apps.api.deps import get_settings
+        from apps.api.main import app
         app.dependency_overrides[get_settings] = lambda: _make_settings(token="test-token-123")
         try:
             client = self._client()
             mock_row = MagicMock()
             mock_row.id = __import__("uuid").uuid4()
-            mock_row.event_timestamp = dt.datetime.now(dt.timezone.utc)
+            mock_row.event_timestamp = dt.datetime.now(dt.UTC)
             mock_row.event_type = "invalidate_secrets"
             mock_row.result = "ok"
             mock_row.source_ip = "10.0.0.1"
@@ -574,8 +571,8 @@ class TestAdminEventsEndpoint:
         assert isinstance(data, list)
 
     def test_db_error_returns_503(self):
-        from apps.api.main import app
         from apps.api.deps import get_settings
+        from apps.api.main import app
         app.dependency_overrides[get_settings] = lambda: _make_settings(token="test-token-123")
         try:
             client = self._client()
@@ -595,8 +592,8 @@ class TestAdminEventsEndpoint:
         assert resp.status_code == 503
 
     def test_limit_parameter_accepted(self):
-        from apps.api.main import app
         from apps.api.deps import get_settings
+        from apps.api.main import app
         app.dependency_overrides[get_settings] = lambda: _make_settings(token="test-token-123")
         try:
             client = self._client()
@@ -631,8 +628,8 @@ class TestAdminEventsEndpoint:
         assert ev.source_ip is None
 
     def test_empty_db_returns_empty_list(self):
-        from apps.api.main import app
         from apps.api.deps import get_settings
+        from apps.api.main import app
         app.dependency_overrides[get_settings] = lambda: _make_settings(token="test-token-123")
         try:
             client = self._client()
@@ -688,6 +685,7 @@ class TestAdminEventsEndpoint:
 class TestInvalidateSecretsAuditLogging:
     def _client(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         return TestClient(app, raise_server_exceptions=False)
 
@@ -709,8 +707,8 @@ class TestInvalidateSecretsAuditLogging:
 
     def test_logs_unauthorized_event(self):
         # Patch the entire _log_admin_event and also use dependency override
-        from apps.api.main import app
         from apps.api.deps import get_settings
+        from apps.api.main import app
         app.dependency_overrides[get_settings] = lambda: _make_settings(token="test-token-123")
         try:
             client = self._client()
@@ -728,22 +726,24 @@ class TestInvalidateSecretsAuditLogging:
     def test_request_object_accepted_by_route(self):
         """Route handler must accept Request as first arg (for IP extraction)."""
         import inspect
-        from apps.api.routes.admin import invalidate_secrets
+
         # FastAPI may strip Request from inspect.signature in some versions;
         # check either the signature OR the source code
         import apps.api.routes.admin as admin_mod
+        from apps.api.routes.admin import invalidate_secrets
         src = inspect.getsource(admin_mod.invalidate_secrets)
         assert "Request" in src or "request" in inspect.signature(invalidate_secrets).parameters
 
     def test_list_events_route_accepts_request(self):
         import inspect
+
         import apps.api.routes.admin as admin_mod
         src = inspect.getsource(admin_mod.list_admin_events)
         assert "Request" in src or "request" in inspect.signature(admin_mod.list_admin_events).parameters
 
     def test_disabled_logs_event(self):
-        from apps.api.main import app
         from apps.api.deps import get_settings
+        from apps.api.main import app
         app.dependency_overrides[get_settings] = lambda: _make_settings(token="")
         try:
             client = self._client()
@@ -1045,8 +1045,9 @@ class TestPrometheusAlertBrokerAuth:
 class TestPhase17Integration:
     def test_broker_auth_expired_metric_consistent_with_state(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
-        from apps.api.state import reset_app_state, get_app_state
+        from apps.api.state import get_app_state, reset_app_state
         reset_app_state()
         state = get_app_state()
         state.broker_auth_expired = True
@@ -1057,12 +1058,13 @@ class TestPhase17Integration:
         assert lines[0].split()[-2] == "1"
 
     def test_broker_auth_error_in_paper_cycle_sets_metrics_gauge(self):
-        from broker_adapters.base.exceptions import BrokerAuthenticationError
-        from apps.worker.jobs.paper_trading import run_paper_trading_cycle
-        from config.settings import OperatingMode
-        from apps.api.state import reset_app_state, get_app_state
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
+        from apps.api.state import get_app_state, reset_app_state
+        from apps.worker.jobs.paper_trading import run_paper_trading_cycle
+        from broker_adapters.base.exceptions import BrokerAuthenticationError
+        from config.settings import OperatingMode
 
         reset_app_state()
         state = get_app_state()
@@ -1082,8 +1084,9 @@ class TestPhase17Integration:
 
     def test_health_and_metrics_both_surface_auth_expiry(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
-        from apps.api.state import reset_app_state, get_app_state
+        from apps.api.state import get_app_state, reset_app_state
 
         reset_app_state()
         state = get_app_state()
@@ -1108,7 +1111,7 @@ class TestPhase17Integration:
         assert admin_router is not None
 
     def test_admin_event_model_importable_from_audit(self):
-        from infra.db.models.audit import AdminEvent, DecisionAudit, SessionCheckpoint
+        from infra.db.models.audit import AdminEvent
         assert AdminEvent.__tablename__ == "admin_events"
 
     def test_all_phase17_files_exist(self):

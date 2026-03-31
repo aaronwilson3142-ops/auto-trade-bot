@@ -9,10 +9,8 @@ drawdown analysis, and performance attribution.  They feed:
 from __future__ import annotations
 
 import datetime as dt
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from decimal import Decimal
-from typing import Optional
-
 
 # ── Closed-trade input record ──────────────────────────────────────────────────
 
@@ -103,7 +101,7 @@ class DrawdownMetrics:
     max_drawdown: Decimal           # highest peak-to-trough fraction seen
     current_drawdown: Decimal       # fraction below current high-water mark
     high_water_mark: Decimal        # highest equity value seen in the curve
-    recovery_time_est_days: Optional[int]  # None when no recovery estimate available
+    recovery_time_est_days: int | None  # None when no recovery estimate available
 
 
 # ── Attribution ────────────────────────────────────────────────────────────────

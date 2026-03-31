@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import datetime as dt
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
 from apps.api.state import ApiAppState
 from config.logging_config import get_logger
@@ -40,7 +40,7 @@ def _persist_evaluation_run(scorecard: Any, mode: str) -> None:
 
         with _db_session() as db:
             run = _DBRun(
-                run_timestamp=dt.datetime.now(dt.timezone.utc),
+                run_timestamp=dt.datetime.now(dt.UTC),
                 evaluation_period_start=scorecard.scorecard_date,
                 evaluation_period_end=scorecard.scorecard_date,
                 mode=mode,
@@ -87,7 +87,7 @@ def _make_empty_snapshot(mode: str = "research") -> Any:
     from services.portfolio_engine.models import PortfolioSnapshot
 
     return PortfolioSnapshot(
-        snapshot_at=dt.datetime.now(dt.timezone.utc),
+        snapshot_at=dt.datetime.now(dt.UTC),
         cash=Decimal("0"),
         equity=Decimal("0"),
         gross_exposure=Decimal("0"),
@@ -104,7 +104,7 @@ def _snapshot_from_state(portfolio_state: Any, mode: str = "research") -> Any:
     from services.portfolio_engine.models import PortfolioSnapshot
 
     return PortfolioSnapshot(
-        snapshot_at=dt.datetime.now(dt.timezone.utc),
+        snapshot_at=dt.datetime.now(dt.UTC),
         cash=portfolio_state.cash,
         equity=portfolio_state.equity,
         gross_exposure=portfolio_state.gross_exposure,
@@ -122,11 +122,11 @@ def _snapshot_from_state(portfolio_state: Any, mode: str = "research") -> Any:
 
 def run_daily_evaluation(
     app_state: ApiAppState,
-    settings: Optional[Settings] = None,
-    closed_today: Optional[list[Any]] = None,
-    benchmark_returns: Optional[dict[str, Decimal]] = None,
-    equity_curve: Optional[list[Decimal]] = None,
-    evaluation_service: Optional[Any] = None,
+    settings: Settings | None = None,
+    closed_today: list[Any] | None = None,
+    benchmark_returns: dict[str, Decimal] | None = None,
+    equity_curve: list[Decimal] | None = None,
+    evaluation_service: Any | None = None,
     max_history: int = 90,
 ) -> dict[str, Any]:
     """Generate a DailyScorecard and write it into app_state.
@@ -150,7 +150,7 @@ def run_daily_evaluation(
     from services.evaluation_engine.service import EvaluationEngineService
 
     cfg = settings or get_settings()
-    run_at = dt.datetime.now(dt.timezone.utc)
+    run_at = dt.datetime.now(dt.UTC)
     svc = evaluation_service or EvaluationEngineService()
 
     logger.info("daily_evaluation_job_starting", run_at=run_at.isoformat())
@@ -241,9 +241,9 @@ def run_daily_evaluation(
 
 def run_attribution_analysis(
     app_state: ApiAppState,
-    settings: Optional[Settings] = None,
-    closed_trades: Optional[list[Any]] = None,
-    evaluation_service: Optional[Any] = None,
+    settings: Settings | None = None,
+    closed_trades: list[Any] | None = None,
+    evaluation_service: Any | None = None,
 ) -> dict[str, Any]:
     """Run attribution analysis on closed trades and log the result.
 
@@ -266,7 +266,7 @@ def run_attribution_analysis(
     from services.evaluation_engine.service import EvaluationEngineService
 
     cfg = settings or get_settings()
-    run_at = dt.datetime.now(dt.timezone.utc)
+    run_at = dt.datetime.now(dt.UTC)
     svc = evaluation_service or EvaluationEngineService()
 
     logger.info("attribution_analysis_job_starting", run_at=run_at.isoformat())

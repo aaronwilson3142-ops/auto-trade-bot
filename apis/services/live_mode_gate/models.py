@@ -16,13 +16,13 @@ import datetime as dt
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 
 class GateStatus(str, Enum):
     """Outcome of a single gate requirement check."""
 
-    PASS = "pass"   # requirement met
+    PASS = "pass"   # requirement met  # noqa: S105
     FAIL = "fail"   # requirement not met — blocks promotion
     WARN = "warn"   # requirement met with advisory note
 
@@ -58,14 +58,14 @@ class LiveModeGateResult:
 
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     evaluated_at: dt.datetime = field(
-        default_factory=lambda: dt.datetime.now(dt.timezone.utc)
+        default_factory=lambda: dt.datetime.now(dt.UTC)
     )
     current_mode: str = ""
     target_mode: str = ""
     requirements: list[GateRequirement] = field(default_factory=list)
 
     # Set by the service when all requirements pass
-    promotion_advisory: Optional[str] = None
+    promotion_advisory: str | None = None
 
     @property
     def all_passed(self) -> bool:

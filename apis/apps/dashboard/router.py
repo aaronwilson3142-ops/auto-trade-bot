@@ -21,6 +21,7 @@ Spec reference: APIS_MASTER_SPEC.md § 6.1 (API / Dashboard)
 """
 from __future__ import annotations
 
+import datetime
 import html
 from decimal import Decimal, InvalidOperation
 
@@ -74,6 +75,244 @@ def _fmt_pct(val: object, decimals: int = 2) -> str:
 # ---------------------------------------------------------------------------
 # Section renderers
 # ---------------------------------------------------------------------------
+
+def _check_infra_health(state, settings) -> list[dict]:
+    """Probe infrastructure components and return a list of health statuses.
+
+    Each entry: {"name": str, "status": "green"|"yellow"|"red", "detail": str}
+    """
+    components: list[dict] = []
+
+    # 1. API — always green if we're rendering this page
+    components.append({
+        "name": "API Server",
+        "status": "green",
+        "detail": "Serving requests",
+    })
+
+    # 2. Database (Postgres) — attempt SELECT 1
+    try:
+        from infra.db.session import SessionLocal
+        with SessionLocal() as session:
+            from sqlalchemy import text as _sa_text
+            session.execute(_sa_text("SELECT 1"))
+        components.append({
+            "name": "Database (Postgres)",
+            "status": "green",
+            "detail": "Connected",
+        })
+    except Exception as exc:  # noqa: BLE001
+        components.append({
+            "name": "Database (Postgres)",
+            "status": "red",
+            "detail": f"Unreachable: {str(exc)[:80]}",
+        })
+
+    # 3. Redis — attempt PING
+    try:
+        import redis as _redis_lib
+        r = _redis_lib.from_url(settings.redis_url, socket_connect_timeout=2)
+        r.ping()
+        r.close()
+        components.append({
+            "name": "Redis",
+            "status": "green",
+            "detail": "Connected",
+        })
+    except Exception as exc:  # noqa: BLE001
+        components.append({
+            "name": "Redis",
+            "status": "red",
+            "detail": f"Unreachable: {str(exc)[:80]}",
+        })
+
+    # 4. Worker — infer from last_paper_cycle_at freshness
+    last_cycle = getattr(state, "last_paper_cycle_at", None)
+    cycle_count = getattr(state, "paper_cycle_count", 0) or 0
+    now_utc = datetime.datetime.now(datetime.UTC)
+
+    if last_cycle is not None:
+        # Ensure timezone-aware comparison
+        if last_cycle.tzinfo is None:
+            import zoneinfo
+            last_cycle_aware = last_cycle.replace(tzinfo=zoneinfo.ZoneInfo("UTC"))
+        else:
+            last_cycle_aware = last_cycle
+        age = now_utc - last_cycle_aware
+        if age.total_seconds() < 7200:  # 2 hours
+            components.append({
+                "name": "Worker (Scheduler)",
+                "status": "green",
+                "detail": f"Last cycle {int(age.total_seconds() // 60)}m ago",
+            })
+        elif age.total_seconds() < 86400:  # 24 hours
+            components.append({
+                "name": "Worker (Scheduler)",
+                "status": "yellow",
+                "detail": f"Last cycle {age.total_seconds() / 3600:.1f}h ago",
+            })
+        else:
+            components.append({
+                "name": "Worker (Scheduler)",
+                "status": "red",
+                "detail": f"Last cycle {age.days}d ago — may be down",
+            })
+    elif cycle_count == 0:
+        components.append({
+            "name": "Worker (Scheduler)",
+            "status": "red",
+            "detail": "No cycles ever recorded — worker may not be running",
+        })
+    else:
+        components.append({
+            "name": "Worker (Scheduler)",
+            "status": "yellow",
+            "detail": f"{cycle_count} cycles recorded but no timestamp",
+        })
+
+    # 5. Broker Adapter
+    broker_bad = getattr(state, "broker_auth_expired", False)
+    broker_adapter = getattr(state, "broker_adapter", None)
+    if broker_bad:
+        expired_at = getattr(state, "broker_auth_expired_at", None)
+        detail = f"Auth expired{(' at ' + str(expired_at)[:16]) if expired_at else ''}"
+        components.append({"name": "Broker Connection", "status": "red", "detail": detail})
+    elif broker_adapter is not None:
+        components.append({"name": "Broker Connection", "status": "green", "detail": "Authenticated"})
+    else:
+        components.append({"name": "Broker Connection", "status": "yellow", "detail": "Not initialized"})
+
+    # 6. Kill Switch
+    kill_active = settings.is_kill_switch_active or getattr(state, "kill_switch_active", False)
+    if kill_active:
+        who = getattr(state, "kill_switch_activated_by", "unknown")
+        components.append({"name": "Kill Switch", "status": "red", "detail": f"ACTIVE (by {who})"})
+    else:
+        components.append({"name": "Kill Switch", "status": "green", "detail": "Off"})
+
+    return components
+
+
+def _render_infra_health(state, settings) -> str:
+    """Full-width infrastructure health panel with green/yellow/red indicators."""
+    components = _check_infra_health(state, settings)
+
+    _DOT = {"green": "🟢", "yellow": "🟡", "red": "🔴"}
+    _CLR = {"green": "#4caf50", "yellow": "#ffb300", "red": "#f44336"}
+
+    rows = ""
+    for c in components:
+        dot = _DOT.get(c["status"], "⚪")
+        clr = _CLR.get(c["status"], "#ccc")
+        rows += (
+            f'<tr>'
+            f'<td style="font-size:1.1rem;width:2rem;text-align:center">{dot}</td>'
+            f'<td style="font-weight:600">{_esc(c["name"])}</td>'
+            f'<td style="color:{clr};font-weight:bold">'
+            f'{_esc(c["status"].upper())}</td>'
+            f'<td style="color:#90a4ae;font-size:.85rem">{_esc(c["detail"])}</td>'
+            f'</tr>'
+        )
+
+    # Count statuses for header
+    green_n = sum(1 for c in components if c["status"] == "green")
+    yellow_n = sum(1 for c in components if c["status"] == "yellow")
+    red_n = sum(1 for c in components if c["status"] == "red")
+
+    if red_n > 0:
+        overall_dot, overall_cls = "🔴", "red"
+    elif yellow_n > 0:
+        overall_dot, overall_cls = "🟡", "amber"
+    else:
+        overall_dot, overall_cls = "🟢", "green"
+
+    header = (
+        f'<div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.6rem">'
+        f'<span style="font-size:1.3rem">{overall_dot}</span>'
+        f'<span style="font-size:1rem;font-weight:bold">'
+        f'{green_n} healthy'
+        f'{f", {yellow_n} warning" if yellow_n else ""}'
+        f'{f", {red_n} critical" if red_n else ""}'
+        f'</span></div>'
+    )
+
+    now_str = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M UTC")
+    footer = f'<p style="font-size:.75rem;color:#555;margin-top:.5rem">Checked at {_esc(now_str)}</p>'
+
+    table = (
+        '<table style="margin-top:.3rem"><thead><tr>'
+        '<th></th><th>Component</th><th>Status</th><th>Detail</th>'
+        '</tr></thead><tbody>'
+        + rows
+        + '</tbody></table>'
+    )
+
+    return (
+        f'<section class="card card-wide" style="border-color:{_CLR.get(overall_cls, "#2a2d3a")}">'
+        f'<h2>Infrastructure Health</h2>'
+        f'{header}{table}{footer}'
+        f'</section>'
+    )
+
+
+def _render_health_snapshot(state, settings) -> str:
+    """Full-width health banner shown at the very top of the overview page."""
+    # ── gather signals ────────────────────────────────────────────────────────
+    kill_active   = settings.is_kill_switch_active or getattr(state, "kill_switch_active", False)
+    broker_bad    = getattr(state, "broker_auth_expired", False)
+    cycle_count   = getattr(state, "paper_cycle_count", 0) or 0
+    last_cycle    = getattr(state, "last_paper_cycle_at", None)
+    loop_active   = getattr(state, "paper_loop_active", False)
+    mode          = settings.operating_mode.value
+    error_cycles  = len([r for r in getattr(state, "paper_cycle_results", [])
+                         if isinstance(r, dict) and r.get("status", "").startswith("error")])
+    now_str       = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M UTC")
+
+    # ── overall status ────────────────────────────────────────────────────────
+    if kill_active or broker_bad:
+        banner_cls, dot, status_text = "red",   "🔴", "ACTION REQUIRED"
+    elif cycle_count == 0:
+        banner_cls, dot, status_text = "amber", "🟡", "WAITING — no cycles yet"
+    elif error_cycles > 0:
+        banner_cls, dot, status_text = "amber", "🟡", f"RUNNING — {error_cycles} error cycle(s)"
+    else:
+        banner_cls, dot, status_text = "green", "🟢", "HEALTHY"
+
+    # ── individual component pills ────────────────────────────────────────────
+    def _item(label: str, val: str, colour: str) -> str:
+        return (
+            f'<div class="health-item">'
+            f'<div class="health-label">{_esc(label)}</div>'
+            f'<div class="health-val {_esc(colour)}">{_esc(val)}</div>'
+            f'</div>'
+        )
+
+    broker_val = "EXPIRED ⚠" if broker_bad   else "ok"
+    broker_cls = "warn"       if broker_bad   else "ok"
+    ks_val     = "ACTIVE ⚠"  if kill_active  else "off"
+    ks_cls     = "warn"       if kill_active  else "ok"
+    loop_val   = "yes"        if loop_active  else "no"
+    loop_cls   = "ok"         if loop_active  else "amber"
+    last_str   = str(last_cycle)[:16] if last_cycle else "never"
+
+    items = (
+        _item("Status",         status_text,       "ok" if banner_cls == "green" else ("warn" if banner_cls == "red" else "amber"))
+        + _item("Mode",         mode,              "ok")
+        + _item("Kill Switch",  ks_val,            ks_cls)
+        + _item("Broker Auth",  broker_val,        broker_cls)
+        + _item("Cycles Run",   str(cycle_count),  "ok" if cycle_count > 0 else "amber")
+        + _item("Last Cycle",   last_str,          "ok" if last_cycle else "amber")
+        + _item("Loop Active",  loop_val,          loop_cls)
+        + _item("Checked At",   now_str,           "muted")
+    )
+
+    return (
+        f'<div class="card health-banner {_esc(banner_cls)}">'
+        f'<span class="health-dot">{dot}</span>'
+        f'{items}'
+        f'</div>'
+    )
+
 
 def _render_system_section(state, settings) -> str:
     mode = settings.operating_mode.value
@@ -1395,6 +1634,7 @@ def _render_readiness_history_table() -> str:
     """
     try:
         import sqlalchemy as sa
+
         from infra.db.models.readiness import ReadinessSnapshot
         from infra.db.session import SessionLocal
 
@@ -1430,10 +1670,10 @@ def _render_readiness_history_table() -> str:
 
         heading = '<p style="font-size:.85rem;font-weight:bold;margin-top:.8rem;color:#90a4ae">Readiness History (last 10 snapshots)</p>'
         table = (
-            '<table><thead><tr>'
+            '<div style="overflow-x: auto"><table><thead><tr>'
             '<th>Status</th><th>Captured</th><th>Mode Path</th>'
-            '<th>Pass</th><th>Warn</th><th>Fail</th>'
-            '</tr></thead><tbody>' + rows_html + '</tbody></table>'
+            '<th>P</th><th>W</th><th>F</th>'
+            '</tr></thead><tbody>' + rows_html + '</tbody></table></div>'
         )
         return heading + table
 
@@ -1484,9 +1724,9 @@ def _render_readiness_section(state) -> str:
                 f'</tr>'
             )
         gate_table = (
-            '<table><thead><tr>'
-            '<th>Status</th><th>Gate</th><th>Actual</th><th>Required</th>'
-            '</tr></thead><tbody>' + rows_html + '</tbody></table>'
+            '<div style="overflow-x: auto"><table><thead><tr>'
+            '<th>Status</th><th>Gate</th><th>Actual</th><th>Req.</th>'
+            '</tr></thead><tbody>' + rows_html + '</tbody></table></div>'
         )
     else:
         gate_table = '<p class="muted">No gate rows.</p>'
@@ -1496,7 +1736,8 @@ def _render_readiness_section(state) -> str:
 
     history_html = _render_readiness_history_table()
     body = header + counts + gate_table + footer + history_html
-    return _section("Live-Mode Readiness Report (Phase 53+56)", body)
+    title = _esc("Live-Mode Readiness Report (Phase 53+56)")
+    return f'<section class="card card-wide"><h2>{title}</h2>{body}</section>'
 
 
 def _render_promoted_versions_section(state) -> str:
@@ -1523,17 +1764,34 @@ _CSS = """
           margin: 0; padding: 1rem 2rem;}
   h1    {color: #4fc3f7; border-bottom: 1px solid #333; padding-bottom: .5rem;}
   h2    {color: #90caf9; font-size: 1rem; margin-bottom: .5rem;}
-  .grid {display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  .grid {display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
           gap: 1rem; margin-top: 1rem;}
   .card {background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 6px;
-          padding: 1rem;}
+          padding: 1rem; overflow: hidden; min-width: 0;}
+  .card-wide {grid-column: 1 / -1; width: 100%;}
   .kv   {display: flex; justify-content: space-between; padding: .2rem 0;
           border-bottom: 1px solid #23253a;}
   .label{color: #90a4ae; font-size: .85rem;}
   .warn {color: #ff5252; font-weight: bold;}
+  .ok   {color: #4caf50; font-weight: bold;}
+  .amber{color: #ffb300; font-weight: bold;}
   .muted{color: #555; font-style: italic;}
+  .health-banner {
+    grid-column: 1 / -1;
+    display: flex; align-items: center; gap: 1.2rem;
+    flex-wrap: wrap;
+    border-radius: 6px; padding: .75rem 1.2rem;
+    border: 1px solid #2a2d3a;
+  }
+  .health-banner.green { background: #0d1f0d; border-color: #2e7d32; }
+  .health-banner.amber { background: #1f1900; border-color: #f57f17; }
+  .health-banner.red   { background: #1f0d0d; border-color: #c62828; }
+  .health-dot { font-size: 1.4rem; line-height: 1; }
+  .health-label { font-size: .82rem; color: #90a4ae; margin-bottom: .1rem; }
+  .health-val   { font-size: .95rem; font-weight: 600; }
+  .health-item  { display: flex; flex-direction: column; min-width: 100px; }
   table {width: 100%; border-collapse: collapse; font-size: .85rem;}
-  th, td{text-align: left; padding: .3rem .4rem; border-bottom: 1px solid #2a2d3a;}
+  th, td{text-align: left; padding: .3rem .4rem; border-bottom: 1px solid #2a2d3a; word-break: break-word; overflow-wrap: break-word;}
   th    {color: #90a4ae;}
   footer{margin-top: 2rem; color: #444; font-size: .75rem; text-align: center;}
   nav   {margin-bottom: 1rem; font-size: .85rem;}
@@ -1581,7 +1839,9 @@ def _render_page(state, settings) -> str:
     """Build the full overview HTML page from current application state."""
     mode = settings.operating_mode.value
     content = (
-        _render_system_section(state, settings)
+        _render_health_snapshot(state, settings)
+        + _render_infra_health(state, settings)
+        + _render_system_section(state, settings)
         + _render_paper_cycle_section(state)
         + _render_portfolio_section(state)
         + _render_performance_section(state)
@@ -1719,6 +1979,7 @@ def _render_backtest_page(state, settings) -> str:
 
     try:
         import sqlalchemy as sa
+
         from infra.db.models.backtest import BacktestRun
 
         with session_factory() as session:

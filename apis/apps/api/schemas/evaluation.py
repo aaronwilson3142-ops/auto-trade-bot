@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Optional
 
 from pydantic import BaseModel
 
@@ -26,13 +25,13 @@ class DailyScorecardResponse(BaseModel):
     mode: str
     benchmark_returns: dict[str, float]       # benchmark ticker → daily return
     benchmark_differentials: dict[str, float] # portfolio - benchmark
-    run_id: Optional[str] = None
+    run_id: str | None = None
 
 
 class EvaluationLatestResponse(BaseModel):
     found: bool
-    scorecard: Optional[DailyScorecardResponse]
-    run_id: Optional[str]
+    scorecard: DailyScorecardResponse | None
+    run_id: str | None
 
 
 class EvaluationHistoryResponse(BaseModel):
@@ -47,9 +46,9 @@ class EvaluationRunRecord(BaseModel):
     run_timestamp: dt.datetime
     mode: str
     status: str
-    evaluation_period_start: Optional[dt.date] = None
-    evaluation_period_end: Optional[dt.date] = None
-    metrics: dict[str, Optional[float]]
+    evaluation_period_start: dt.date | None = None
+    evaluation_period_end: dt.date | None = None
+    metrics: dict[str, float | None]
 
 
 class EvaluationRunHistoryResponse(BaseModel):

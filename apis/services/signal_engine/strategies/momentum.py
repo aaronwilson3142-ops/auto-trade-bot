@@ -12,10 +12,8 @@ Gate B compliance:
 """
 from __future__ import annotations
 
-import datetime as dt
 import logging
 from decimal import Decimal, InvalidOperation
-from typing import Optional
 
 from services.feature_store.models import FeatureSet
 from services.signal_engine.models import (
@@ -58,7 +56,7 @@ def _normalise(value: float, lo: float, hi: float) -> float:
     return _clamp((value - lo) / (hi - lo))
 
 
-def _d(x: Optional[float]) -> Optional[Decimal]:
+def _d(x: float | None) -> Decimal | None:
     if x is None:
         return None
     try:
@@ -84,7 +82,7 @@ class MomentumStrategy:
         Returns a fully populated SignalOutput.  All scores are in [0.0, 1.0].
         A score of 0.5 means neutral momentum; >0.5 is bullish, <0.5 bearish.
         """
-        driver_features: dict[str, Optional[float]] = {}
+        driver_features: dict[str, float | None] = {}
         weighted_sum = 0.0
         total_weight = 0.0
 
@@ -197,7 +195,7 @@ class MomentumStrategy:
     def _build_rationale(
         fs: FeatureSet,
         signal_score: float,
-        driver_features: dict[str, Optional[float]],
+        driver_features: dict[str, float | None],
     ) -> str:
         """Generate a one-sentence natural language rationale."""
         direction = "bullish" if signal_score > 0.55 else ("bearish" if signal_score < 0.45 else "neutral")

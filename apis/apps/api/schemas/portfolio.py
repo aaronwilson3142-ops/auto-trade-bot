@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Optional
 
 from pydantic import BaseModel
 
@@ -39,7 +38,7 @@ class PortfolioPositionsResponse(BaseModel):
 
 class PositionDetailResponse(BaseModel):
     found: bool
-    position: Optional[PositionSchema]
+    position: PositionSchema | None
 
 
 class PortfolioSnapshotRecord(BaseModel):
@@ -48,11 +47,11 @@ class PortfolioSnapshotRecord(BaseModel):
     id: str
     snapshot_timestamp: dt.datetime
     mode: str
-    cash_balance: Optional[float] = None
-    gross_exposure: Optional[float] = None
-    net_exposure: Optional[float] = None
-    equity_value: Optional[float] = None
-    drawdown_pct: Optional[float] = None
+    cash_balance: float | None = None
+    gross_exposure: float | None = None
+    net_exposure: float | None = None
+    equity_value: float | None = None
+    drawdown_pct: float | None = None
 
 
 class PortfolioSnapshotHistoryResponse(BaseModel):
@@ -88,7 +87,7 @@ class ClosedTradeHistoryResponse(BaseModel):
     total_realized_pnl: float
     win_count: int
     loss_count: int
-    win_rate: Optional[float]     # None when no trades; else win_count / total_closed
+    win_rate: float | None     # None when no trades; else win_count / total_closed
     items: list[ClosedTradeRecord]
 
 
@@ -121,7 +120,7 @@ class PerformanceSummaryResponse(BaseModel):
     # Equity snapshot
     equity: float
     start_of_day_equity: float
-    high_water_mark: Optional[float]
+    high_water_mark: float | None
     daily_return_pct: float          # (equity - sod) / sod * 100
     drawdown_from_hwm_pct: float     # (hwm - equity) / hwm * 100, clamped ≥ 0
 
@@ -130,7 +129,7 @@ class PerformanceSummaryResponse(BaseModel):
     realized_trade_count: int
     win_count: int
     loss_count: int
-    win_rate: Optional[float]        # None when no trades
+    win_rate: float | None        # None when no trades
 
     # Unrealized (from open positions)
     total_unrealized_pnl: float
@@ -147,13 +146,13 @@ class PositionHistoryRecord(BaseModel):
     id: str
     ticker: str
     snapshot_at: dt.datetime
-    quantity: Optional[float]
-    avg_entry_price: Optional[float]
-    current_price: Optional[float]
-    market_value: Optional[float]
-    cost_basis: Optional[float]
-    unrealized_pnl: Optional[float]
-    unrealized_pnl_pct: Optional[float]
+    quantity: float | None
+    avg_entry_price: float | None
+    current_price: float | None
+    market_value: float | None
+    cost_basis: float | None
+    unrealized_pnl: float | None
+    unrealized_pnl_pct: float | None
 
 
 class PositionHistoryResponse(BaseModel):

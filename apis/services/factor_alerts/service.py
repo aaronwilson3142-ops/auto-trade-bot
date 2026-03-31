@@ -23,8 +23,7 @@ Spec references
 from __future__ import annotations
 
 import datetime as dt
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
 import structlog
 
@@ -48,9 +47,9 @@ class FactorTiltEvent:
     """
 
     event_time: dt.datetime
-    previous_factor: Optional[str]
+    previous_factor: str | None
     new_factor: str
-    previous_weight: Optional[float]
+    previous_weight: float | None
     new_weight: float
     tilt_type: str  # "factor_change" | "weight_shift"
     delta_weight: float = 0.0
@@ -69,11 +68,11 @@ class FactorTiltAlertService:
     @staticmethod
     def detect_tilt(
         current_result: FactorExposureResult,
-        last_dominant_factor: Optional[str],
-        factor_tilt_events: Optional[list] = None,
+        last_dominant_factor: str | None,
+        factor_tilt_events: list | None = None,
         min_weight_delta: float = 0.15,
-        event_time: Optional[dt.datetime] = None,
-    ) -> Optional[FactorTiltEvent]:
+        event_time: dt.datetime | None = None,
+    ) -> FactorTiltEvent | None:
         """Detect whether the current exposure represents a material factor tilt.
 
         Args:
@@ -96,7 +95,7 @@ class FactorTiltAlertService:
         new_dominant = current_result.dominant_factor
         fw = current_result.portfolio_factor_weights
         new_weight = fw.get(new_dominant, 0.5)
-        _time = event_time or dt.datetime.now(dt.timezone.utc)
+        _time = event_time or dt.datetime.now(dt.UTC)
 
         # ── Trigger 1: dominant factor name changed ──────────────────────────
         if last_dominant_factor is not None and new_dominant != last_dominant_factor:

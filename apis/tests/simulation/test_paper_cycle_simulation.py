@@ -54,7 +54,6 @@ from services.ranking_engine.models import RankedResult
 from services.reporting.service import ReportingService
 from services.risk_engine.service import RiskEngineService
 
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _make_settings(
@@ -439,7 +438,7 @@ class TestPaperCycleMultiTicker:
             for i, t in enumerate(self.TICKERS)
         ]
         state = _fresh_state(rankings=rankings)
-        prices = {t: 300.0 for t in self.TICKERS}
+        prices = dict.fromkeys(self.TICKERS, 300.0)
         broker, portfolio_svc, risk_svc, execution_svc, reporting_svc = _make_services(
             settings, prices=prices
         )
@@ -673,6 +672,7 @@ class TestPaperCycleMultiStrategyPipeline:
         """Construct a FeatureSet from a dict using proper ComputedFeature objects."""
         import datetime as _dt
         from decimal import Decimal as _D
+
         from services.feature_store.models import ComputedFeature, FeatureSet
 
         now = _dt.datetime.utcnow()
@@ -776,7 +776,7 @@ class TestPaperCycleMultiStrategyPipeline:
 
         settings = _make_settings(max_positions=10)
         state = _fresh_state(rankings=rankings)
-        prices = {t: 250.0 for t in tickers}
+        prices = dict.fromkeys(tickers, 250.0)
         broker, portfolio_svc, risk_svc, execution_svc, reporting_svc = _make_services(
             settings, prices=prices
         )

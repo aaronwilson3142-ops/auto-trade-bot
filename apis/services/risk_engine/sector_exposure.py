@@ -28,7 +28,7 @@ import structlog
 
 if TYPE_CHECKING:
     from config.settings import Settings
-    from services.portfolio_engine.models import PortfolioAction, PortfolioState
+    from services.portfolio_engine.models import PortfolioState
 
 log = structlog.get_logger(__name__)
 
@@ -173,8 +173,8 @@ class SectorExposureService:
     def filter_for_sector_limits(
         cls,
         actions: list,  # list[PortfolioAction]
-        portfolio_state: "PortfolioState",
-        settings: "Settings",
+        portfolio_state: PortfolioState,
+        settings: Settings,
     ) -> list:
         """Remove OPEN actions that would breach the sector exposure limit.
 

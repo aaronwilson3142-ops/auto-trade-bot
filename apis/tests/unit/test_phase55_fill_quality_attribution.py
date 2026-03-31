@@ -25,11 +25,9 @@ from __future__ import annotations
 
 import datetime as dt
 from decimal import Decimal
-from typing import Any, Optional
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -59,7 +57,7 @@ def _make_record(
         quantity=Decimal(quantity),
         slippage_usd=Decimal(slippage_usd),
         slippage_pct=Decimal(slippage_pct),
-        filled_at=filled_at or dt.datetime(2026, 3, 10, 10, 0, tzinfo=dt.timezone.utc),
+        filled_at=filled_at or dt.datetime(2026, 3, 10, 10, 0, tzinfo=dt.UTC),
         alpha_captured_pct=alpha_captured_pct,
         slippage_as_pct_of_move=slippage_as_pct_of_move,
     )
@@ -460,6 +458,7 @@ class TestRunFillQualityAttributionError:
 class TestFillAttributionRouteEmpty:
     def test_empty_attribution_returns_200(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import reset_app_state
 
@@ -470,6 +469,7 @@ class TestFillAttributionRouteEmpty:
 
     def test_empty_summary_zero_records(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import reset_app_state
 
@@ -482,6 +482,7 @@ class TestFillAttributionRouteEmpty:
 
     def test_empty_avg_alpha_none(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import reset_app_state
 
@@ -499,6 +500,7 @@ class TestFillAttributionRouteEmpty:
 class TestFillAttributionRouteWithData:
     def test_returns_summary_data(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import get_app_state, reset_app_state
         from services.fill_quality.models import AlphaDecaySummary
@@ -512,7 +514,7 @@ class TestFillAttributionRouteWithData:
             positive_alpha_count=2,
             negative_alpha_count=1,
             n_days=5,
-            computed_at=dt.datetime(2026, 3, 21, 18, 32, tzinfo=dt.timezone.utc),
+            computed_at=dt.datetime(2026, 3, 21, 18, 32, tzinfo=dt.UTC),
         )
         state.fill_quality_records = [
             _make_record(alpha_captured_pct=0.05),
@@ -530,9 +532,9 @@ class TestFillAttributionRouteWithData:
 
     def test_total_fill_count_all_records(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import get_app_state, reset_app_state
-        from services.fill_quality.models import AlphaDecaySummary
 
         reset_app_state()
         state = get_app_state()
@@ -565,7 +567,7 @@ class TestFillQualityRecordSchemaAlphaFields:
             quantity=10.0,
             slippage_usd=5.0,
             slippage_pct=0.000333,
-            filled_at=dt.datetime(2026, 3, 10, 10, 0, tzinfo=dt.timezone.utc),
+            filled_at=dt.datetime(2026, 3, 10, 10, 0, tzinfo=dt.UTC),
         )
         assert schema.alpha_captured_pct is None
         assert schema.slippage_as_pct_of_move is None
@@ -582,7 +584,7 @@ class TestFillQualityRecordSchemaAlphaFields:
             quantity=5.0,
             slippage_usd=2.5,
             slippage_pct=0.000167,
-            filled_at=dt.datetime(2026, 3, 10, 10, 0, tzinfo=dt.timezone.utc),
+            filled_at=dt.datetime(2026, 3, 10, 10, 0, tzinfo=dt.UTC),
             alpha_captured_pct=0.05,
             slippage_as_pct_of_move=0.02,
         )
@@ -596,8 +598,8 @@ class TestFillQualityRecordSchemaAlphaFields:
 
 class TestDashboardFillQualityAlphaSection:
     def test_alpha_section_shown_when_enriched(self):
-        from apps.dashboard.router import _render_fill_quality_section
         from apps.api.state import ApiAppState
+        from apps.dashboard.router import _render_fill_quality_section
         from services.fill_quality.models import AlphaDecaySummary
 
         state = ApiAppState()
@@ -616,8 +618,8 @@ class TestDashboardFillQualityAlphaSection:
         assert "Alpha" in html
 
     def test_alpha_section_hidden_when_no_attribution(self):
-        from apps.dashboard.router import _render_fill_quality_section
         from apps.api.state import ApiAppState
+        from apps.dashboard.router import _render_fill_quality_section
 
         state = ApiAppState()
         state.fill_quality_records = [_make_record()]

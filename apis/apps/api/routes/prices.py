@@ -74,7 +74,7 @@ async def price_snapshot(state: AppStateDep) -> PriceSnapshotResponse:
     return PriceSnapshotResponse(
         ticks=ticks,
         position_count=len(ticks),
-        as_of=dt.datetime.now(dt.timezone.utc),
+        as_of=dt.datetime.now(dt.UTC),
         note=note,
     )
 
@@ -105,7 +105,7 @@ async def prices_websocket(websocket: WebSocket, state: AppStateDep) -> None:  #
             payload = {
                 "ticks": [t.model_dump() for t in ticks],
                 "position_count": len(ticks),
-                "as_of": dt.datetime.now(dt.timezone.utc).isoformat(),
+                "as_of": dt.datetime.now(dt.UTC).isoformat(),
             }
             await websocket.send_text(json.dumps(payload))
             await asyncio.sleep(2)

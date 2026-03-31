@@ -13,11 +13,7 @@ Tests cover:
 from __future__ import annotations
 
 import datetime as dt
-from decimal import Decimal
 from unittest.mock import MagicMock, patch
-
-import pytest
-
 
 # ---------------------------------------------------------------------------
 # 1. Model tests
@@ -64,7 +60,7 @@ class TestReadinessReportModel:
     def _make(self, **kwargs):
         from services.readiness.models import ReadinessReport
         defaults = dict(
-            generated_at=dt.datetime(2026, 3, 21, 18, 45, tzinfo=dt.timezone.utc),
+            generated_at=dt.datetime(2026, 3, 21, 18, 45, tzinfo=dt.UTC),
             current_mode="paper",
             target_mode="human_approved",
             overall_status="PASS",
@@ -96,7 +92,7 @@ class TestReadinessReportModel:
         from services.readiness.models import ReadinessGateRow, ReadinessReport
         rows = [ReadinessGateRow(f"g{i}", "d", "PASS", "v", "r") for i in range(3)]
         r = ReadinessReport(
-            generated_at=dt.datetime.now(dt.timezone.utc),
+            generated_at=dt.datetime.now(dt.UTC),
             current_mode="paper",
             target_mode="human_approved",
             overall_status="PASS",
@@ -299,9 +295,9 @@ class TestReadinessReportServiceNoGate:
 class TestReadinessReportServiceWarn:
     def test_warn_when_insufficient_sharpe_obs(self):
         """WARN produced when eval_history has <10 observations."""
-        from services.readiness.service import ReadinessReportService
-        from config.settings import OperatingMode, Settings
         from apps.api.state import ApiAppState
+        from config.settings import OperatingMode, Settings
+        from services.readiness.service import ReadinessReportService
 
         svc = ReadinessReportService()
         state = ApiAppState()
@@ -322,8 +318,8 @@ class TestReadinessReportServiceWarn:
         assert len(warn_rows) >= 1
 
     def test_warn_overall_status(self):
+        from services.readiness.models import ReadinessGateRow
         from services.readiness.service import ReadinessReportService
-        from services.readiness.models import ReadinessGateRow, ReadinessReport
 
         # Build a WARN report directly via _build_recommendation
         rows = [
@@ -402,8 +398,8 @@ class TestRunReadinessReportUpdateJob:
         dt.datetime.fromisoformat(result["computed_at"])
 
     def test_job_error_path_returns_error_status(self):
-        from apps.worker.jobs.readiness import run_readiness_report_update
         from apps.api.state import ApiAppState
+        from apps.worker.jobs.readiness import run_readiness_report_update
 
         state = ApiAppState()
         # Patch the service class at its source module so the lazy import picks it up
@@ -416,8 +412,8 @@ class TestRunReadinessReportUpdateJob:
         assert result["error"] is not None
 
     def test_job_error_path_does_not_raise(self):
-        from apps.worker.jobs.readiness import run_readiness_report_update
         from apps.api.state import ApiAppState
+        from apps.worker.jobs.readiness import run_readiness_report_update
 
         state = ApiAppState()
         with patch(
@@ -462,7 +458,7 @@ class TestReadinessReportRoute:
             ReadinessGateRow("min_paper_cycles", "Min cycles", "PASS", "10", ">= 5"),
         ]
         return ReadinessReport(
-            generated_at=dt.datetime(2026, 3, 21, 18, 45, tzinfo=dt.timezone.utc),
+            generated_at=dt.datetime(2026, 3, 21, 18, 45, tzinfo=dt.UTC),
             current_mode="paper",
             target_mode="human_approved",
             overall_status="PASS",
@@ -475,6 +471,7 @@ class TestReadinessReportRoute:
 
     def test_503_when_no_report(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import reset_app_state
 
@@ -485,6 +482,7 @@ class TestReadinessReportRoute:
 
     def test_200_when_report_available(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import get_app_state, reset_app_state
 
@@ -498,6 +496,7 @@ class TestReadinessReportRoute:
 
     def test_response_has_overall_status(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import get_app_state, reset_app_state
 
@@ -513,6 +512,7 @@ class TestReadinessReportRoute:
 
     def test_response_has_gate_rows(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import get_app_state, reset_app_state
 
@@ -528,6 +528,7 @@ class TestReadinessReportRoute:
 
     def test_response_is_ready_true(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import get_app_state, reset_app_state
 
@@ -541,6 +542,7 @@ class TestReadinessReportRoute:
 
     def test_response_recommendation_present(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import get_app_state, reset_app_state
 
@@ -570,7 +572,7 @@ class TestDashboardReadinessSection:
             ReadinessGateRow("kill_switch_off", "Kill switch", "PASS", "False", "False"),
         ]
         state.latest_readiness_report = ReadinessReport(
-            generated_at=dt.datetime(2026, 3, 21, 18, 45, tzinfo=dt.timezone.utc),
+            generated_at=dt.datetime(2026, 3, 21, 18, 45, tzinfo=dt.UTC),
             current_mode="paper",
             target_mode="human_approved",
             overall_status=overall_status,
@@ -580,7 +582,7 @@ class TestDashboardReadinessSection:
             fail_count=1 if overall_status == "FAIL" else 0,
             recommendation="Test recommendation.",
         )
-        state.readiness_report_computed_at = dt.datetime(2026, 3, 21, 18, 45, tzinfo=dt.timezone.utc)
+        state.readiness_report_computed_at = dt.datetime(2026, 3, 21, 18, 45, tzinfo=dt.UTC)
         return state
 
     def test_no_report_shows_placeholder(self):
@@ -615,6 +617,7 @@ class TestDashboardReadinessSection:
 
     def test_section_rendered_in_full_page(self):
         from fastapi.testclient import TestClient
+
         from apps.api.main import app
         from apps.api.state import get_app_state, reset_app_state
 
@@ -650,7 +653,7 @@ class TestAppStateReadinessFields:
         reset_app_state()
         state = get_app_state()
         state.latest_readiness_report = ReadinessReport(
-            generated_at=dt.datetime.now(dt.timezone.utc),
+            generated_at=dt.datetime.now(dt.UTC),
             current_mode="paper",
             target_mode="human_approved",
             overall_status="PASS",

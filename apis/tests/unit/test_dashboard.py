@@ -11,7 +11,6 @@ Verifies that the read-only operator dashboard:
 from __future__ import annotations
 
 import datetime as dt
-from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
 
@@ -20,8 +19,7 @@ from fastapi.testclient import TestClient
 
 from apps.api.main import app
 from apps.api.state import ApiAppState, get_app_state
-from config.settings import OperatingMode, Settings, get_settings
-
+from config.settings import Settings, get_settings
 
 # ---------------------------------------------------------------------------
 # Dependency override helpers (re-uses the same pattern as test_api_routes.py)

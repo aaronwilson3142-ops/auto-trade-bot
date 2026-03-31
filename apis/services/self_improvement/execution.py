@@ -25,8 +25,9 @@ from __future__ import annotations
 import datetime as dt
 import json
 import uuid
-from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
 
 from config.logging_config import get_logger
 from services.self_improvement.models import PROTECTED_COMPONENTS, ProposalStatus
@@ -53,7 +54,7 @@ class ExecutionRecord:
     baseline_params: dict[str, Any]     # baseline_params for rollback
     status: str                          # "applied" | "rolled_back"
     executed_at: dt.datetime
-    rolled_back_at: Optional[dt.datetime] = None
+    rolled_back_at: dt.datetime | None = None
     notes: str = ""
 
 
@@ -74,7 +75,7 @@ class AutoExecutionService:
         self,
         proposal: Any,
         app_state: Any,
-        session_factory: Optional[Callable] = None,
+        session_factory: Callable | None = None,
     ) -> ExecutionRecord:
         """Apply a PROMOTED proposal to the runtime system.
 
@@ -106,7 +107,7 @@ class AutoExecutionService:
         config_delta: dict[str, Any] = dict(getattr(proposal, "candidate_params", {}))
         baseline_params: dict[str, Any] = dict(getattr(proposal, "baseline_params", {}))
         execution_id = str(uuid.uuid4())
-        executed_at = dt.datetime.now(dt.timezone.utc)
+        executed_at = dt.datetime.now(dt.UTC)
 
         # ── Apply to runtime overrides ───────────────────────────────────────
         if not hasattr(app_state, "runtime_overrides"):
@@ -152,7 +153,7 @@ class AutoExecutionService:
         self,
         execution_id: str,
         app_state: Any,
-        session_factory: Optional[Callable] = None,
+        session_factory: Callable | None = None,
     ) -> bool:
         """Roll back a previously applied execution.
 
@@ -194,7 +195,7 @@ class AutoExecutionService:
 
         # ── Update in-memory record ──────────────────────────────────────────
         record.status = "rolled_back"
-        record.rolled_back_at = dt.datetime.now(dt.timezone.utc)
+        record.rolled_back_at = dt.datetime.now(dt.UTC)
 
         # ── Fire-and-forget DB update ────────────────────────────────────────
         self._persist_rollback(execution_id, record.rolled_back_at, session_factory)
@@ -210,7 +211,7 @@ class AutoExecutionService:
         self,
         proposals: list[Any],
         app_state: Any,
-        session_factory: Optional[Callable] = None,
+        session_factory: Callable | None = None,
         min_confidence: float = 0.0,
     ) -> dict[str, Any]:
         """Auto-execute all PROMOTED proposals in a batch.
@@ -292,7 +293,7 @@ class AutoExecutionService:
 
         # Update last_auto_execute_at
         if hasattr(app_state, "last_auto_execute_at"):
-            app_state.last_auto_execute_at = dt.datetime.now(dt.timezone.utc)
+            app_state.last_auto_execute_at = dt.datetime.now(dt.UTC)
 
         return {
             "executed_count": executed_count,
@@ -307,7 +308,7 @@ class AutoExecutionService:
     def _persist_execution(
         self,
         record: ExecutionRecord,
-        session_factory: Optional[Callable],
+        session_factory: Callable | None,
     ) -> None:
         """Write a new ProposalExecution row to the DB.  Never raises."""
         if session_factory is None:
@@ -336,7 +337,7 @@ class AutoExecutionService:
         self,
         execution_id: str,
         rolled_back_at: dt.datetime,
-        session_factory: Optional[Callable],
+        session_factory: Callable | None,
     ) -> None:
         """Update an existing ProposalExecution row to rolled_back.  Never raises."""
         if session_factory is None:
