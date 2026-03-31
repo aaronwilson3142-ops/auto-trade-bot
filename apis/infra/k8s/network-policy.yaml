@@ -1,0 +1,185 @@
+# APIS — Kubernetes NetworkPolicy
+#
+# Two policies:
+#   apis-api-netpol   — controls ingress/egress for API pods
+#   apis-worker-netpol — controls ingress/egress for Worker pods
+#
+# Design principles:
+#   - Default-deny-all is not applied here; these are allow-rules on top of
+#     the cluster's existing NetworkPolicy behaviour.
+#   - Egress to external broker APIs (Alpaca, Schwab, IBKR TWS) and AWS
+#     (Secrets Manager, S3) is allowed on port 443.
+#   - Intra-namespace traffic (postgres port 5432, redis port 6379) is
+#     explicitly allowed.
+#   - Prometheus scraping is allowed from the monitoring namespace.
+#   - Worker pods have no ingress requirement (they pull from state, not HTTP).
+#
+# Apply:
+#   kubectl apply -f infra/k8s/network-policy.yaml
+#   # or via kustomize:
+#   kubectl apply -k infra/k8s/
+
+---
+# ── API NetworkPolicy ──────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: apis-api-netpol
+  namespace: apis
+  labels:
+    app: apis-api
+    component: network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app: apis-api
+  policyTypes:
+    - Ingress
+    - Egress
+
+  ingress:
+    # Allow HTTP traffic from within the same namespace (worker probing api /health)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: apis
+      ports:
+        - protocol: TCP
+          port: 8000
+    # Allow Prometheus scraping from a dedicated monitoring namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8000
+    # Allow ingress from ingress controller namespace for external HTTP(S)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8000
+
+  egress:
+    # PostgreSQL (in-cluster)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: apis
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Redis (in-cluster)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: apis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # External HTTPS — broker APIs (Alpaca, Schwab), AWS Secrets Manager, etc.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+    # IBKR TWS Gateway (default paper port 7497 / live port 7496)
+    # Adjust cidr to the specific host running TWS/Gateway
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 7497
+        - protocol: TCP
+          port: 7496
+    # DNS resolution
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+---
+# ── Worker NetworkPolicy ───────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: apis-worker-netpol
+  namespace: apis
+  labels:
+    app: apis-worker
+    component: network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app: apis-worker
+  policyTypes:
+    - Ingress
+    - Egress
+
+  ingress:
+    # Worker has no HTTP server; block all ingress
+    []
+
+  egress:
+    # API service (worker reads state + health-checks)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: apis
+      ports:
+        - protocol: TCP
+          port: 8000
+    # PostgreSQL (in-cluster)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: apis
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Redis (in-cluster)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: apis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # External HTTPS — market data, broker APIs, AWS
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+    # IBKR TWS Gateway
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 7497
+        - protocol: TCP
+          port: 7496
+    # DNS resolution
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

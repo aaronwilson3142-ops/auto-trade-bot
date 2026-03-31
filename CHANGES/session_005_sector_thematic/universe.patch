@@ -1,0 +1,31 @@
+--- CHANGES/session_005_sector_thematic/originals/universe.py	2026-03-22 17:52:14.193984600 -0500
++++ apis/config/universe.py	2026-03-22 17:52:27.294882200 -0500
+@@ -85,6 +85,28 @@
+ }
+ 
+ 
++# Map ticker → primary investment theme (used for thematic concentration checks).
++# Where a ticker belongs to multiple themes, the most *specific* theme wins
++# (e.g. NVDA → "ai_infrastructure" rather than the broader "mega_cap_tech").
++# Tickers absent from this mapping fall into the "other" bucket at runtime.
++TICKER_THEME: Final[dict[str, str]] = {
++    # AI / compute infrastructure — most specific theme for these names
++    **{t: "ai_infrastructure" for t in AI_INFRASTRUCTURE},
++    # Semiconductors (non-AI-infra overlap)
++    **{t: "semiconductors" for t in SEMICONDUCTORS},
++    # Cloud software
++    **{t: "cloud_software" for t in CLOUD_SOFTWARE},
++    # Mega-cap tech not already captured by a more specific theme
++    **{t: "mega_cap_tech" for t in MEGA_CAP_TECH
++       if t not in AI_INFRASTRUCTURE and t not in CLOUD_SOFTWARE},
++    # Other sectors map to their sector name as theme (no overlap)
++    **{t: "healthcare" for t in HEALTHCARE},
++    **{t: "financials" for t in FINANCIALS},
++    **{t: "energy" for t in ENERGY},
++    **{t: "consumer" for t in CONSUMER},
++}
++
++
+ def get_universe_tickers(segment: str | None = None) -> list[str]:
+     """Return the full universe ticker list, or a named segment subset.
+ 

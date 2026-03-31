@@ -1,0 +1,85 @@
+--- CHANGES/session_004_daily_position_cap/originals/test_risk_engine.py	2026-03-22 17:40:13.113529500 -0500
++++ apis/tests/unit/test_risk_engine.py	2026-03-22 17:41:49.517760900 -0500
+@@ -8,6 +8,7 @@
+   - daily_loss_limit: blocks new opens when day's loss exceeds limit
+   - drawdown: blocks new opens when drawdown exceeds weekly limit
+   - monthly_drawdown: blocks new opens when MTD loss exceeds monthly cap
++  - daily_position_cap: blocks new opens once the per-day open limit is reached
+   - validate_action: aggregates all violations; CLOSE actions bypass position-count
+ """
+ from __future__ import annotations
+@@ -419,6 +420,74 @@
+ 
+ 
+ # ─────────────────────────────────────────────────────────────────────────────
++# TestDailyPositionCap
++# ─────────────────────────────────────────────────────────────────────────────
++
++class TestDailyPositionCap:
++    def test_blocks_open_when_daily_limit_reached(self):
++        """daily_opens_count == limit → block the next OPEN."""
++        svc = RiskEngineService(settings=_settings(max_new_positions_per_day=3))
++        state = PortfolioState(cash=Decimal("100000.00"), daily_opens_count=3)
++        action = _open_action()
++        result = svc.check_daily_position_cap(action, state)
++        assert result.passed is False
++        assert any(v.rule_name == "max_new_positions_per_day" for v in result.violations)
++
++    def test_passes_open_below_limit(self):
++        """daily_opens_count < limit → OPEN is allowed."""
++        svc = RiskEngineService(settings=_settings(max_new_positions_per_day=3))
++        state = PortfolioState(cash=Decimal("100000.00"), daily_opens_count=2)
++        action = _open_action()
++        result = svc.check_daily_position_cap(action, state)
++        assert result.passed is True
++
++    def test_passes_when_zero_opens_today(self):
++        """No opens yet today → always passes."""
++        svc = RiskEngineService(settings=_settings())
++        state = PortfolioState(cash=Decimal("100000.00"), daily_opens_count=0)
++        action = _open_action()
++        result = svc.check_daily_position_cap(action, state)
++        assert result.passed is True
++
++    def test_close_never_blocked_by_daily_cap(self):
++        """CLOSE actions are never blocked regardless of daily_opens_count."""
++        svc = RiskEngineService(settings=_settings(max_new_positions_per_day=1))
++        state = PortfolioState(cash=Decimal("100000.00"), daily_opens_count=99)
++        action = _close_action()
++        result = svc.check_daily_position_cap(action, state)
++        assert result.passed is True
++
++    def test_blocks_strictly_at_limit_not_below(self):
++        """Exactly at the limit blocks; one below passes."""
++        svc = RiskEngineService(settings=_settings(max_new_positions_per_day=2))
++        state_at = PortfolioState(cash=Decimal("100000.00"), daily_opens_count=2)
++        state_below = PortfolioState(cash=Decimal("100000.00"), daily_opens_count=1)
++        assert svc.check_daily_position_cap(_open_action(), state_at).passed is False
++        assert svc.check_daily_position_cap(_open_action(), state_below).passed is True
++
++    def test_custom_limit_respected(self):
++        """A custom limit of 1 should block on the second open attempt."""
++        svc = RiskEngineService(settings=_settings(max_new_positions_per_day=1))
++        state = PortfolioState(cash=Decimal("100000.00"), daily_opens_count=1)
++        result = svc.check_daily_position_cap(_open_action(), state)
++        assert result.passed is False
++
++    def test_daily_position_cap_wired_into_validate_action(self):
++        """validate_action must include daily position cap in its pipeline."""
++        svc = RiskEngineService(settings=_settings(max_new_positions_per_day=2))
++        state = PortfolioState(cash=Decimal("100000.00"), daily_opens_count=2)
++        action = _open_action()
++        result = svc.validate_action(action, state)
++        assert result.passed is False
++        assert any(v.rule_name == "max_new_positions_per_day" for v in result.violations)
++
++    def test_daily_opens_count_default_is_zero(self):
++        """PortfolioState.daily_opens_count must default to 0 (no sentinel needed)."""
++        state = PortfolioState(cash=Decimal("100000.00"))
++        assert state.daily_opens_count == 0
++
++
++# ─────────────────────────────────────────────────────────────────────────────
+ # TestValidateAction (master gatekeeper)
+ # ─────────────────────────────────────────────────────────────────────────────
+ 

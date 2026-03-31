@@ -1,0 +1,52 @@
+--- "/sessions/serene-epic-ride/mnt/Auto Trade Bot/CHANGES/session_001_kill_switch/originals/test_execution_engine.py"	2026-03-22 17:28:57.772122900 -0500
++++ "/sessions/serene-epic-ride/mnt/Auto Trade Bot/apis/tests/unit/test_execution_engine.py"	2026-03-22 17:29:04.913679400 -0500
+@@ -114,6 +114,49 @@
+         result = svc.execute_action(req)
+         assert result.status == ExecutionStatus.FILLED
+ 
++    def test_runtime_kill_switch_fn_blocks_when_true(self):
++        """kill_switch_fn=True blocks even when env kill_switch is False."""
++        broker = _broker(prices={"AAPL": Decimal("175.00")})
++        svc = ExecutionEngineService(
++            settings=_settings(kill_switch=False),
++            broker=broker,
++            kill_switch_fn=lambda: True,
++        )
++        req = ExecutionRequest(action=_open_action(), current_price=Decimal("175.00"))
++        result = svc.execute_action(req)
++        assert result.status == ExecutionStatus.BLOCKED
++        assert "runtime" in result.error_message
++
++    def test_runtime_kill_switch_fn_false_proceeds(self):
++        """kill_switch_fn=False + env False = order proceeds normally."""
++        broker = _broker(prices={"AAPL": Decimal("175.00")})
++        svc = ExecutionEngineService(
++            settings=_settings(kill_switch=False),
++            broker=broker,
++            kill_switch_fn=lambda: False,
++        )
++        req = ExecutionRequest(action=_open_action(), current_price=Decimal("175.00"))
++        result = svc.execute_action(req)
++        assert result.status == ExecutionStatus.FILLED
++
++    def test_mutable_runtime_kill_switch_execution(self):
++        """kill_switch_fn is re-evaluated on each execute_action call."""
++        broker = _broker(prices={"AAPL": Decimal("175.00")})
++        state_flag = {"active": False}
++        svc = ExecutionEngineService(
++            settings=_settings(kill_switch=False),
++            broker=broker,
++            kill_switch_fn=lambda: state_flag["active"],
++        )
++        req = ExecutionRequest(action=_open_action(), current_price=Decimal("175.00"))
++        # Initially off — fills
++        assert svc.execute_action(req).status == ExecutionStatus.FILLED
++        # Flip on at runtime — blocks
++        state_flag["active"] = True
++        result = svc.execute_action(req)
++        assert result.status == ExecutionStatus.BLOCKED
++        assert "runtime" in result.error_message
++
+ 
+ # ─────────────────────────────────────────────────────────────────────────────
+ # TestExecuteOpenAction

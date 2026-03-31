@@ -1,0 +1,106 @@
+--- CHANGES/session_003_monthly_drawdown/originals/test_risk_engine.py	2026-03-22 17:36:49.637977300 -0500
++++ apis/tests/unit/test_risk_engine.py	2026-03-22 17:38:17.591501900 -0500
+@@ -7,6 +7,7 @@
+   - max_single_name_pct: sets adjusted_max_notional on oversized proposals
+   - daily_loss_limit: blocks new opens when day's loss exceeds limit
+   - drawdown: blocks new opens when drawdown exceeds weekly limit
++  - monthly_drawdown: blocks new opens when MTD loss exceeds monthly cap
+   - validate_action: aggregates all violations; CLOSE actions bypass position-count
+ """
+ from __future__ import annotations
+@@ -329,6 +330,95 @@
+ 
+ 
+ # ─────────────────────────────────────────────────────────────────────────────
++# TestMonthlyDrawdown
++# ─────────────────────────────────────────────────────────────────────────────
++
++class TestMonthlyDrawdown:
++    def test_blocks_when_monthly_loss_exceeded(self):
++        """Start-of-month equity $100k, current equity $88k → -12% MTD > 10% limit."""
++        svc = RiskEngineService(settings=_settings())  # monthly_drawdown_limit_pct=0.10
++        state = PortfolioState(
++            cash=Decimal("88000.00"),
++            start_of_month_equity=Decimal("100000.00"),
++        )
++        result = svc.check_monthly_drawdown(state)
++        assert result.passed is False
++        assert any(v.rule_name == "monthly_drawdown_limit" for v in result.violations)
++
++    def test_passes_when_monthly_loss_within_limit(self):
++        """Start-of-month equity $100k, current equity $95k → -5% MTD < 10% limit."""
++        svc = RiskEngineService(settings=_settings())
++        state = PortfolioState(
++            cash=Decimal("95000.00"),
++            start_of_month_equity=Decimal("100000.00"),
++        )
++        result = svc.check_monthly_drawdown(state)
++        assert result.passed is True
++
++    def test_passes_when_no_start_of_month_equity(self):
++        """No start_of_month_equity → check skipped with warning."""
++        svc = RiskEngineService(settings=_settings())
++        state = PortfolioState(cash=Decimal("88000.00"))
++        result = svc.check_monthly_drawdown(state)
++        assert result.passed is True
++        assert len(result.warnings) > 0
++
++    def test_passes_at_breakeven(self):
++        """No loss this month → passes."""
++        svc = RiskEngineService(settings=_settings())
++        state = PortfolioState(
++            cash=Decimal("100000.00"),
++            start_of_month_equity=Decimal("100000.00"),
++        )
++        result = svc.check_monthly_drawdown(state)
++        assert result.passed is True
++
++    def test_passes_when_month_is_positive(self):
++        """MTD gain should never trigger the monthly drawdown check."""
++        svc = RiskEngineService(settings=_settings())
++        state = PortfolioState(
++            cash=Decimal("110000.00"),
++            start_of_month_equity=Decimal("100000.00"),
++        )
++        result = svc.check_monthly_drawdown(state)
++        assert result.passed is True
++
++    def test_blocks_at_exact_limit(self):
++        """Loss of exactly limit+1bp should trigger the block."""
++        svc = RiskEngineService(settings=_settings(monthly_drawdown_limit_pct=0.10))
++        # Equity $89,990 → -10.01% MTD, just over the 10% cap
++        state = PortfolioState(
++            cash=Decimal("89990.00"),
++            start_of_month_equity=Decimal("100000.00"),
++        )
++        result = svc.check_monthly_drawdown(state)
++        assert result.passed is False
++
++    def test_custom_monthly_limit_respected(self):
++        """A tighter 5% monthly limit should block a 6% drawdown."""
++        svc = RiskEngineService(settings=_settings(monthly_drawdown_limit_pct=0.05))
++        state = PortfolioState(
++            cash=Decimal("94000.00"),
++            start_of_month_equity=Decimal("100000.00"),
++        )
++        result = svc.check_monthly_drawdown(state)
++        assert result.passed is False
++        assert any(v.rule_name == "monthly_drawdown_limit" for v in result.violations)
++
++    def test_monthly_drawdown_wired_into_validate_action(self):
++        """validate_action must include monthly_drawdown in its pipeline."""
++        svc = RiskEngineService(settings=_settings())  # 10% monthly limit
++        state = PortfolioState(
++            cash=Decimal("85000.00"),              # -15% MTD
++            start_of_month_equity=Decimal("100000.00"),
++        )
++        action = _open_action()
++        result = svc.validate_action(action, state)
++        assert result.passed is False
++        assert any(v.rule_name == "monthly_drawdown_limit" for v in result.violations)
++
++
++# ─────────────────────────────────────────────────────────────────────────────
+ # TestValidateAction (master gatekeeper)
+ # ─────────────────────────────────────────────────────────────────────────────
+ 

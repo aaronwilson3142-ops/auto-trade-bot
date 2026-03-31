@@ -1,0 +1,14 @@
+--- CHANGES/session_006_api_auth/originals/settings.py	2026-03-22 17:58:29.811695400 -0500
++++ apis/config/settings.py	2026-03-22 17:58:47.057333500 -0500
+@@ -167,6 +167,11 @@
+     kill_switch: bool = False
+ 
+     # ── Admin / Ops ────────────────────────────────────────────────────────────
++    # Pre-shared bearer token required on ALL /api/v1/* routes (except /health,
++    # /metrics, /readiness, and /dashboard which remain open).
++    # Set APIS_OPERATOR_TOKEN to enable; empty string = all API routes return 503.
++    operator_token: str = ""
++
+     # Pre-shared bearer token that AWS Secrets Manager rotation Lambda must send
+     # to POST /api/v1/admin/invalidate-secrets.  Empty string = endpoint disabled.
+     admin_rotation_token: str = ""

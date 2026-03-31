@@ -1,0 +1,63 @@
+--- "/sessions/serene-epic-ride/mnt/Auto Trade Bot/CHANGES/session_001_kill_switch/originals/execution_engine_service.py"	2026-03-22 17:28:57.670267900 -0500
++++ "/sessions/serene-epic-ride/mnt/Auto Trade Bot/apis/services/execution_engine/service.py"	2026-03-22 17:29:04.853584100 -0500
+@@ -21,7 +21,7 @@
+ 
+ import uuid
+ from decimal import Decimal, ROUND_DOWN
+-from typing import Optional
++from typing import Callable, Optional
+ 
+ import structlog
+ 
+@@ -46,9 +46,27 @@
+     Thread-safety: not thread-safe; callers must coordinate access.
+     """
+ 
+-    def __init__(self, settings: Settings, broker: BaseBrokerAdapter) -> None:
++    def __init__(
++        self,
++        settings: Settings,
++        broker: BaseBrokerAdapter,
++        kill_switch_fn: Optional[Callable[[], bool]] = None,
++    ) -> None:
++        """Initialise the execution engine.
++
++        Args:
++            settings:       Application settings (provides env-var kill_switch).
++            broker:         Broker adapter to submit orders through.
++            kill_switch_fn: Optional zero-argument callable that returns True when
++                            the *runtime* kill switch is active (e.g.
++                            ``lambda: app_state.kill_switch_active``).  When None,
++                            only the env-var kill_switch is checked.  When provided,
++                            the effective kill switch is
++                            ``settings.kill_switch OR kill_switch_fn()``.
++        """
+         self._settings = settings
+         self._broker = broker
++        self._kill_switch_fn = kill_switch_fn
+         self._log = log.bind(service="execution_engine", broker=broker.adapter_name)
+ 
+     # ── Public API ────────────────────────────────────────────────────────────
+@@ -65,13 +83,18 @@
+         """
+         action = request.action
+ 
+-        # ── Kill switch re-check ────────────────────────────────────────────
+-        if self._settings.kill_switch:
+-            self._log.warning("execution_blocked_kill_switch", ticker=action.ticker)
++        # ── Kill switch re-check (belt-and-suspenders: risk_engine already checked) ─
++        runtime_active = self._kill_switch_fn() if self._kill_switch_fn is not None else False
++        if self._settings.kill_switch or runtime_active:
++            source = "env+runtime" if (self._settings.kill_switch and runtime_active) \
++                else ("runtime" if runtime_active else "env")
++            self._log.warning(
++                "execution_blocked_kill_switch", ticker=action.ticker, source=source
++            )
+             return ExecutionResult(
+                 status=ExecutionStatus.BLOCKED,
+                 action=action,
+-                error_message="Kill switch active — order not submitted.",
++                error_message=f"Kill switch active ({source}) — order not submitted.",
+             )
+ 
+         # ── BLOCKED actions pass-through ────────────────────────────────────

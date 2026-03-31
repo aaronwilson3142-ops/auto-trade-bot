@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apis-config
+  namespace: apis
+  labels:
+    app.kubernetes.io/name: apis
+    app.kubernetes.io/component: config
+data:
+  # ── Application ───────────────────────────────────────────────────────────
+  APIS_ENV: "production"
+  APIS_LOG_LEVEL: "INFO"
+  APIS_OPERATING_MODE: "paper"        # paper | human_approved (never restricted_live via env)
+  APIS_KILL_SWITCH: "false"
+
+  # ── API server ────────────────────────────────────────────────────────────
+  APIS_API_HOST: "0.0.0.0"
+  APIS_API_PORT: "8000"
+
+  # ── Risk controls ─────────────────────────────────────────────────────────
+  APIS_MAX_POSITIONS: "10"
+  APIS_DAILY_LOSS_LIMIT_PCT: "0.02"
+  APIS_WEEKLY_DRAWDOWN_LIMIT_PCT: "0.05"
+  APIS_MAX_SINGLE_NAME_PCT: "0.20"
+  APIS_MAX_SECTOR_PCT: "0.40"
+  APIS_MAX_THEMATIC_PCT: "0.50"
+
+  # ── Infrastructure ────────────────────────────────────────────────────────
+  # Override APIS_DB_URL and APIS_REDIS_URL in the Secret or via valueFrom if
+  # these contain no credentials (they typically do — use secrets.yaml instead).
+  APIS_DB_URL: "postgresql+psycopg://apis:$(POSTGRES_PASSWORD)@postgres-svc:5432/apis"
+  APIS_REDIS_URL: "redis://redis-svc:6379/0"
+
+  # ── Secrets backend ───────────────────────────────────────────────────────
+  # "production" routes through AWSSecretManager; "development" uses env vars
+  APIS_SECRET_BACKEND: "production"
+
+  # ── Prometheus ────────────────────────────────────────────────────────────
+  PROMETHEUS_PORT: "9090"

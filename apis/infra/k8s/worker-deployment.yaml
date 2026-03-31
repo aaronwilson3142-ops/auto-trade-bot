@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apis-worker
+  namespace: apis
+  labels:
+    app.kubernetes.io/name: apis
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 1               # APScheduler in-process — only ONE worker replica
+  selector:
+    matchLabels:
+      app: apis-worker
+  strategy:
+    type: Recreate           # avoid duplicate in-process schedulers during deploys
+  template:
+    metadata:
+      labels:
+        app: apis-worker
+        app.kubernetes.io/name: apis
+        app.kubernetes.io/component: worker
+    spec:
+      # ── Security context ─────────────────────────────────────────────────
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+
+      # ── Init container: wait for API ──────────────────────────────────────
+      initContainers:
+        - name: wait-for-api
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until wget -qO- http://apis-api-svc:8000/health | grep -q '"status"'; do
+                echo "Waiting for APIS API..."; sleep 5
+              done
+              echo "APIS API is ready."
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+
+      containers:
+        - name: worker
+          image: your-registry/apis:latest   # same image as api — started with different command
+          imagePullPolicy: Always
+          command: ["python", "-m", "apps.worker.main"]
+          ports: []
+
+          # ── Env from ConfigMap + Secret ──────────────────────────────────
+          envFrom:
+            - configMapRef:
+                name: apis-config
+            - secretRef:
+                name: apis-secrets
+
+          # ── Security ────────────────────────────────────────────────────
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+
+          # ── Resource limits ──────────────────────────────────────────────
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+
+          # ── Liveness probe (worker should never restart unless wedged) ───
+          livenessProbe:
+            exec:
+              command: ["python", "-c", "import sys; sys.exit(0)"]
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 3
+
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 60    # allow in-flight jobs to complete

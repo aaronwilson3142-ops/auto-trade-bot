@@ -1,0 +1,59 @@
+--- CHANGES/session_004_daily_position_cap/originals/risk_engine_service.py	2026-03-22 17:40:13.076886200 -0500
++++ apis/services/risk_engine/service.py	2026-03-22 17:41:02.694226100 -0500
+@@ -12,6 +12,7 @@
+   4. daily_loss_limit_pct     — halt new opens if today's loss limit is hit
+   5. weekly_drawdown_limit    — halt new opens if drawdown exceeds weekly cap
+   6. monthly_drawdown_limit   — halt new opens if MTD loss exceeds monthly cap
++  7. max_new_positions_per_day — halt new opens once daily open limit is reached
+ 
+ CLOSE actions are not blocked by position-count limits; they can always proceed
+ (subject to kill switch and drawdown limits).
+@@ -123,6 +124,7 @@
+             self.check_daily_loss_limit(portfolio_state),
+             self.check_drawdown(portfolio_state),
+             self.check_monthly_drawdown(portfolio_state),
++            self.check_daily_position_cap(action, portfolio_state),
+         ]
+ 
+         for result in checks:
+@@ -323,6 +325,40 @@
+                         ),
+                         severity=RiskSeverity.HARD_BLOCK,
+                     )
++                ],
++            )
++        return RiskCheckResult(passed=True)
++
++    def check_daily_position_cap(
++        self,
++        action: PortfolioAction,
++        portfolio_state: PortfolioState,
++    ) -> RiskCheckResult:
++        """Block new OPEN actions once the daily new-position limit is reached.
++
++        Only applies to OPEN actions.  CLOSE and TRIM actions are never affected.
++
++        The caller is responsible for incrementing portfolio_state.daily_opens_count
++        after each successful OPEN fill, and resetting it to 0 at the start of each
++        trading day.
++        """
++        if action.action_type != ActionType.OPEN:
++            return RiskCheckResult(passed=True)
++
++        limit = self._settings.max_new_positions_per_day
++        if portfolio_state.daily_opens_count >= limit:
++            return RiskCheckResult(
++                passed=False,
++                violations=[
++                    RiskViolation(
++                        rule_name="max_new_positions_per_day",
++                        reason=(
++                            f"Daily new-position limit reached: "
++                            f"{portfolio_state.daily_opens_count}/{limit} opens today. "
++                            f"No further opens permitted until tomorrow."
++                        ),
++                        severity=RiskSeverity.HARD_BLOCK,
++                    )
+                 ],
+             )
+         return RiskCheckResult(passed=True)

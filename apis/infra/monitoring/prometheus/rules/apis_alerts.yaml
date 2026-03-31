@@ -1,0 +1,228 @@
+# Prometheus Alert Rules — APIS Operational Alerts
+#
+# Load this file by referencing it in prometheus.yml:
+#
+#   rule_files:
+#     - /etc/prometheus/rules/apis_alerts.yaml
+#
+# Docker Compose usage (mount into prometheus container):
+#   volumes:
+#     - ./infra/monitoring/prometheus/rules:/etc/prometheus/rules:ro
+#
+# Metrics sourced from: GET /metrics  (see apps/api/routes/metrics.py)
+# Scrape target: apis_api service at port 8000.
+#
+# Alert severity levels used:
+#   critical  — requires immediate operator intervention
+#   warning   — investigate soon; may self-recover
+#   info      — informational notification
+
+groups:
+  # ──────────────────────────────────────────────────────────────────────────
+  # Group 1: Safety / Kill-Switch
+  # ──────────────────────────────────────────────────────────────────────────
+  - name: apis.safety
+    interval: 15s
+    rules:
+      - alert: KillSwitchActive
+        expr: apis_kill_switch_active == 1
+        for: 0m        # fire immediately — kill switch is an emergency brake
+        labels:
+          severity: critical
+          team: trading
+        annotations:
+          summary: "APIS kill switch is ACTIVE"
+          description: >
+            The APIS kill switch (APIS_KILL_SWITCH=true) has been triggered.
+            All new order submissions are blocked. No paper or live cycles
+            will execute until the kill switch is cleared and the service
+            is restarted.
+          runbook_url: "https://github.com/internal/apis/blob/main/docs/runbooks/kill_switch.md"
+
+      - alert: APISScrapeDown
+        expr: up{job="apis"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: trading
+        annotations:
+          summary: "APIS /metrics scrape target is down"
+          description: >
+            Prometheus cannot reach the APIS /metrics endpoint (job="apis").
+            The API service may be crashed or unreachable.
+            Check: docker compose ps; docker compose logs api
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Group 2: Paper Trading Loop Health
+  # ──────────────────────────────────────────────────────────────────────────
+  - name: apis.paper_loop
+    interval: 30s
+    rules:
+      - alert: PaperLoopInactive
+        # Loop should be active during US market hours (roughly 09:00-17:00 ET).
+        # In PAPER mode, loop_active should be 1 once the first cycle has run.
+        # We alert if it has been 0 for more than 1 hour — catches missed
+        # morning start or unexpected crash.
+        expr: >
+          (apis_paper_loop_active == 0)
+          and
+          (apis_operating_mode{mode="paper"} == 1)
+        for: 60m
+        labels:
+          severity: warning
+          team: trading
+        annotations:
+          summary: "Paper trading loop has not been active for 60 minutes"
+          description: >
+            APIS is configured for PAPER mode but apis_paper_loop_active has
+            been 0 for the past 60 minutes. Expected at least one cycle to
+            have run since market open.
+            Check: GET /api/v1/system/status ; docker compose logs worker
+
+      - alert: PaperLoopCycleCountStalled
+        # Cycle count should increase throughout the trading day.
+        # Alert if count has not increased in 2 hours during paper mode.
+        expr: >
+          (
+            increase(apis_paper_cycle_count[2h]) == 0
+          )
+          and
+          (apis_operating_mode{mode="paper"} == 1)
+        for: 10m
+        labels:
+          severity: warning
+          team: trading
+        annotations:
+          summary: "Paper trading cycle count has not increased in 2 hours"
+          description: >
+            apis_paper_cycle_count has not incremented over the last 2 hours
+            while in PAPER mode. This may indicate the APScheduler worker
+            is not running or the job is failing silently.
+            Check: GET /api/v1/system/status ; docker compose logs worker
+
+      - alert: BrokerAuthExpired
+        # Fires immediately when the broker authentication token has expired.
+        # This prevents a silent failure where paper trading cycles are
+        # scheduled but cannot execute because the broker refuses the connection.
+        expr: apis_broker_auth_expired == 1
+        for: 0m        # fire immediately — auth expiry is a blocker
+        labels:
+          severity: critical
+          team: trading
+        annotations:
+          summary: "Broker authentication token has expired"
+          description: >
+            APIS detected a BrokerAuthenticationError during the paper trading
+            cycle broker-connect step. All trading cycles are now blocked until
+            the broker token is refreshed.
+
+            For Schwab: re-run the OAuth browser flow to obtain a new refresh
+            token, then restart the worker:
+              docker compose restart worker
+
+            For IBKR: ensure TWS/Gateway is running and re-authenticate.
+
+            Check GET /health — broker_auth component will show "expired".
+            Check: GET /api/v1/admin/events for the exact timestamp.
+          runbook_url: "https://github.com/internal/apis/blob/main/docs/runbooks/mode_transition_runbook.md"
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Group 3: Portfolio / Risk
+  # ──────────────────────────────────────────────────────────────────────────
+  - name: apis.portfolio
+    interval: 60s
+    rules:
+      - alert: DrawdownAlert
+        # Alert when portfolio equity drops more than 8% from $100k baseline.
+        # Threshold is intentionally below the hard 10% kill-switch drawdown
+        # so operators can intervene before the hard stop fires.
+        expr: apis_portfolio_equity_usd < 92000
+        for: 5m
+        labels:
+          severity: warning
+          team: trading
+        annotations:
+          summary: "Portfolio equity below $92,000 (8% drawdown warning)"
+          description: >
+            apis_portfolio_equity_usd is {{ $value | printf "%.2f" }}, which
+            is more than 8% below the $100,000 starting capital.
+            The hard kill-switch triggers at 10% drawdown (~$90,000).
+
+      - alert: DrawdownCritical
+        expr: apis_portfolio_equity_usd < 90500
+        for: 1m
+        labels:
+          severity: critical
+          team: trading
+        annotations:
+          summary: "Portfolio equity near kill-switch threshold (<$90,500)"
+          description: >
+            apis_portfolio_equity_usd is {{ $value | printf "%.2f" }}.
+            Approaching the 10% drawdown kill-switch at $90,000.
+            Immediate review required.
+
+      - alert: PortfolioEquityZero
+        expr: apis_portfolio_equity_usd == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: trading
+        annotations:
+          summary: "Portfolio equity reported as zero"
+          description: >
+            apis_portfolio_equity_usd is reporting 0. This likely indicates
+            a data pipeline or state initialisation issue rather than actual
+            capital loss. Investigate immediately.
+
+      - alert: PositionLimitExceeded
+        # Default max_positions is 10. Alert if we exceed 12 as an anomaly detector.
+        expr: apis_portfolio_positions > 12
+        for: 5m
+        labels:
+          severity: warning
+          team: trading
+        annotations:
+          summary: "Portfolio position count exceeds expected maximum ({{ $value }})"
+          description: >
+            apis_portfolio_positions is {{ $value }}. The configured maximum
+            is 10. A higher value may indicate a risk engine check failure
+            or state reconciliation issue.
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Group 4: Ranking / Signal Pipeline
+  # ──────────────────────────────────────────────────────────────────────────
+  - name: apis.pipeline
+    interval: 60s
+    rules:
+      - alert: RankingsPipelineStalled
+        # Rankings should be refreshed multiple times per day during market hours.
+        # If ranking count drops to 0 for more than 2 hours, the pipeline
+        # may have crashed.
+        expr: apis_latest_ranking_count == 0
+        for: 120m
+        labels:
+          severity: warning
+          team: trading
+        annotations:
+          summary: "No ranked opportunities available for 2 hours"
+          description: >
+            apis_latest_ranking_count has been 0 for over 2 hours.
+            This prevents the paper trading loop from executing any trades.
+            Check the ranking engine worker job:
+            GET /api/v1/recommendations ; docker compose logs worker
+
+      - alert: TooManyImprovementProposals
+        # More than 20 pending proposals indicates the evaluate+promote
+        # loop has stalled or proposals are being generated but never evaluated.
+        expr: apis_improvement_proposal_count > 20
+        for: 30m
+        labels:
+          severity: info
+          team: trading
+        annotations:
+          summary: "High number of pending improvement proposals ({{ $value }})"
+          description: >
+            apis_improvement_proposal_count is {{ $value }}, which is
+            unusually high. This may indicate that the self-improvement
+            evaluation loop has stalled.
+            Check: GET /api/v1/reports/proposals

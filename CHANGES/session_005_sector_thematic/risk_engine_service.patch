@@ -1,0 +1,127 @@
+--- CHANGES/session_005_sector_thematic/originals/risk_engine_service.py	2026-03-22 17:52:14.239230000 -0500
++++ apis/services/risk_engine/service.py	2026-03-22 17:53:32.630795300 -0500
+@@ -13,6 +13,8 @@
+   5. weekly_drawdown_limit    — halt new opens if drawdown exceeds weekly cap
+   6. monthly_drawdown_limit   — halt new opens if MTD loss exceeds monthly cap
+   7. max_new_positions_per_day — halt new opens once daily open limit is reached
++  8. max_sector_pct           — halt opens that would push any sector over its cap
++  9. max_thematic_pct         — halt opens that would push any theme over its cap
+ 
+ CLOSE actions are not blocked by position-count limits; they can always proceed
+ (subject to kill switch and drawdown limits).
+@@ -125,6 +127,8 @@
+             self.check_drawdown(portfolio_state),
+             self.check_monthly_drawdown(portfolio_state),
+             self.check_daily_position_cap(action, portfolio_state),
++            self.check_sector_concentration(action, portfolio_state),
++            self.check_thematic_concentration(action, portfolio_state),
+         ]
+ 
+         for result in checks:
+@@ -363,6 +367,106 @@
+             )
+         return RiskCheckResult(passed=True)
+ 
++    def check_sector_concentration(
++        self,
++        action: PortfolioAction,
++        portfolio_state: PortfolioState,
++    ) -> RiskCheckResult:
++        """Block OPEN actions that would push any GICS sector above max_sector_pct.
++
++        Only applies to OPEN actions.  CLOSE and TRIM are never affected.
++        Uses SectorExposureService.projected_sector_weight() to compute the
++        post-trade sector weight before any order is submitted.
++
++        Gracefully passes (with a warning) when the sector mapping is unavailable.
++        """
++        if action.action_type != ActionType.OPEN:
++            return RiskCheckResult(passed=True)
++
++        try:
++            from services.risk_engine.sector_exposure import SectorExposureService  # noqa: PLC0415
++
++            projected = SectorExposureService.projected_sector_weight(
++                ticker=action.ticker,
++                notional=action.target_notional,
++                positions=portfolio_state.positions,
++                equity=portfolio_state.equity,
++            )
++            limit = self._settings.max_sector_pct
++
++            if projected > limit:
++                sector = SectorExposureService.get_sector(action.ticker)
++                return RiskCheckResult(
++                    passed=False,
++                    violations=[
++                        RiskViolation(
++                            rule_name="max_sector_pct",
++                            reason=(
++                                f"Opening {action.ticker} would push '{sector}' sector "
++                                f"to {projected:.1%}, exceeding limit {limit:.1%}."
++                            ),
++                            severity=RiskSeverity.HARD_BLOCK,
++                        )
++                    ],
++                )
++        except Exception as exc:  # noqa: BLE001
++            return RiskCheckResult(
++                passed=True,
++                warnings=[f"sector_concentration: check skipped due to error — {exc}"],
++            )
++
++        return RiskCheckResult(passed=True)
++
++    def check_thematic_concentration(
++        self,
++        action: PortfolioAction,
++        portfolio_state: PortfolioState,
++    ) -> RiskCheckResult:
++        """Block OPEN actions that would push any investment theme above max_thematic_pct.
++
++        Only applies to OPEN actions.  CLOSE and TRIM are never affected.
++        Uses ThematicExposureService.projected_thematic_weight() to compute the
++        post-trade theme weight before any order is submitted.
++
++        Gracefully passes (with a warning) when the theme mapping is unavailable.
++        """
++        if action.action_type != ActionType.OPEN:
++            return RiskCheckResult(passed=True)
++
++        try:
++            from services.risk_engine.thematic_exposure import ThematicExposureService  # noqa: PLC0415
++
++            projected = ThematicExposureService.projected_thematic_weight(
++                ticker=action.ticker,
++                notional=action.target_notional,
++                positions=portfolio_state.positions,
++                equity=portfolio_state.equity,
++            )
++            limit = self._settings.max_thematic_pct
++
++            if projected > limit:
++                theme = ThematicExposureService.get_theme(action.ticker)
++                return RiskCheckResult(
++                    passed=False,
++                    violations=[
++                        RiskViolation(
++                            rule_name="max_thematic_pct",
++                            reason=(
++                                f"Opening {action.ticker} would push '{theme}' theme "
++                                f"to {projected:.1%}, exceeding limit {limit:.1%}."
++                            ),
++                            severity=RiskSeverity.HARD_BLOCK,
++                        )
++                    ],
++                )
++        except Exception as exc:  # noqa: BLE001
++            return RiskCheckResult(
++                passed=True,
++                warnings=[f"thematic_concentration: check skipped due to error — {exc}"],
++            )
++
++        return RiskCheckResult(passed=True)
++
+     def evaluate_exits(
+         self,
+         positions: "dict[str, PortfolioPosition]",

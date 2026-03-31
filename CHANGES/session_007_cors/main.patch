@@ -1,0 +1,14 @@
+--- "/sessions/serene-epic-ride/mnt/Auto Trade Bot/CHANGES/session_007_cors/originals/main.py"	2026-03-22 18:06:54.217922900 -0500
++++ "/sessions/serene-epic-ride/mnt/Auto Trade Bot/apis/apps/api/main.py"	2026-03-22 18:07:11.871978600 -0500
+@@ -167,9 +167,9 @@
+ 
+ app.add_middleware(
+     CORSMiddleware,
+-    allow_origins=["*"],
++    allow_origins=settings.allowed_cors_origins,
+     allow_methods=["GET", "POST"],
+-    allow_headers=["*"],
++    allow_headers=["Authorization", "Content-Type"],
+ )
+ 
+ # Mount all v1 routers under /api/v1 prefix

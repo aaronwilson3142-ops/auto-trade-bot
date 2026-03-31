@@ -1,0 +1,85 @@
+--- CHANGES/session_006_api_auth/originals/main.py	2026-03-22 17:58:29.866915500 -0500
++++ apis/apps/api/main.py	2026-03-22 17:59:18.035501300 -0500
+@@ -15,7 +15,7 @@
+ 
+ from config.logging_config import configure_logging, get_logger
+ from config.settings import get_settings
+-from apps.api.deps import AppStateDep, SettingsDep
++from apps.api.deps import AppStateDep, OperatorTokenDep, SettingsDep
+ 
+ settings = get_settings()
+ configure_logging(log_level=settings.log_level)
+@@ -208,38 +208,42 @@
+ )
+ 
+ _V1 = "/api/v1"
+-app.include_router(recommendations_router, prefix=_V1)
+-app.include_router(portfolio_router,        prefix=_V1)
+-app.include_router(actions_router,          prefix=_V1)
+-app.include_router(evaluation_router,       prefix=_V1)
+-app.include_router(reports_router,          prefix=_V1)
+-app.include_router(config_router,           prefix=_V1)
+-app.include_router(live_gate_router,        prefix=_V1)
+-app.include_router(admin_router,            prefix=_V1)
+-app.include_router(intelligence_router,     prefix=_V1)
+-app.include_router(signals_router,          prefix=_V1)
+-app.include_router(rankings_router,         prefix=_V1)
+-app.include_router(backtest_router,         prefix=_V1)
+-app.include_router(self_improvement_router, prefix=_V1)
+-app.include_router(prices_router,           prefix=_V1)
+-app.include_router(weights_router,          prefix=_V1)
+-app.include_router(regime_router,           prefix=_V1)
+-app.include_router(correlation_router,      prefix=_V1)
+-app.include_router(sector_router,           prefix=_V1)
+-app.include_router(liquidity_router,        prefix=_V1)
+-app.include_router(var_router,              prefix=_V1)
+-app.include_router(stress_router,           prefix=_V1)
+-app.include_router(earnings_router,         prefix=_V1)
+-app.include_router(signal_quality_router,   prefix=_V1)
+-app.include_router(exit_levels_router,      prefix=_V1)
+-app.include_router(universe_router,         prefix=_V1)
+-app.include_router(rebalance_router,        prefix=_V1)
+-app.include_router(factor_router,           prefix=_V1)
+-app.include_router(fill_quality_router,     prefix=_V1)
+-app.include_router(readiness_router,        prefix=_V1)
+-app.include_router(factor_tilt_router,      prefix=_V1)
++_AUTH = [OperatorTokenDep]  # applied to every /api/v1/* route
+ 
+-# Prometheus metrics endpoint (no prefix — standard /metrics path)
++app.include_router(recommendations_router, prefix=_V1, dependencies=_AUTH)
++app.include_router(portfolio_router,        prefix=_V1, dependencies=_AUTH)
++app.include_router(actions_router,          prefix=_V1, dependencies=_AUTH)
++app.include_router(evaluation_router,       prefix=_V1, dependencies=_AUTH)
++app.include_router(reports_router,          prefix=_V1, dependencies=_AUTH)
++app.include_router(config_router,           prefix=_V1, dependencies=_AUTH)
++app.include_router(live_gate_router,        prefix=_V1, dependencies=_AUTH)
++app.include_router(admin_router,            prefix=_V1, dependencies=_AUTH)
++app.include_router(intelligence_router,     prefix=_V1, dependencies=_AUTH)
++app.include_router(signals_router,          prefix=_V1, dependencies=_AUTH)
++app.include_router(rankings_router,         prefix=_V1, dependencies=_AUTH)
++app.include_router(backtest_router,         prefix=_V1, dependencies=_AUTH)
++app.include_router(self_improvement_router, prefix=_V1, dependencies=_AUTH)
++app.include_router(prices_router,           prefix=_V1, dependencies=_AUTH)
++app.include_router(weights_router,          prefix=_V1, dependencies=_AUTH)
++app.include_router(regime_router,           prefix=_V1, dependencies=_AUTH)
++app.include_router(correlation_router,      prefix=_V1, dependencies=_AUTH)
++app.include_router(sector_router,           prefix=_V1, dependencies=_AUTH)
++app.include_router(liquidity_router,        prefix=_V1, dependencies=_AUTH)
++app.include_router(var_router,              prefix=_V1, dependencies=_AUTH)
++app.include_router(stress_router,           prefix=_V1, dependencies=_AUTH)
++app.include_router(earnings_router,         prefix=_V1, dependencies=_AUTH)
++app.include_router(signal_quality_router,   prefix=_V1, dependencies=_AUTH)
++app.include_router(exit_levels_router,      prefix=_V1, dependencies=_AUTH)
++app.include_router(universe_router,         prefix=_V1, dependencies=_AUTH)
++app.include_router(rebalance_router,        prefix=_V1, dependencies=_AUTH)
++app.include_router(factor_router,           prefix=_V1, dependencies=_AUTH)
++app.include_router(fill_quality_router,     prefix=_V1, dependencies=_AUTH)
++app.include_router(factor_tilt_router,      prefix=_V1, dependencies=_AUTH)
++
++# Readiness probes — no auth (must respond even before token is configured)
++app.include_router(readiness_router, prefix=_V1)
++
++# Prometheus metrics endpoint (no auth — scraped by monitoring infrastructure)
+ app.include_router(metrics_router)
+ 
+ # Read-only operator dashboard

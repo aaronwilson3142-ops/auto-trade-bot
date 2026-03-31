@@ -1,0 +1,37 @@
+--- CHANGES/session_002_idempotency/originals/execution_engine_service.py	2026-03-22 17:31:51.291562300 -0500
++++ apis/services/execution_engine/service.py	2026-03-22 17:33:34.626774000 -0500
+@@ -10,8 +10,9 @@
+   - Only ActionType.OPEN and ActionType.CLOSE trigger real orders.
+   - BLOCKED actions are returned as-is with ExecutionStatus.BLOCKED.
+   - Fractional shares are not permitted in MVP: quantity = floor(notional/price).
+-  - Idempotency keys are built from ticker + action_type + timestamp so that
+-    duplicate submissions from retries are detected by the broker adapter.
++  - Idempotency keys are built from action.id (stable UUID assigned once at action
++    creation) so that retries of the same action always produce the same key,
++    enabling broker-side deduplication via DuplicateOrderError.
+ 
+ Spec references:
+   - API_AND_SERVICE_BOUNDARIES_SPEC.md § 3.12
+@@ -19,7 +20,6 @@
+ """
+ from __future__ import annotations
+ 
+-import uuid
+ from decimal import Decimal, ROUND_DOWN
+ from typing import Callable, Optional
+ 
+@@ -353,6 +353,12 @@
+ 
+     @staticmethod
+     def _make_idempotency_key(action: "PortfolioAction", suffix: str) -> str:  # noqa: F821
+-        """Generate a unique idempotency key for this action attempt."""
+-        return f"{action.ticker}_{suffix}_{uuid.uuid4()}"
++        """Generate a deterministic idempotency key for this action.
++
++        Built from action.id (stable UUID assigned once at action creation) so that
++        retries of the same action always produce the same key, enabling broker-side
++        deduplication via DuplicateOrderError.  Different proposals (e.g. re-entry
++        after a stop-out) carry a different action.id and thus a different key.
++        """
++        return f"{action.ticker}_{suffix}_{action.id}"
+ 

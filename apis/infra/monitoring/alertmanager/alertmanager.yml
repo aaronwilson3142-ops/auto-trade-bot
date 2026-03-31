@@ -1,0 +1,142 @@
+# Alertmanager Configuration — APIS
+#
+# Routes Prometheus alert notifications to Slack and PagerDuty.
+#
+# Routing logic
+# -------------
+#   severity: critical  →  PagerDuty (immediate) + Slack (#apis-critical)
+#   severity: warning   →  Slack (#apis-alerts)
+#   default (catch-all) →  Slack (#apis-alerts)
+#
+# Inhibition rules
+# ----------------
+#   When a critical alert fires, matching warning alerts for the same
+#   alertname are suppressed to prevent duplicate noise.
+#
+# Environment variables referenced (set in .env / K8s Secret)
+# -----------------------------------------------------------
+#   SLACK_WEBHOOK_URL               — Slack Incoming Webhook URL
+#   SLACK_CHANNEL_CRITICAL          — Slack channel for critical alerts (default: #apis-critical)
+#   SLACK_CHANNEL_DEFAULT           — Slack channel for warning/default alerts (default: #apis-alerts)
+#   PAGERDUTY_INTEGRATION_KEY       — PagerDuty Events API v2 integration key
+#
+# Start Alertmanager with:
+#   alertmanager --config.file=/etc/alertmanager/alertmanager.yml
+#
+# Docker Compose usage:
+#   volumes:
+#     - ./infra/monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+
+global:
+  # How long to wait before resending a notification for an unresolved alert.
+  resolve_timeout: 5m
+  # Slack global defaults — overridden per receiver.
+  slack_api_url: "${SLACK_WEBHOOK_URL}"
+  # HTTP client settings (used for all receivers).
+  http_config:
+    follow_redirects: true
+
+# ---------------------------------------------------------------------------
+# Templates
+# ---------------------------------------------------------------------------
+templates:
+  - /etc/alertmanager/templates/*.tmpl
+
+# ---------------------------------------------------------------------------
+# Routing tree
+# ---------------------------------------------------------------------------
+route:
+  # Default receiver for any alert that does not match a sub-route.
+  receiver: slack-default
+  # How long to wait before sending the first notification for a new group.
+  group_wait: 30s
+  # How long to wait before sending a notification for new alerts in an
+  # existing group.
+  group_interval: 5m
+  # How long to wait before resending a notification for an unchanged group.
+  repeat_interval: 4h
+  # Alerts are grouped by alertname and team label so each team gets one
+  # consolidated message per alert type.
+  group_by: [alertname, team]
+
+  routes:
+    # Critical alerts → PagerDuty (immediate; page the on-call engineer) +
+    # Slack critical channel.
+    - matchers:
+        - severity = "critical"
+      receiver: pagerduty-critical
+      group_wait: 0s          # no delay for critical incidents
+      repeat_interval: 1h     # re-page every hour while active
+      routes:
+        # Also post to Slack critical channel so the team has context.
+        - matchers:
+            - severity = "critical"
+          receiver: slack-critical
+          continue: false
+
+    # Warning alerts → Slack alerts channel.
+    - matchers:
+        - severity = "warning"
+      receiver: slack-default
+      repeat_interval: 6h
+
+# ---------------------------------------------------------------------------
+# Inhibition rules
+# ---------------------------------------------------------------------------
+inhibit_rules:
+  # Suppress warning notifications when a critical alert with the same
+  # alertname is already firing.  Avoids duplicate pages for the same
+  # underlying incident.
+  - source_matchers:
+      - severity = "critical"
+    target_matchers:
+      - severity = "warning"
+    equal: [alertname]
+
+# ---------------------------------------------------------------------------
+# Receivers
+# ---------------------------------------------------------------------------
+receivers:
+  # ── PagerDuty — critical severity ─────────────────────────────────────────
+  - name: pagerduty-critical
+    pagerduty_configs:
+      - routing_key: "${PAGERDUTY_INTEGRATION_KEY}"
+        severity: critical
+        description: '{{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        details:
+          firing: '{{ .Alerts.Firing | len }}'
+          runbook: '{{ range .Alerts }}{{ .Annotations.runbook_url }}{{ end }}'
+          env: '{{ .CommonLabels.env }}'
+          service: '{{ .CommonLabels.service }}'
+        # Re-send for unresolved incidents every hour (overridden from repeat_interval).
+        send_resolved: true
+
+  # ── Slack — critical severity ──────────────────────────────────────────────
+  - name: slack-critical
+    slack_configs:
+      - channel: "${SLACK_CHANNEL_CRITICAL:-#apis-critical}"
+        username: "APIS Alertmanager"
+        icon_emoji: ":rotating_light:"
+        color: 'danger'
+        title: ':rotating_light: [CRITICAL] {{ .GroupLabels.alertname }}'
+        text: |
+          *Alert:* {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}
+          *Severity:* `critical`
+          *Team:* `{{ .CommonLabels.team }}`
+          *Runbook:* {{ range .Alerts }}{{ .Annotations.runbook_url }}{{ end }}
+        send_resolved: true
+
+  # ── Slack — warning / default severity ────────────────────────────────────
+  - name: slack-default
+    slack_configs:
+      - channel: "${SLACK_CHANNEL_DEFAULT:-#apis-alerts}"
+        username: "APIS Alertmanager"
+        icon_emoji: ":warning:"
+        color: 'warning'
+        title: ':warning: [{{ .CommonLabels.severity | toUpper }}] {{ .GroupLabels.alertname }}'
+        text: |
+          *Alert:* {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}
+          *Severity:* `{{ .CommonLabels.severity }}`
+          *Team:* `{{ .CommonLabels.team }}`
+          *Runbook:* {{ range .Alerts }}{{ .Annotations.runbook_url }}{{ end }}
+        send_resolved: true

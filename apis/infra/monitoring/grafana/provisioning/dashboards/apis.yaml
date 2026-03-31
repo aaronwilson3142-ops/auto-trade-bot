@@ -1,0 +1,26 @@
+# Grafana Dashboard Provisioning
+# Place this file at: /etc/grafana/provisioning/dashboards/apis.yaml
+# (Grafana auto-loads files in this directory on startup)
+#
+# Docker Compose usage (mount in grafana service):
+#   volumes:
+#     - ./infra/monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+#     - ./infra/monitoring:/var/lib/grafana/dashboards:ro
+#
+# The dashboard JSON at infra/monitoring/grafana_dashboard.json will be
+# automatically imported and kept in sync on every Grafana restart.
+
+apiVersion: 1
+
+providers:
+  - name: APIS Dashboards
+    orgId: 1
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      # Directory where Grafana looks for dashboard JSON files.
+      # This maps to ./infra/monitoring/ in the Docker volume mount above.
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

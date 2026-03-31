@@ -1,0 +1,30 @@
+--- CHANGES/session_003_monthly_drawdown/originals/portfolio_engine_models.py	2026-03-22 17:36:49.559841400 -0500
++++ apis/services/portfolio_engine/models.py	2026-03-22 17:37:15.214847900 -0500
+@@ -62,8 +62,9 @@
+ 
+     cash: Decimal
+     positions: dict[str, PortfolioPosition] = field(default_factory=dict)
+-    start_of_day_equity: Optional[Decimal] = None   # for daily P&L limit
+-    high_water_mark: Optional[Decimal] = None        # for drawdown limit
++    start_of_day_equity: Optional[Decimal] = None    # for daily P&L limit
++    start_of_month_equity: Optional[Decimal] = None  # for monthly drawdown limit
++    high_water_mark: Optional[Decimal] = None         # for weekly drawdown limit
+ 
+     @property
+     def gross_exposure(self) -> Decimal:
+@@ -98,6 +99,15 @@
+             (self.equity - self.start_of_day_equity) / self.start_of_day_equity
+         ).quantize(Decimal("0.0001"))
+ 
++    @property
++    def monthly_pnl_pct(self) -> Decimal:
++        """Month-to-date P&L as a fraction of start-of-month equity (negative = loss)."""
++        if not self.start_of_month_equity or self.start_of_month_equity == Decimal("0"):
++            return Decimal("0")
++        return (
++            (self.equity - self.start_of_month_equity) / self.start_of_month_equity
++        ).quantize(Decimal("0.0001"))
++
+ 
+ # ── Portfolio actions ─────────────────────────────────────────────────────────
+ 

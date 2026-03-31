@@ -1,0 +1,73 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+wheels/
+*.egg-link
+.installed.cfg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Environment secrets — NEVER commit real .env
+.env
+!.env.example
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# Test / coverage outputs
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+nosetests.xml
+
+# Mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Ruff
+.ruff_cache/
+
+# Jupyter notebooks temp
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Logs
+logs/
+*.log
+
+# Local data (raw/staged/snapshots should not be committed)
+data/raw/
+data/staged/
+data/curated/
+data/snapshots/
+
+# Alembic upgrade artifacts (keep migrations, not compiled)
+*.pyc
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker secrets and local overrides
+docker-compose.override.yml
+secrets/

@@ -1,0 +1,45 @@
+# Prometheus Configuration — APIS
+#
+# Start Prometheus with:
+#   prometheus --config.file=/etc/prometheus/prometheus.yml
+#
+# Docker Compose usage:
+#   volumes:
+#     - ./infra/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+#     - ./infra/monitoring/prometheus/rules:/etc/prometheus/rules:ro
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    env: "paper"
+    service: "apis"
+
+# Alert rules
+rule_files:
+  - /etc/prometheus/rules/apis_alerts.yaml
+
+# Alertmanager (configure if using alertmanager; comment out if not)
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  # APIS FastAPI service — exposes /metrics in Prometheus text format
+  - job_name: apis
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+      # When running via docker-compose, use the service name.
+      # Change to localhost:8000 for non-Docker local dev.
+      - targets: ["apis_api:8000"]
+        labels:
+          component: "api"
+
+  # Self-monitoring: Prometheus scrapes its own metrics
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

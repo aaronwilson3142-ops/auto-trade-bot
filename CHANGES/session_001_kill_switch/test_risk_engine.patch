@@ -1,0 +1,86 @@
+--- "/sessions/serene-epic-ride/mnt/Auto Trade Bot/CHANGES/session_001_kill_switch/originals/test_risk_engine.py"	2026-03-22 17:28:57.740891200 -0500
++++ "/sessions/serene-epic-ride/mnt/Auto Trade Bot/apis/tests/unit/test_risk_engine.py"	2026-03-22 17:29:04.905543200 -0500
+@@ -105,6 +105,83 @@
+         assert result.passed is False
+         assert action.risk_approved is False
+ 
++    # ── Runtime kill_switch_fn tests ──────────────────────────────────────────
++
++    def test_runtime_kill_switch_fn_blocks_when_true(self):
++        """kill_switch_fn returning True blocks even when env kill_switch is False."""
++        svc = RiskEngineService(
++            settings=_settings(kill_switch=False),
++            kill_switch_fn=lambda: True,
++        )
++        result = svc.check_kill_switch()
++        assert result.passed is False
++        assert result.is_hard_blocked is True
++        assert any(v.rule_name == "kill_switch" for v in result.violations)
++        # Source string reflects runtime flag
++        assert "runtime" in result.violations[0].reason
++
++    def test_runtime_kill_switch_fn_passes_when_false(self):
++        """kill_switch_fn returning False + env False = passes."""
++        svc = RiskEngineService(
++            settings=_settings(kill_switch=False),
++            kill_switch_fn=lambda: False,
++        )
++        result = svc.check_kill_switch()
++        assert result.passed is True
++        assert result.violations == []
++
++    def test_runtime_kill_switch_fn_both_active(self):
++        """Both env and runtime active = still blocks, source string shows both."""
++        svc = RiskEngineService(
++            settings=_settings(kill_switch=True),
++            kill_switch_fn=lambda: True,
++        )
++        result = svc.check_kill_switch()
++        assert result.passed is False
++        assert "env+runtime" in result.violations[0].reason
++
++    def test_no_kill_switch_fn_env_inactive_passes(self):
++        """No kill_switch_fn and env kill_switch=False = passes (backward-compat)."""
++        svc = RiskEngineService(settings=_settings(kill_switch=False))
++        result = svc.check_kill_switch()
++        assert result.passed is True
++
++    def test_runtime_kill_switch_blocks_validate_action(self):
++        """validate_action respects runtime kill_switch_fn."""
++        svc = RiskEngineService(
++            settings=_settings(kill_switch=False),
++            kill_switch_fn=lambda: True,
++        )
++        state = PortfolioState(cash=Decimal("100000.00"))
++        action = _open_action()
++        result = svc.validate_action(action, state)
++        assert result.passed is False
++        assert action.risk_approved is False
++
++    def test_runtime_kill_switch_blocks_evaluate_trims(self):
++        """evaluate_trims returns empty list when runtime kill switch is active."""
++        svc = RiskEngineService(
++            settings=_settings(kill_switch=False),
++            kill_switch_fn=lambda: True,
++        )
++        state = PortfolioState(cash=Decimal("100000.00"))
++        assert svc.evaluate_trims(state) == []
++
++    def test_mutable_runtime_kill_switch(self):
++        """kill_switch_fn is re-evaluated on every call (reflects live state changes)."""
++        state_flag = {"active": False}
++        svc = RiskEngineService(
++            settings=_settings(kill_switch=False),
++            kill_switch_fn=lambda: state_flag["active"],
++        )
++        # Initially off — passes
++        assert svc.check_kill_switch().passed is True
++        # Flip on at runtime — now blocks
++        state_flag["active"] = True
++        result = svc.check_kill_switch()
++        assert result.passed is False
++        assert "runtime" in result.violations[0].reason
++
+ 
+ # ─────────────────────────────────────────────────────────────────────────────
+ # TestMaxPositions

@@ -1,0 +1,62 @@
+--- CHANGES/session_002_idempotency/originals/test_execution_engine.py	2026-03-22 17:31:51.336372600 -0500
++++ apis/tests/unit/test_execution_engine.py	2026-03-22 17:33:48.971717500 -0500
+@@ -332,3 +332,59 @@
+         svc = ExecutionEngineService(settings=_settings(), broker=broker)
+         results = svc.execute_approved_actions([])
+         assert results == []
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# TestIdempotencyKey
++# ─────────────────────────────────────────────────────────────────────────────
++
++class TestIdempotencyKey:
++    def test_idempotency_key_contains_action_id(self):
++        """Key must embed action.id so retries produce the same key."""
++        action = _open_action()
++        key = ExecutionEngineService._make_idempotency_key(action, "open")
++        assert action.id in key
++
++    def test_idempotency_key_contains_suffix(self):
++        """Key must contain the suffix to distinguish open/close/trim for the same action."""
++        action = _open_action()
++        open_key = ExecutionEngineService._make_idempotency_key(action, "open")
++        close_key = ExecutionEngineService._make_idempotency_key(action, "close")
++        assert "open" in open_key
++        assert "close" in close_key
++
++    def test_idempotency_key_is_stable_across_calls(self):
++        """Same action + same suffix must always yield the same key (deterministic)."""
++        action = _open_action()
++        key1 = ExecutionEngineService._make_idempotency_key(action, "open")
++        key2 = ExecutionEngineService._make_idempotency_key(action, "open")
++        assert key1 == key2
++
++    def test_different_actions_produce_different_keys(self):
++        """Two distinct PortfolioAction instances must produce different keys."""
++        action1 = _open_action("AAPL")
++        action2 = _open_action("AAPL")  # same ticker, but new action.id
++        key1 = ExecutionEngineService._make_idempotency_key(action1, "open")
++        key2 = ExecutionEngineService._make_idempotency_key(action2, "open")
++        assert key1 != key2
++
++    def test_retry_same_action_is_rejected_as_duplicate(self):
++        """Submitting the same action twice must raise DuplicateOrderError on the second call.
++
++        This is the end-to-end proof that deterministic keys enable broker-side deduplication.
++        """
++        from broker_adapters.base.exceptions import DuplicateOrderError
++        broker = _broker(prices={"AAPL": Decimal("175.00")})
++        svc = ExecutionEngineService(settings=_settings(), broker=broker)
++
++        action = _open_action()
++        req = ExecutionRequest(action=action, current_price=Decimal("175.00"))
++
++        # First execution fills successfully
++        result1 = svc.execute_action(req)
++        assert result1.status == ExecutionStatus.FILLED
++
++        # Second execution with the same action (same action.id → same key) must be rejected
++        result2 = svc.execute_action(req)
++        assert result2.status == ExecutionStatus.REJECTED
++        assert result2.error_message is not None

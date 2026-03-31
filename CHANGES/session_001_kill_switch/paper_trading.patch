@@ -1,0 +1,19 @@
+--- "/sessions/serene-epic-ride/mnt/Auto Trade Bot/CHANGES/session_001_kill_switch/originals/paper_trading.py"	2026-03-22 17:28:57.717939500 -0500
++++ "/sessions/serene-epic-ride/mnt/Auto Trade Bot/apis/apps/worker/jobs/paper_trading.py"	2026-03-22 17:29:04.888716800 -0500
+@@ -239,10 +239,14 @@
+         _broker = broker or getattr(app_state, "broker_adapter", None) or PaperBrokerAdapter(
+             market_open=True
+         )
++        # Runtime kill switch lambda — lets RiskEngine + ExecutionEngine check
++        # app_state.kill_switch_active (toggled via API) without a process restart.
++        _ks_fn = lambda: bool(getattr(app_state, "kill_switch_active", False))  # noqa: E731
++
+         _portfolio_svc = portfolio_svc or PortfolioEngineService(settings=cfg)
+-        _risk_svc = risk_svc or RiskEngineService(settings=cfg)
++        _risk_svc = risk_svc or RiskEngineService(settings=cfg, kill_switch_fn=_ks_fn)
+         _execution_svc = execution_svc or ExecutionEngineService(
+-            settings=cfg, broker=_broker
++            settings=cfg, broker=_broker, kill_switch_fn=_ks_fn
+         )
+         _market_data_svc = market_data_svc or MarketDataService()
+         _reporting_svc = reporting_svc or ReportingService()

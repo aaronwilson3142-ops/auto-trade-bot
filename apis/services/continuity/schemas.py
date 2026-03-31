@@ -1,0 +1,1 @@
+﻿# continuity schemas stub

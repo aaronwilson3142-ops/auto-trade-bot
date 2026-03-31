@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apis-worker
+  namespace: apis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: apis-worker
+  template:
+    metadata:
+      labels:
+        app: apis-worker
+    spec:
+      containers:
+        - name: worker
+          image: apis:latest
+          imagePullPolicy: Never
+          # Override CMD to run the scheduler instead of the API server
+          command: ["python", "-m", "apps.worker.main"]
+          env:
+            - name: APIS_ENV
+              value: production
+            - name: APIS_OPERATING_MODE
+              value: paper
+            - name: APIS_LOG_LEVEL
+              value: INFO
+            - name: APIS_MAX_POSITIONS
+              value: "10"
+            - name: APIS_REDIS_URL
+              value: redis://redis-svc:6379/0
+            - name: APIS_DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: apis-secrets
+                  key: APIS_DB_URL
+            - name: ALPACA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: apis-secrets
+                  key: ALPACA_API_KEY
+            - name: ALPACA_API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: apis-secrets
+                  key: ALPACA_API_SECRET
+            - name: ALPACA_BASE_URL
+              value: https://paper-api.alpaca.markets

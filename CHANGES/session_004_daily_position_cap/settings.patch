@@ -1,0 +1,10 @@
+--- CHANGES/session_004_daily_position_cap/originals/settings.py	2026-03-22 17:40:13.015473100 -0500
++++ apis/config/settings.py	2026-03-22 17:40:21.552047100 -0500
+@@ -71,6 +71,7 @@
+     # ── Risk Controls ──────────────────────────────────────────────────────────
+     # These are configurable floors. The risk_engine may enforce tighter hard limits.
+     max_positions: int = Field(default=10, ge=1, le=50)
++    max_new_positions_per_day: int = Field(default=3, ge=1, le=10)
+     daily_loss_limit_pct: float = Field(default=0.02, gt=0.0, le=0.10)
+     weekly_drawdown_limit_pct: float = Field(default=0.05, gt=0.0, le=0.20)
+     monthly_drawdown_limit_pct: float = Field(default=0.10, gt=0.0, le=0.50)

@@ -1,0 +1,10 @@
+--- CHANGES/session_003_monthly_drawdown/originals/settings.py	2026-03-22 17:36:49.527582100 -0500
++++ apis/config/settings.py	2026-03-22 17:37:02.125560900 -0500
+@@ -73,6 +73,7 @@
+     max_positions: int = Field(default=10, ge=1, le=50)
+     daily_loss_limit_pct: float = Field(default=0.02, gt=0.0, le=0.10)
+     weekly_drawdown_limit_pct: float = Field(default=0.05, gt=0.0, le=0.20)
++    monthly_drawdown_limit_pct: float = Field(default=0.10, gt=0.0, le=0.50)
+     max_single_name_pct: float = Field(default=0.20, gt=0.0, le=1.0)
+     max_sector_pct: float = Field(default=0.40, gt=0.0, le=1.0)
+     max_thematic_pct: float = Field(default=0.50, gt=0.0, le=1.0)

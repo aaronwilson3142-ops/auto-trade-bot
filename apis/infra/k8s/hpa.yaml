@@ -1,0 +1,70 @@
+# APIS — HorizontalPodAutoscaler for API Deployment
+#
+# Scales the apis-api Deployment between 2 and 10 replicas based on
+# CPU and memory utilisation.  Requires the Kubernetes Metrics Server
+# to be installed in the cluster.
+#
+# Install Metrics Server (if not already present):
+#   kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+#
+# Apply:
+#   kubectl apply -f infra/k8s/hpa.yaml
+#   # or via kustomize:
+#   kubectl apply -k infra/k8s/
+#
+# Note: The api-deployment.yaml sets minReplicas: 2 on the Deployment itself.
+# With HPA enabled, the Deployment's replicas field is managed by the HPA.
+# The HPA minReplicas below is the authoritative lower bound.
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: apis-api-hpa
+  namespace: apis
+  labels:
+    app: apis-api
+    component: autoscaler
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: apis-api
+
+  # Never drop below 2 replicas (zero-downtime during rolling updates)
+  minReplicas: 2
+  # Upper bound — review if ingestion throughput grows significantly
+  maxReplicas: 10
+
+  metrics:
+    # Scale out when average CPU across all pods exceeds 70%
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+    # Scale out when average memory across all pods exceeds 80%
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+  behavior:
+    scaleDown:
+      # Prevent flapping: wait 5 minutes of sustained low utilisation before
+      # removing a pod.  Reduces churn during intraday volatility spikes.
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+    scaleUp:
+      # Scale up aggressively on spikes (trading windows are time-sensitive)
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 30

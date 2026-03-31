@@ -1,0 +1,60 @@
+--- CHANGES/session_003_monthly_drawdown/originals/risk_engine_service.py	2026-03-22 17:36:49.603562200 -0500
++++ apis/services/risk_engine/service.py	2026-03-22 17:37:37.811529700 -0500
+@@ -11,6 +11,7 @@
+   3. max_single_name_pct      — no single-name overconcentration
+   4. daily_loss_limit_pct     — halt new opens if today's loss limit is hit
+   5. weekly_drawdown_limit    — halt new opens if drawdown exceeds weekly cap
++  6. monthly_drawdown_limit   — halt new opens if MTD loss exceeds monthly cap
+ 
+ CLOSE actions are not blocked by position-count limits; they can always proceed
+ (subject to kill switch and drawdown limits).
+@@ -121,6 +122,7 @@
+             self.check_portfolio_limits(action, portfolio_state),
+             self.check_daily_loss_limit(portfolio_state),
+             self.check_drawdown(portfolio_state),
++            self.check_monthly_drawdown(portfolio_state),
+         ]
+ 
+         for result in checks:
+@@ -286,6 +288,41 @@
+                         ),
+                         severity=RiskSeverity.HARD_BLOCK,
+                     )
++                ],
++            )
++        return RiskCheckResult(passed=True)
++
++    def check_monthly_drawdown(
++        self,
++        portfolio_state: PortfolioState,
++    ) -> RiskCheckResult:
++        """Block new OPEN actions when the month-to-date loss exceeds the monthly cap.
++
++        If start_of_month_equity is not set, this check is skipped (insufficient data).
++        Only fires when the month's P&L is a loss exceeding monthly_drawdown_limit_pct.
++        """
++        if portfolio_state.start_of_month_equity is None:
++            return RiskCheckResult(
++                passed=True,
++                warnings=["monthly_drawdown: no start_of_month_equity; check skipped."],
++            )
++
++        monthly_pnl = portfolio_state.monthly_pnl_pct
++        limit = Decimal(str(self._settings.monthly_drawdown_limit_pct))
++
++        # monthly_pnl is negative when losing money
++        if monthly_pnl < -limit:
++            return RiskCheckResult(
++                passed=False,
++                violations=[
++                    RiskViolation(
++                        rule_name="monthly_drawdown_limit",
++                        reason=(
++                            f"Month-to-date loss {abs(monthly_pnl):.4%} exceeds monthly limit "
++                            f"{limit:.4%}. No new opens permitted this month."
++                        ),
++                        severity=RiskSeverity.HARD_BLOCK,
++                    )
+                 ],
+             )
+         return RiskCheckResult(passed=True)

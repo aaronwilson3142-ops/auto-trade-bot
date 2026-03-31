@@ -1,0 +1,715 @@
+# APIS — Active Context
+Last Updated: 2026-03-21 (Session 56 — Phase 56 COMPLETE — SYSTEM BUILD COMPLETE)
+
+## What APIS Is
+An Autonomous Portfolio Intelligence System for U.S. equities. A disciplined, modular, auditable portfolio operating system: ingests market/macro/news/politics/rumor signals, ranks equity ideas, manages a paper portfolio under strict risk rules, grades itself daily, and improves itself in a controlled way.
+
+## Current Build Stage
+**Phase 56 — Readiness Report History — COMPLETE. 3626/3626 tests (100 skipped).**
+  - `infra/db/models/readiness.py` — `ReadinessSnapshot` ORM model: id, captured_at, overall_status, current_mode, target_mode, pass/warn/fail/gate_count, gates_json, recommendation + TimestampMixin
+  - `infra/db/versions/j0k1l2m3n4o5_add_readiness_snapshots.py` — Alembic migration (down_revision: i9j0k1l2m3n4)
+  - `infra/db/models/__init__.py` — export `ReadinessSnapshot`
+  - `services/readiness/service.py` — `persist_snapshot(report, session_factory)` static method: fire-and-forget, serializes gates to JSON, never raises
+  - `apps/worker/jobs/readiness.py` — `run_readiness_report_update` now accepts `session_factory` param; calls `persist_snapshot` on success
+  - `apps/worker/main.py` — `_job_readiness_report_update` passes `session_factory`
+  - `apps/api/schemas/readiness.py` — `ReadinessSnapshotSchema`, `ReadinessHistoryResponse`
+  - `apps/api/routes/readiness.py` — `GET /system/readiness-report/history` (200 + empty list; limit 1-100 default 10; DB error degrades to empty)
+  - `apps/dashboard/router.py` — `_render_readiness_history_table()` helper; wired into `_render_readiness_section`; section renamed to include Phase 56
+  - 60 tests; no new job (stays 30 total); 5 strategies unchanged
+
+**ALL PLANNED PHASES COMPLETE. APIS system build finished.**
+
+**Phase 55 — Fill Quality Alpha-Decay Attribution — COMPLETE. 3566/3566 tests (100 skipped).**
+  - `services/fill_quality/models.py` — Added `alpha_captured_pct`, `slippage_as_pct_of_move` to `FillQualityRecord`; new `AlphaDecaySummary` dataclass
+  - `services/fill_quality/service.py` — `compute_alpha_decay(record, subsequent_price, n_days)` + `compute_attribution_summary(records, n_days, computed_at)`
+  - `apps/worker/jobs/fill_quality_attribution.py` — NEW `run_fill_quality_attribution` job: enriches fill_quality_records with alpha data, computes summary, writes to app_state
+  - `apps/api/schemas/fill_quality.py` — `AlphaDecaySummarySchema`, `FillAttributionResponse`; alpha fields added to `FillQualityRecordSchema`
+  - `apps/api/routes/fill_quality.py` — `GET /portfolio/fill-quality/attribution` (200 + empty on no data, BEFORE parameterized `/{ticker}` route)
+  - `apps/api/state.py` — 2 new fields: `fill_quality_attribution_summary`, `fill_quality_attribution_updated_at`
+  - `apps/worker/jobs/__init__.py` — export `run_fill_quality_attribution`
+  - `apps/worker/main.py` — `fill_quality_attribution` job at 18:32 ET (30 total scheduled jobs)
+  - `apps/dashboard/router.py` — alpha attribution addendum in `_render_fill_quality_section`
+  - 44 tests; 17 prior test files updated (job count 29→30)
+
+**Phase 54 — Factor Tilt Alerts — COMPLETE. 3522/3522 tests (100 skipped).**
+  - `services/factor_alerts/__init__.py` — package init
+  - `services/factor_alerts/service.py` — `FactorTiltEvent` dataclass + `FactorTiltAlertService` (stateless): `detect_tilt()` (two triggers: dominant-factor name change + same-factor weight shift >= 0.15); `build_alert_payload()`
+  - `apps/worker/jobs/paper_trading.py` — Phase 54 block after Phase 50 factor exposure: detect tilt, append to `factor_tilt_events`, fire webhook alert via `alert_service`, update `last_dominant_factor`
+  - `apps/api/schemas/factor_alerts.py` — `FactorTiltEventSchema`, `FactorTiltHistoryResponse`
+  - `apps/api/routes/factor_alerts.py` — `factor_tilt_router`: GET /portfolio/factor-tilt-history (200 + empty list on no data; limit param)
+  - `apps/api/state.py` — 2 new fields: `last_dominant_factor`, `factor_tilt_events`
+  - `apps/api/routes/__init__.py` — export `factor_tilt_router`
+  - `apps/api/main.py` — mount `factor_tilt_router` under /api/v1
+  - `apps/dashboard/router.py` — `_render_factor_tilt_section`: badge + event table wired after factor exposure section
+  - 42 tests; no job count changes (stays 29); no strategy changes (stays 5); no ORM/migration
+
+**Phase 53 — Automated Live-Mode Readiness Report — COMPLETE. 3480/3480 tests (100 skipped).**
+  - `services/readiness/models.py` — `ReadinessGateRow` + `ReadinessReport` dataclasses (overall_status PASS/WARN/FAIL/NO_GATE, is_ready property, gate_count)
+  - `services/readiness/service.py` — `ReadinessReportService.generate_report()`: wraps `LiveModeGateService`; uppercases gate status; builds recommendation string; graceful degradation on errors; NO_GATE for RESEARCH/BACKTEST modes
+  - `apps/worker/jobs/readiness.py` — `run_readiness_report_update`: fire-and-forget, writes to app_state, returns status dict
+  - `apps/api/schemas/readiness.py` — `ReadinessGateRowSchema`, `ReadinessReportResponse`
+  - `apps/api/routes/readiness.py` — `readiness_router`: GET /system/readiness-report (503 no data, 200 with cached report)
+  - `apps/api/state.py` — 2 new fields: `latest_readiness_report`, `readiness_report_computed_at`
+  - `apps/worker/main.py` — `readiness_report_update` job at 18:45 ET (29 total scheduled jobs)
+  - `apps/dashboard/router.py` — `_render_readiness_section`: color-coded gate table with status badges
+  - 56 tests; 16 prior test files updated (job count 28→29)
+
+**Phase 1 — Foundation Scaffolding — COMPLETE. Gate A: PASSED (44/44 tests).**
+**Phase 2 — Database Layer — COMPLETE.**
+**Phase 3 — Research Engine — COMPLETE. Gate B: PASSED (108/108 tests).**
+**Phase 4 — Portfolio + Risk Engine — COMPLETE. Gate C: PASSED (185/185 tests).**
+**Phase 5 — Evaluation Engine — COMPLETE. Gate D: PASSED (228/228 tests).**
+**Phase 6 — Self-Improvement Engine — COMPLETE. Gate E: PASSED (301/301 tests).**
+**Phase 7 — Paper Trading Integration — COMPLETE. Gate F: PASSED (367/367 tests).**
+**Phase 8 — FastAPI Routes — COMPLETE. Gate G: PASSED (445/445 tests).**
+**Phase 9 — Background Worker Jobs — COMPLETE. Gate H: PASSED (494/494 tests).**
+**Phase 10 — Remaining Integrations — COMPLETE. 575/575 tests.**
+**Phase 11 — Concrete Service Implementations — COMPLETE. 646/646 tests.**
+**Phase 12 — Live Paper Trading Loop — COMPLETE. 722/722 tests.**
+**Phase 13 — Live Mode Gate, Secrets Management, Grafana — COMPLETE. 810/810 tests.**
+**Phase 14 — Concrete Impls + Monitoring + E2E — COMPLETE. 916/916 tests (3 skipped / PyYAML absent).**
+**Phase 15 — Production Deployment Readiness — COMPLETE. 996/996 tests (3 skipped / PyYAML absent).**
+**Phase 16 — AWS Secrets Rotation + K8s + Runbook + Live E2E — COMPLETE. 1121/1121 tests (3 skipped / PyYAML absent).**
+**Phase 18 — Schwab Token Auto-Refresh + Admin Rate Limiting + DB Pool Config + Alertmanager — COMPLETE. 1285/1285 tests (37 skipped / PyYAML absent).**
+**Phase 19 — Kill Switch + AppState Persistence — COMPLETE. 1369/1369 tests (37 skipped / PyYAML absent).**
+**Phase 20 — Portfolio Snapshot Persistence + Evaluation Persistence + Continuity Service — COMPLETE. 1425/1425 tests (37 skipped / PyYAML absent).**
+**Phase 21 — Multi-Strategy Signal Engine + Integration & Simulation Tests — COMPLETE. 1610/1610 tests (37 skipped / PyYAML absent).**
+**Phase 22 — Feature Enrichment Pipeline — COMPLETE. 1684/1684 tests (37 skipped / PyYAML absent).**
+**Phase 23 — Intel Feed Pipeline + Intelligence API — COMPLETE. 1755/1755 tests (37 skipped / PyYAML absent).**
+**Phase 24 — Multi-Strategy Backtest + Operator Push + Metrics Expansion — COMPLETE. 1815/1815 tests (37 skipped / PyYAML absent).**
+**Phase 25 — Exit Strategy + Position Lifecycle Management — COMPLETE. 1870/1870 tests (37 skipped / PyYAML absent).**
+  - `config/settings.py` — 3 new exit threshold fields: `stop_loss_pct=0.07`, `max_position_age_days=20`, `exit_score_threshold=0.40`
+  - `services/portfolio_engine/models.py` — `ActionType.TRIM = "trim"` added (partial size reduction; target_quantity specifies shares)
+  - `services/risk_engine/service.py` — `evaluate_exits(positions, ranked_scores, reference_dt)`: 3 triggers in priority order: stop-loss → age expiry → thesis invalidation; returns pre-approved CLOSE actions
+  - `apps/worker/jobs/paper_trading.py` — Exit evaluation wired after `apply_ranked_opportunities`: refreshes position prices, calls `evaluate_exits`, merges CLOSEs (deduplicated by ticker)
+  - `tests/unit/test_phase25_exit_strategy.py` — NEW: 55 tests (11 classes)
+**Phase 26 — TRIM Execution + Overconcentration Trim Trigger — COMPLETE. 1916/1916 tests (37 skipped / PyYAML absent).**
+  - `services/execution_engine/service.py` — `_execute_trim(request)`: validates `target_quantity > 0`, gets broker position, caps sell at actual position size, places partial SELL MARKET order; routes `ActionType.TRIM` in `execute_action()` dispatch
+  - `services/risk_engine/service.py` — `evaluate_trims(portfolio_state) -> list[PortfolioAction]`: fires when `position.market_value > equity * max_single_name_pct`; uses `ROUND_DOWN` to floor fractional shares; returns pre-approved TRIM actions; added `ROUND_DOWN` import
+  - `apps/worker/jobs/paper_trading.py` — Overconcentration trim block added after exit evaluation: calls `evaluate_trims`, adds TRIMs to `proposed_actions` with `already_closing` deduplication (CLOSE supersedes TRIM for same ticker)
+  - `tests/unit/test_phase25_exit_strategy.py` — Updated 2 tests: TRIM now returns `REJECTED` (not `ERROR`) when no position exists
+  - `tests/unit/test_phase26_trim_execution.py` — NEW: 46 tests (11 classes: TestTrimExecutionFilled, TestTrimExecutionRejected, TestTrimExecutionKillSwitch, TestTrimExecutionBrokerErrors, TestEvaluateTrimsBasic, TestEvaluateTrimsNoTrigger, TestEvaluateTrimsKillSwitch, TestEvaluateTrimsEdgeCases, TestExecutionEngineTrimRouting, TestPaperCycleTrimIntegration) `BacktestEngine` now uses all 4 strategies by default (Momentum, ThemeAlignment, MacroTailwind, Sentiment); `strategies` param replaces `strategy`; `enrichment_service` injection; `run()` accepts `policy_signals` + `news_insights`; `_simulate_day` loops all strategies per ticker
+  - `config/settings.py` — NEW field: `operator_api_key: str = ""` (env: `APIS_OPERATOR_API_KEY`) for intelligence push authentication
+  - `apps/api/schemas/intelligence.py` — 3 new schemas: `PushEventRequest`, `PushNewsItemRequest`, `PushItemResponse`
+  - `apps/api/routes/intelligence.py` — 2 new authenticated POST endpoints: `POST /intelligence/events` + `POST /intelligence/news`; Bearer token auth via `operator_api_key` (503 if unset, 401 if wrong); event_type validated against `PolicyEventType` enum; sentiment/credibility tier inferred from scores; most-recent-first insertion into `app_state`
+  - `apps/api/routes/metrics.py` — 3 new Prometheus gauges: `apis_macro_regime{regime=...}`, `apis_active_signals_count`, `apis_news_insights_count`
+  - `tests/unit/test_phase24_multi_strategy_backtest.py` — NEW: 60 tests (6 classes: TestBacktestMultiStrategy, TestBacktestEnrichmentService, TestPushPolicyEvent, TestPushNewsItem, TestMetricsExpansion, TestOperatorApiKeySettings)
+**Phase 27 — Closed Trade Ledger + Start-of-Day Equity Refresh — COMPLETE. 1962/1962 tests (37 skipped / PyYAML absent).**
+  - `services/portfolio_engine/models.py` — Added `ClosedTrade` dataclass (ticker, action_type, fill_price, avg_entry_price, quantity, realized_pnl, realized_pnl_pct, reason, opened_at, closed_at, hold_duration_days; `is_winner` property)
+  - `apps/api/state.py` — Added `closed_trades: list[Any]` and `last_sod_capture_date: Optional[dt.date]` fields
+  - `apps/worker/jobs/paper_trading.py` — (A) SOD equity block: captures `start_of_day_equity` + updates `high_water_mark` on first cycle of day; (B) Closed trade recording block: captures CLOSE/TRIM fills as `ClosedTrade` records
+  - `apps/api/schemas/portfolio.py` — Added `ClosedTradeRecord`, `ClosedTradeHistoryResponse` schemas
+  - `apps/api/routes/portfolio.py` — Added `GET /portfolio/trades` endpoint (ticker filter, limit, realized P&L aggregates)
+  - `services/risk_engine/service.py` — Upgraded `utcnow()` → `now(dt.timezone.utc)`; naive `opened_at` normalization
+  - `tests/unit/test_phase27_trade_ledger.py` — NEW: 46 tests (8 classes)
+**Phase 28 — Live Performance Summary + Closed Trade Grading + P&L Metrics — COMPLETE. 1995/1995 tests (37 skipped / PyYAML absent).**
+  - `apps/api/state.py` — Added `trade_grades: list[Any]` field
+  - `apps/worker/jobs/paper_trading.py` — Phase 28 grading block: grades each newly-recorded closed trade via `EvaluationEngineService.grade_closed_trade()`; appended to `app_state.trade_grades`
+  - `apps/api/schemas/portfolio.py` — Added `TradeGradeRecord`, `TradeGradeHistoryResponse`, `PerformanceSummaryResponse` schemas
+  - `apps/api/routes/portfolio.py` — Added `GET /portfolio/performance` (equity, SOD equity, HWM, daily return, drawdown, realized/unrealized P&L, win rate) + `GET /portfolio/grades` (letter grades, ticker filter, grade distribution) routes
+  - `apps/api/routes/metrics.py` — Added 3 Prometheus gauges: `apis_realized_pnl_usd`, `apis_unrealized_pnl_usd`, `apis_daily_return_pct`
+  - `tests/unit/test_phase28_performance_summary.py` — NEW: 33 tests (9 classes)
+**Phase 29 — Fundamentals Data Layer + ValuationStrategy — COMPLETE. 2063/2063 tests (37 skipped / PyYAML absent).**
+**Phase 30 — DB-backed Signal/Rank Persistence — COMPLETE. 2099/2099 tests (37 skipped / PyYAML absent).**
+**Phase 31 — Operator Alert Webhooks — COMPLETE. 2156/2156 tests (37 skipped / PyYAML absent).**
+**Phase 32 — Position-level P&L History — COMPLETE. 2197/2197 tests (100 skipped / PyYAML + E2E absent).**
+**Phase 33 — Operator Dashboard Enhancements — COMPLETE. 2253/2253 tests (37 skipped / PyYAML + E2E absent).**
+**Phase 34 — Strategy Backtesting Comparison API + Dashboard — COMPLETE. 2303/2303 tests (100 skipped / PyYAML + E2E absent).**
+**Phase 35 — Self-Improvement Proposal Auto-Execution — COMPLETE. 2371/2371 tests (100 skipped / PyYAML + E2E absent).**
+**Phase 36 — Real-time Price Streaming + Alternative Data Integration + Promotion Confidence Scoring — COMPLETE. 2377/2377 tests (37 skipped / PyYAML absent).**
+**Phase 37 — Strategy Weight Auto-Tuning — COMPLETE. 2435/2435 tests (37 skipped / PyYAML absent).**
+**Phase 38 — Market Regime Detection + Regime-Adaptive Weight Profiles — COMPLETE. 2502/2502 tests (37 skipped / PyYAML absent).**
+**Phase 39 — Correlation-Aware Position Sizing — COMPLETE. 2562/2562 tests (37 skipped / PyYAML absent).**
+**Phase 40 — Sector Exposure Limits — COMPLETE. 2697/2697 tests (100 skipped / PyYAML + E2E absent).**
+**Phase 41 — Liquidity Filter + Dollar Volume Position Cap — COMPLETE. 2758/2758 tests (100 skipped / PyYAML + E2E absent).**
+  - `services/risk_engine/sector_exposure.py` — NEW: `SectorExposureService` (stateless; `get_sector` via TICKER_SECTOR; `compute_sector_weights`; `compute_sector_market_values`; `projected_sector_weight`; `filter_for_sector_limits` OPEN-only, CLOSE/TRIM pass through)
+  - `apps/api/schemas/sector.py` — NEW: 3 schemas (`SectorAllocationSchema`, `SectorExposureResponse`, `SectorDetailResponse`)
+  - `apps/api/routes/sector.py` — NEW: `sector_router` (GET /portfolio/sector-exposure, GET /portfolio/sector-exposure/{sector})
+  - `apps/api/state.py` — 2 new fields: `sector_weights: dict`, `sector_filtered_count: int`
+  - `apps/worker/jobs/paper_trading.py` — Phase 40 sector filter block after correlation adjustment; updates app_state.sector_weights each cycle
+  - `apps/dashboard/router.py` — `_render_sector_section`: sector allocation table with at-limit colour indicators
+  - `tests/unit/test_phase40_sector_exposure.py` — NEW: 60 tests (8 classes)
+  - No new scheduled job (20 total unchanged); no new strategy (5 total unchanged)
+**Phase 41 — Liquidity Filter + Dollar Volume Position Cap — COMPLETE. 2758/2758 tests (100 skipped / PyYAML + E2E absent).**
+  - `services/risk_engine/liquidity.py` — NEW: `LiquidityService` (stateless; `is_liquid` gate: ADV >= min_liquidity_dollar_volume; `adv_capped_notional`: caps notional to max_pct_of_adv × ADV; `filter_for_liquidity`: drops illiquid OPENs + applies ADV cap via dataclasses.replace; `liquidity_summary`: per-ticker status dict)
+  - `apps/worker/jobs/liquidity.py` — NEW: `run_liquidity_refresh` (queries SecurityFeatureValue for dollar_volume_20d per ticker; stores in app_state.latest_dollar_volumes; fire-and-forget)
+  - `apps/api/schemas/liquidity.py` — NEW: 3 schemas (`TickerLiquiditySchema`, `LiquidityScreenResponse`, `TickerLiquidityDetailResponse`)
+  - `apps/api/routes/liquidity.py` — NEW: `liquidity_router` (GET /portfolio/liquidity, GET /portfolio/liquidity/{ticker})
+  - `config/settings.py` — 2 new fields: `min_liquidity_dollar_volume=1_000_000.0`, `max_position_as_pct_of_adv=0.10`
+  - `apps/api/state.py` — 3 new fields: `latest_dollar_volumes: dict`, `liquidity_computed_at: Optional[datetime]`, `liquidity_filtered_count: int`
+  - `apps/worker/jobs/paper_trading.py` — Phase 41 liquidity filter block after sector filter; updates app_state.liquidity_filtered_count
+  - `apps/dashboard/router.py` — `_render_liquidity_section`: ADV gate status + bottom-10 tickers table
+  - `apps/worker/main.py` — `liquidity_refresh` job at 06:17 ET (21st total)
+  - `tests/unit/test_phase41_liquidity.py` — NEW: 61 tests (8 classes)
+  - 9 test files updated: job count 20 → 21; `liquidity_refresh` added to expected ID sets
+**Phase 42 — Trailing Stop + Take-Profit Exits — COMPLETE. 2806/2806 tests (100 skipped / PyYAML + E2E absent).**
+**Phase 43 — Portfolio VaR & CVaR Risk Monitoring — COMPLETE. 2869/2869 tests (100 skipped / PyYAML + E2E absent).**
+**Phase 44 — Portfolio Stress Testing + Scenario Analysis — COMPLETE. 2861/2861 tests (37 skipped / PyYAML absent).**
+**Phase 45 — Earnings Calendar Integration + Pre-Earnings Risk Management — COMPLETE. 2921/2921 tests (37 skipped / PyYAML absent).**
+**Phase 47 — Drawdown Recovery Mode — COMPLETE. 3112/3112 tests (100 skipped / PyYAML + E2E absent).**
+**Phase 48 — Dynamic Universe Management — COMPLETE. 3176/3176 tests (100 skipped / PyYAML + E2E absent).**
+**Phase 49 — Portfolio Rebalancing Engine — COMPLETE. 3243/3243 tests (100 skipped / PyYAML + E2E absent).**
+**Phase 50 — Factor Exposure Monitoring — COMPLETE. 3318/3318 tests (100 skipped / PyYAML + E2E absent).**
+  - `services/risk_engine/factor_exposure.py` — NEW: `FactorExposureService` (stateless; 5 factors MOMENTUM/VALUE/GROWTH/QUALITY/LOW_VOL; `compute_factor_scores` from composite_score/pe_ratio/eps_growth/dollar_volume_20d/volatility_20d; `compute_portfolio_factor_exposure` market-value-weighted); `FactorExposureResult` + `TickerFactorScores` dataclasses
+  - `apps/api/state.py` — 2 new fields: `latest_factor_exposure: Optional[Any] = None`, `factor_exposure_computed_at: Optional[dt.datetime] = None`
+  - `apps/worker/jobs/paper_trading.py` — Phase 50 factor exposure block (queries volatility_20d read-only from SecurityFeatureValue; uses fundamentals + dollar_volumes + rankings from app_state; stores FactorExposureResult)
+  - `apps/api/schemas/factor.py` — NEW: 4 schemas (TickerFactorScoresSchema, FactorExposureResponse, FactorTopBottomEntry, FactorDetailResponse)
+  - `apps/api/routes/factor.py` — NEW: `factor_router` (GET /portfolio/factor-exposure, GET /portfolio/factor-exposure/{factor})
+  - `apps/api/main.py` — `factor_router` mounted under /api/v1
+  - `apps/dashboard/router.py` — `_render_factor_section` (portfolio factor bars + dominant factor badge + per-ticker breakdown table)
+  - `tests/unit/test_phase50_factor_exposure.py` — NEW: 75 tests (13 classes)
+  - No new scheduled job (27 total unchanged); no new strategy (5 total unchanged); no new ORM/migration
+**Phase 51 — Live Mode Promotion Gate Enhancement — COMPLETE. 3375/3375 tests (100 skipped / PyYAML + E2E absent).**
+  - `services/live_mode_gate/service.py` — 3 new gates wired into both PAPER→HA and HA→RL checklists:
+    (1) Sharpe gate: `_compute_sharpe_from_history` reads `daily_return_pct` (Decimal/float/int only) from `evaluation_history`; WARN < 10 obs; PASS/FAIL vs threshold (0.5 for PAPER→HA, 1.0 for HA→RL)
+    (2) Drawdown state gate: reads `app_state.drawdown_state`; NORMAL=PASS, CAUTION=WARN, RECOVERY=FAIL
+    (3) Signal quality gate: reads `app_state.latest_signal_quality.strategy_results`; WARN if no data; PASS/FAIL vs avg win_rate (0.40 PAPER→HA, 0.45 HA→RL)
+  - `tests/unit/test_phase51_live_mode_gate.py` — NEW: 57 tests (9 classes)
+  - No new ORM/migration; no new REST endpoints; no new scheduled job (27 total); no new strategy (5 total)
+**Phase 52 — Order Fill Quality Tracking — COMPLETE. 3424/3424 tests (100 skipped / PyYAML + E2E absent).**
+  - `services/fill_quality/models.py` — `FillQualityRecord` (per-fill slippage), `FillQualitySummary` (aggregate stats)
+  - `services/fill_quality/service.py` — `FillQualityService` (stateless): `compute_slippage`, `build_record`, `compute_fill_summary`, `filter_by_ticker`, `filter_by_direction`; slippage convention: BUY=(fill−expected)×qty, SELL=(expected−fill)×qty; positive=worse
+  - `apps/api/state.py` — 3 new fields: `fill_quality_records`, `fill_quality_summary`, `fill_quality_updated_at`
+  - `apps/worker/jobs/paper_trading.py` — Phase 52 fill capture block: one `FillQualityRecord` appended per FILLED order
+  - `apps/worker/jobs/fill_quality.py` — `run_fill_quality_update` job (18:30 ET)
+  - `apps/api/routes/fill_quality.py` — GET /portfolio/fill-quality + GET /portfolio/fill-quality/{ticker}
+  - `apps/dashboard/router.py` — `_render_fill_quality_section` with recent-fills table
+  - `tests/unit/test_phase52_fill_quality.py` — NEW: 49 tests; 15 prior test files updated (job count 27→28)
+  - `services/risk_engine/rebalancing.py` — NEW: `RebalancingService` (stateless: `compute_target_weights` equal-weight over top N ranked; `compute_drift` per-ticker drift with DriftEntry; `generate_rebalance_actions` TRIM (pre-approved) + OPEN (not pre-approved); `compute_rebalance_summary`)
+  - `config/settings.py` — 3 new fields: `enable_rebalancing=True`, `rebalance_threshold_pct=0.05`, `rebalance_min_trade_usd=500.0`
+  - `apps/api/state.py` — 3 new fields: `rebalance_targets: dict = {}`, `rebalance_computed_at: Optional[datetime]`, `rebalance_drift_count: int = 0`
+  - `apps/worker/jobs/rebalancing.py` — NEW: `run_rebalance_check` (reads rankings → target weights, measures drift vs positions, writes to app_state)
+  - `apps/worker/main.py` — `rebalance_check` job at 06:26 ET (27th total job)
+  - `apps/api/schemas/rebalancing.py` — NEW: `DriftEntrySchema`, `RebalanceStatusResponse`
+  - `apps/api/routes/rebalancing.py` — NEW: `rebalance_router` (GET /portfolio/rebalance-status)
+  - `apps/api/main.py` — `rebalance_router` mounted under /api/v1
+  - `apps/worker/jobs/paper_trading.py` — Phase 49 rebalancing block after overconcentration trims; merges TRIM/OPEN actions with already_closing dedup
+  - `apps/dashboard/router.py` — `_render_rebalancing_section` added: enabled flag, threshold, drift count, live drift table
+  - `tests/unit/test_phase49_rebalancing.py` — NEW: 67 tests (12 classes)
+  - 13 test files updated: job count assertions 26 → 27; `rebalance_check` added to expected job ID sets
+  - `infra/db/models/universe_override.py` — NEW: `UniverseOverride` ORM (ticker, action ADD/REMOVE, reason, operator_id, active, expires_at, TimestampMixin)
+  - `services/universe_management/service.py` — NEW: `UniverseManagementService` (stateless: `get_active_universe`, `compute_universe_summary`, `load_active_overrides`); `OverrideRecord` frozen DTO; `UniverseTickerStatus` + `UniverseSummary` frozen dataclasses
+  - `apps/api/state.py` — 3 new fields: `active_universe: list[str] = []`, `universe_computed_at: Optional[datetime]`, `universe_override_count: int = 0`
+  - `config/settings.py` — 1 new field: `min_universe_signal_quality_score: float = 0.0` (quality-based auto-removal disabled by default)
+  - `apps/worker/jobs/universe.py` — NEW: `run_universe_refresh` (loads DB overrides, applies quality pruning, writes active_universe to app_state)
+  - `apps/worker/main.py` — `universe_refresh` job at 06:25 ET (26th total job)
+  - `apps/api/schemas/universe.py` — NEW: 6 schemas (UniverseListResponse, UniverseTickerDetailResponse, UniverseOverrideRequest, UniverseOverrideResponse, UniverseOverrideDeleteResponse, UniverseTickerStatusSchema)
+  - `apps/api/routes/universe.py` — NEW: `universe_router` (GET /universe/tickers, GET /universe/tickers/{ticker}, POST/DELETE /universe/tickers/{ticker}/override)
+  - `apps/api/main.py` — `universe_router` mounted under /api/v1
+  - `apps/worker/jobs/signal_ranking.py` — `run_signal_generation` uses `app_state.active_universe` when populated; falls back to static UNIVERSE_TICKERS
+  - `apps/dashboard/router.py` — `_render_universe_section` added: active count, net change vs base, removed/added ticker details tables
+  - `tests/unit/test_phase48_dynamic_universe.py` — NEW: 64 tests (16 classes)
+  - 13 test files updated: job count assertions 25 → 26; `universe_refresh` added to expected job ID sets
+  - `services/risk_engine/drawdown_recovery.py` — NEW: `DrawdownState` enum (NORMAL/CAUTION/RECOVERY), `DrawdownStateResult` frozen dataclass, `DrawdownRecoveryService` (stateless: `evaluate_state`, `apply_recovery_sizing`, `is_blocked`)
+  - `apps/api/schemas/drawdown.py` — NEW: `DrawdownStateResponse` schema
+  - `apps/api/routes/portfolio.py` — Added `GET /portfolio/drawdown-state` endpoint (live computation from app_state equity + HWM)
+  - `config/settings.py` — 4 new fields: `drawdown_caution_pct=0.05`, `drawdown_recovery_pct=0.10`, `recovery_mode_size_multiplier=0.50`, `recovery_mode_block_new_positions=False`
+  - `apps/api/state.py` — 2 new fields: `drawdown_state: str = "NORMAL"`, `drawdown_state_changed_at: Optional[datetime]`
+  - `apps/worker/jobs/paper_trading.py` — Phase 47 drawdown block: evaluates state each cycle; applies size multiplier / blocks OPENs in RECOVERY mode; fires webhook on state transition; updates app_state.drawdown_state + drawdown_state_changed_at
+  - `apps/dashboard/router.py` — `_render_drawdown_section`: color-coded state badge (green/yellow/red), drawdown %, HWM, equity, thresholds, size multiplier in effect
+  - `tests/unit/test_phase47_drawdown_recovery.py` — NEW: 55 tests (8 classes)
+  - No new scheduled job (25 total unchanged); no new strategy (5 total unchanged)
+
+**Phase 46 — Signal Quality Tracking + Per-Strategy Attribution — COMPLETE. 3057/3057 tests (100 skipped / PyYAML + E2E absent).**
+  - `infra/db/models/signal_quality.py` — NEW: `SignalOutcome` ORM (ticker, strategy_name, signal_score, trade_opened_at, trade_closed_at, outcome_return_pct, hold_days, was_profitable; uq_signal_outcome_trade unique constraint)
+  - `infra/db/versions/i9j0k1l2m3n4_add_signal_outcomes.py` — NEW: migration for signal_outcomes table
+  - `services/signal_engine/signal_quality.py` — NEW: `StrategyQualityResult` + `SignalQualityReport` dataclasses + `SignalQualityService` (stateless: `compute_strategy_quality`, `compute_quality_report`, `build_outcome_dict`); Sharpe estimate = (mean/std) × sqrt(252); annualised approximation
+  - `apps/worker/jobs/signal_quality.py` — NEW: `run_signal_quality_update` (DB path: matches closed trades → SecuritySignal rows → persists SignalOutcome rows; no-DB path: computes report from DEFAULT_STRATEGIES × closed_trades; fires at 17:20 ET)
+  - `apps/api/schemas/signal_quality.py` — NEW: `StrategyQualitySchema`, `SignalQualityReportResponse`, `StrategyQualityDetailResponse`
+  - `apps/api/routes/signal_quality.py` — NEW: `signal_quality_router` (GET /signals/quality, GET /signals/quality/{strategy_name})
+  - `apps/api/state.py` — Added `latest_signal_quality`, `signal_quality_computed_at` fields
+  - `apps/worker/main.py` — Added `_job_signal_quality_update` at 17:20 ET; 25 total jobs
+  - `apps/dashboard/router.py` — `_render_signal_quality_section`: computed_at, total outcomes, per-strategy table (win rate, avg return, Sharpe estimate, avg hold); warn class for win_rate < 0.40
+  - `tests/unit/test_phase46_signal_quality.py` — NEW: 61 tests (12 classes)
+  - `services/risk_engine/stress_test.py` — NEW: `StressTestService` (stateless; `SCENARIO_SHOCKS` 4 scenarios × 6 sector shocks; `SCENARIO_LABELS`; `apply_scenario`; `run_all_scenarios`; `filter_for_stress_limit` OPEN-only, CLOSE/TRIM pass through; `no_positions` guard)
+  - `apps/worker/jobs/stress_test.py` — NEW: `run_stress_test` (computes all 4 scenarios against current portfolio; stores in app_state; skips gracefully with no portfolio)
+  - `apps/api/schemas/stress.py` — NEW: `ScenarioResultSchema`, `StressTestSummaryResponse`, `StressScenarioDetailResponse`
+  - `apps/api/routes/stress.py` — NEW: `stress_router` (GET /portfolio/stress-test, GET /portfolio/stress-test/{scenario})
+  - `config/settings.py` — 1 new field: `max_stress_loss_pct=0.25` (25% worst-case gate; set 0.0 to disable)
+  - `apps/api/state.py` — 3 new fields: `latest_stress_result`, `stress_computed_at`, `stress_blocked_count`
+  - `apps/worker/main.py` — `stress_test` job at 06:21 ET (23rd total)
+  - `apps/worker/jobs/paper_trading.py` — Phase 44 stress gate block after VaR gate; updates app_state.stress_blocked_count
+  - `apps/dashboard/router.py` — `_render_stress_section`: worst-case scenario + loss with limit-breach colour, per-scenario breakdown table
+  - `tests/unit/test_phase44_stress_test.py` — NEW: 67 tests (12 classes)
+  - 12 test files updated: job count 22 → 23; `stress_test` added to expected ID sets
+  - `services/risk_engine/service.py` — NEW module-level `update_position_peak_prices(positions, peak_prices)` helper; `evaluate_exits()` extended: new `peak_prices` param (backward compat, default None); take-profit trigger (priority 2): CLOSE when unrealized_pnl_pct >= take_profit_pct; trailing stop trigger (priority 3): CLOSE when current < peak*(1-trailing_stop_pct) AND position has gained >= activation_pct; age expiry → 4, thesis invalidation → 5
+  - `config/settings.py` — 3 new fields: `trailing_stop_pct=0.05`, `trailing_stop_activation_pct=0.03`, `take_profit_pct=0.20` (any set to 0.0 disables that feature)
+  - `apps/api/state.py` — 1 new field: `position_peak_prices: dict[str, float]` (ticker → highest price seen since entry; resets on restart, conservative safe default)
+  - `apps/worker/jobs/paper_trading.py` — Phase 42 peak price update block after price refresh, before evaluate_exits; passes peak_prices to evaluate_exits; cleans stale tickers post-broker-sync
+  - `apps/api/schemas/exit_levels.py` — NEW: `PositionExitLevelSchema`, `ExitLevelsResponse`
+  - `apps/api/routes/exit_levels.py` — NEW: `exit_levels_router` (GET /portfolio/exit-levels)
+  - `apps/dashboard/router.py` — `_render_exit_levels_section`: per-position table with all exit levels + colour coding
+  - `tests/unit/test_phase42_trailing_stop.py` — NEW: 48 tests (8 classes)
+  - No new scheduled job (21 total unchanged); no new strategy (5 total unchanged)
+  - `services/risk_engine/correlation.py` — NEW: `CorrelationService` (stateless; Pearson matrix, symmetric look-up, max_pairwise_with_portfolio, correlation_size_factor with linear decay, adjust_action_for_correlation via dataclasses.replace)
+  - `apps/worker/jobs/correlation.py` — NEW: `run_correlation_refresh` (queries DailyMarketBar → daily returns → matrix → app_state; fire-and-forget; graceful DB fallback)
+  - `apps/api/schemas/correlation.py` — NEW: 3 schemas (CorrelationPairSchema, CorrelationMatrixResponse, TickerCorrelationResponse)
+  - `apps/api/routes/correlation.py` — NEW: `correlation_router` (GET /portfolio/correlation, GET /portfolio/correlation/{ticker})
+  - `config/settings.py` — 3 new fields: `max_pairwise_correlation=0.75`, `correlation_lookback_days=60`, `correlation_size_floor=0.25`
+  - `apps/api/state.py` — 3 new fields: `correlation_matrix`, `correlation_tickers`, `correlation_computed_at`
+  - `apps/worker/main.py` — `correlation_refresh` job at 06:16 ET (20th total scheduled job)
+  - `apps/worker/jobs/paper_trading.py` — Phase 39 correlation adjustment block wired after `apply_ranked_opportunities`
+  - `apps/dashboard/router.py` — `_render_correlation_section`: cache status + top-5 portfolio pair table
+  - `tests/unit/test_phase39_correlation.py` — NEW: 60 tests (8 classes)
+  - `services/signal_engine/regime_detection.py` — NEW: `MarketRegime` enum, `REGIME_DEFAULT_WEIGHTS` (4 regimes × 5 strategies), `RegimeResult` dataclass, `RegimeDetectionService` (detect_from_signals, get_regime_weights, set_manual_override, persist_snapshot)
+  - `infra/db/models/regime_detection.py` — NEW: `RegimeSnapshot` ORM (table: regime_snapshots; id, regime, confidence, detection_basis_json, is_manual_override, override_reason + TimestampMixin; 2 indexes)
+  - `infra/db/versions/h8i9j0k1l2m3_add_regime_snapshots.py` — NEW: Alembic migration (down_revision: g7h8i9j0k1l2)
+  - `apps/api/schemas/regime.py` — NEW: 5 schemas (RegimeCurrentResponse, RegimeOverrideRequest, RegimeOverrideResponse, RegimeSnapshotSchema, RegimeHistoryResponse)
+  - `apps/api/routes/regime.py` — NEW: `regime_router` (GET /signals/regime, POST /signals/regime/override, DELETE /signals/regime/override, GET /signals/regime/history)
+  - `apps/api/state.py` — Added `current_regime_result: Optional[Any]`, `regime_history: list[Any]`
+  - `apps/worker/jobs/signal_ranking.py` — Added `run_regime_detection` job function
+  - `apps/worker/main.py` — `regime_detection` scheduled at 06:20 ET (19th job total)
+  - `apps/dashboard/router.py` — Added `_render_regime_section()` to overview page
+  - `tests/unit/test_phase38_regime_detection.py` — NEW: 60 tests (16 classes)
+  - `infra/db/models/weight_profile.py` — NEW: `WeightProfile` ORM (table: weight_profiles; id, profile_name, source, weights_json, sharpe_metrics_json, is_active, optimization_run_id, notes; 2 indexes)
+  - `infra/db/versions/g7h8i9j0k1l2_add_weight_profiles.py` — NEW: Alembic migration (down_revision: f6a7b8c9d0e1)
+  - `services/signal_engine/weight_optimizer.py` — NEW: `WeightOptimizerService` (Sharpe-proportional weights from BacktestRun rows; manual profile creation; DB get/list/set active; fire-and-forget persist); `WeightProfileRecord` dataclass; `equal_weights()` classmethod
+  - `services/ranking_engine/service.py` — `rank_signals(strategy_weights=None)` + `_aggregate(strategy_weights=None)`: weighted-mean signal blending when ≥2 signals and weights provided; backward-compatible (None = anchor path)
+  - `apps/api/schemas/weights.py` — NEW: 5 schemas (WeightProfileSchema, WeightProfileListResponse, OptimizeWeightsResponse, SetActiveWeightResponse, CreateManualWeightRequest)
+  - `apps/api/routes/weights.py` — NEW: `weights_router` (POST /optimize, GET /current, GET /history, PUT /active/{id}, POST /manual)
+  - `apps/api/state.py` — Added `active_weight_profile: Optional[Any] = None`
+  - `apps/worker/jobs/signal_ranking.py` — Added `run_weight_optimization` job
+  - `apps/worker/main.py` — `weight_optimization` scheduled at 06:52 ET (18th job total)
+  - `apps/dashboard/router.py` — Added `_render_weight_profile_section()`
+  - `tests/unit/test_phase37_weight_optimizer.py` — NEW: 58 tests (12 classes)
+  - `services/alternative_data/` — NEW package: `AlternativeDataRecord`, `AlternativeDataSource`, `BaseAlternativeAdapter`, `SocialMentionAdapter` (deterministic stub), `AlternativeDataService`
+  - `services/self_improvement/models.py` — Added `confidence_score: float = 0.0` to `ImprovementProposal`
+  - `services/self_improvement/config.py` — Added `min_auto_execute_confidence: float = 0.70`
+  - `services/self_improvement/service.py` — `_compute_confidence_score()` + stamps `proposal.confidence_score` in `promote_or_reject()`
+  - `services/self_improvement/execution.py` — `auto_execute_promoted()` respects `min_confidence` gate; returns `skipped_low_confidence` count
+  - `apps/api/schemas/prices.py` — NEW: `PriceTickSchema`, `PriceSnapshotResponse`
+  - `apps/api/routes/prices.py` — NEW: `GET /api/v1/prices/snapshot` + `WebSocket /api/v1/prices/ws` (2s push interval)
+  - `apps/api/routes/intelligence.py` — Added `GET /api/v1/intelligence/alternative` (ticker filter, limit)
+  - `apps/api/state.py` — Added `latest_alternative_data: list[Any]`
+  - `apps/worker/jobs/ingestion.py` — Added `run_alternative_data_ingestion` job
+  - `apps/worker/main.py` — `alternative_data_ingestion` scheduled at 06:05 ET (17th job total)
+  - `apps/dashboard/router.py` — Updated auto-execution section (shows 70% confidence threshold); added `_render_alternative_data_section`
+  - `tests/unit/test_phase36_phase36.py` — NEW: 81 tests (15 classes)
+  - `infra/db/models/proposal_execution.py` — NEW: `ProposalExecution` ORM (table: proposal_executions; id, proposal_id, proposal_type, target_component, config_delta_json, baseline_params_json, status, executed_at, rolled_back_at, notes + timestamps; 2 indexes)
+  - `infra/db/versions/f6a7b8c9d0e1_add_proposal_executions.py` — NEW: Alembic migration (down_revision: e5f6a7b8c9d0)
+  - `infra/db/models/__init__.py` — `ProposalExecution` exported
+  - `services/self_improvement/execution.py` — NEW: `AutoExecutionService` (execute_proposal, rollback_execution, auto_execute_promoted; fire-and-forget DB writes; protected component guardrail); `ExecutionRecord` dataclass
+  - `apps/api/schemas/self_improvement.py` — NEW: 5 Pydantic schemas (ExecutionRecordSchema, ExecutionListResponse, ExecuteProposalResponse, RollbackExecutionResponse, AutoExecuteSummaryResponse)
+  - `apps/api/routes/self_improvement.py` — NEW: `self_improvement_router` (POST /proposals/{id}/execute, POST /executions/{id}/rollback, GET /executions, POST /auto-execute)
+  - `apps/api/routes/__init__.py` + `apps/api/main.py` — `self_improvement_router` wired under `/api/v1`
+  - `apps/api/state.py` — 3 new fields: `applied_executions`, `runtime_overrides`, `last_auto_execute_at`
+  - `apps/worker/jobs/self_improvement.py` — `run_auto_execute_proposals` job function added
+  - `apps/worker/jobs/__init__.py` — `run_auto_execute_proposals` exported
+  - `apps/worker/main.py` — `auto_execute_proposals` scheduled at 18:15 ET weekdays (1 new job → 16 total)
+  - `apps/dashboard/router.py` — `_render_auto_execution_section()` added to overview page (total executions, active, rolled back, runtime override keys, last run time, recent 3 executions table)
+  - `tests/unit/test_phase35_auto_execution.py` — NEW: 68 tests (11 classes)
+  - `infra/db/models/backtest.py` — NEW: `BacktestRun` ORM (table: backtest_runs; comparison_id, strategy_name, dates, ticker_count, metrics, status; index on comparison_id + created_at)
+  - `infra/db/versions/e5f6a7b8c9d0_add_backtest_runs.py` — NEW: Alembic migration (down_revision: d4e5f6a7b8c9)
+  - `infra/db/models/__init__.py` — `BacktestRun` exported
+  - `services/backtest/comparison.py` — NEW: `BacktestComparisonService` (5 individual + 1 combined run; engine_factory injection; fire-and-forget DB persist; never raises)
+  - `apps/api/schemas/backtest.py` — NEW: 6 Pydantic schemas (BacktestCompareRequest, BacktestRunRecord, BacktestComparisonResponse, BacktestComparisonSummary, BacktestRunListResponse, BacktestRunDetailResponse)
+  - `apps/api/routes/backtest.py` — NEW: `backtest_router` (POST /compare, GET /runs, GET /runs/{comparison_id}; 503 on DB down for detail, graceful empty for list)
+  - `apps/api/routes/__init__.py` + `apps/api/main.py` — `backtest_router` wired under `/api/v1`
+  - `apps/dashboard/router.py` — `GET /dashboard/backtest` sub-page (per-comparison strategy metrics table); nav bar updated on all pages; graceful DB degradation
+  - `tests/unit/test_phase34_backtest_comparison.py` — NEW: 50 tests (11 classes)
+  - `apps/dashboard/router.py` — 8 new section renderers: paper cycle, realized performance, recent closed trades (last 5), trade grades (A-F distribution), intel feed (regime + signal/news/fundamentals counts), signal & ranking run IDs, alert service status, enhanced portfolio (SOD equity, HWM, daily return, drawdown); `_fmt_usd`/`_fmt_pct` helpers; `_page_wrap()` with configurable auto-refresh
+  - `apps/dashboard/router.py` — New route: `GET /dashboard/positions` per-position table (qty, entry, price, market value, unrealized P&L, opened_at); auto-refreshes every 60 s
+  - `apps/dashboard/router.py` — Navigation bar added to all pages (Overview / Positions links); both pages auto-refresh every 60 s via `<meta http-equiv="refresh" content="60">`
+  - `tests/unit/test_phase33_dashboard.py` — NEW: 56 tests (11 classes)
+  - `infra/db/models/portfolio.py` — NEW: `PositionHistory` ORM (table: position_history; columns: id, ticker, snapshot_at, quantity, avg_entry_price, current_price, market_value, cost_basis, unrealized_pnl, unrealized_pnl_pct; index on ticker+snapshot_at)
+  - `infra/db/models/__init__.py` — `PositionHistory` exported
+  - `infra/db/versions/d4e5f6a7b8c9_add_position_history.py` — NEW: Alembic migration (down_revision: c2d3e4f5a6b7)
+  - `apps/worker/jobs/paper_trading.py` — `_persist_position_history(portfolio_state, snapshot_at)` fire-and-forget; called after broker sync when positions exist
+  - `apps/api/schemas/portfolio.py` — NEW: `PositionHistoryRecord`, `PositionHistoryResponse`, `PositionLatestSnapshotResponse`
+  - `apps/api/routes/portfolio.py` — `GET /portfolio/positions/{ticker}/history?limit=30` (per-ticker history, graceful fallback); `GET /portfolio/position-snapshots` (latest per ticker, graceful fallback); `_pos_hist_row_to_record()` helper
+  - `tests/unit/test_phase32_position_history.py` — NEW: 41 tests (10 classes)
+  - `services/alerting/models.py` — NEW: `AlertSeverity`, `AlertEventType`, `AlertEvent` dataclass
+  - `services/alerting/service.py` — NEW: `WebhookAlertService` (send_alert, _build_payload, HMAC-SHA256 signing, retry); `make_alert_service()` factory
+  - `config/settings.py` — 5 new fields: `webhook_url`, `webhook_secret`, `alert_on_kill_switch`, `alert_on_paper_cycle_error`, `alert_on_broker_auth_expiry`, `alert_on_daily_evaluation`
+  - `apps/api/state.py` — `alert_service: Optional[Any] = None` field
+  - `apps/api/routes/admin.py` — `POST /api/v1/admin/test-webhook` (fire test event, returns delivery status); kill switch toggle fires CRITICAL/WARNING alert
+  - `apps/worker/jobs/paper_trading.py` — `BrokerAuthenticationError` fires CRITICAL broker_auth_expired alert; fatal exception fires WARNING paper_cycle_error alert
+  - `apps/worker/jobs/evaluation.py` — successful scorecard fires INFO (or WARNING on >1% loss) daily_evaluation alert
+  - `apps/worker/main.py` — `_setup_alert_service()` initializes `app_state.alert_service` at worker startup
+  - `apps/api/main.py` — `_load_persisted_state()` initializes `app_state.alert_service` at API startup
+  - `apis/.env.example` — `APIS_WEBHOOK_URL`, `APIS_WEBHOOK_SECRET`, per-event flag vars added
+  - `tests/unit/test_phase31_operator_webhooks.py` — NEW: 57 tests (18 classes)
+  - `services/feature_store/models.py` — Added 7 fundamentals overlay fields to `FeatureSet`: `pe_ratio`, `forward_pe`, `peg_ratio`, `price_to_sales`, `eps_growth`, `revenue_growth`, `earnings_surprise_pct`
+  - `services/market_data/fundamentals.py` — NEW: `FundamentalsData` dataclass + `FundamentalsService` (yfinance-backed; per-ticker isolated fetch; safe float helpers; earnings surprise extraction)
+  - `services/signal_engine/strategies/valuation.py` — NEW: `ValuationStrategy` (`valuation_v1`): 4 sub-scores, re-normalized weights, confidence = n_available/4, neutral fallback when all None
+  - `services/feature_store/enrichment.py` — `enrich()`/`enrich_batch()` accept `fundamentals_store` + `_apply_fundamentals()` static method
+  - `services/signal_engine/service.py` — `ValuationStrategy()` as 5th default strategy; `run()` passes through `fundamentals_store`
+  - `apps/api/state.py` — Added `latest_fundamentals: dict` field
+  - `apps/worker/jobs/ingestion.py` — Added `run_fundamentals_refresh()` job
+  - `apps/worker/main.py` — `_job_fundamentals_refresh()` at 06:18 ET weekdays; **15 total jobs**
+  - `apps/worker/jobs/signal_ranking.py` — passes `fundamentals_store` from app_state to signal engine
+  - `tests/unit/test_phase29_fundamentals.py` — NEW: ~45 tests (8 classes)
+
+## What APIS Is
+An Autonomous Portfolio Intelligence System for U.S. equities. A disciplined, modular, auditable portfolio operating system: ingests market/macro/news/politics/rumor signals, ranks equity ideas, manages a paper portfolio under strict risk rules, grades itself daily, and improves itself in a controlled way.
+
+## Current Build Stage
+**Phase 1 — Foundation Scaffolding — COMPLETE. Gate A: PASSED (44/44 tests).**
+**Phase 2 — Database Layer — COMPLETE.**
+**Phase 3 — Research Engine — COMPLETE. Gate B: PASSED (108/108 tests).**
+**Phase 4 — Portfolio + Risk Engine — COMPLETE. Gate C: PASSED (185/185 tests).**
+**Phase 5 — Evaluation Engine — COMPLETE. Gate D: PASSED (228/228 tests).**
+**Phase 6 — Self-Improvement Engine — COMPLETE. Gate E: PASSED (301/301 tests).**
+**Phase 7 — Paper Trading Integration — COMPLETE. Gate F: PASSED (367/367 tests).**
+**Phase 8 — FastAPI Routes — COMPLETE. Gate G: PASSED (445/445 tests).**
+**Phase 9 — Background Worker Jobs — COMPLETE. Gate H: PASSED (494/494 tests).**
+**Phase 10 — Remaining Integrations — COMPLETE. 575/575 tests.**
+**Phase 11 — Concrete Service Implementations — COMPLETE. 646/646 tests.**
+**Phase 12 — Live Paper Trading Loop — COMPLETE. 722/722 tests.**
+**Phase 13 — Live Mode Gate, Secrets Management, Grafana — COMPLETE. 810/810 tests.**
+**Phase 14 — Concrete Impls + Monitoring + E2E — COMPLETE. 916/916 tests (3 skipped / PyYAML absent).**
+**Phase 15 — Production Deployment Readiness — COMPLETE. 996/996 tests (3 skipped / PyYAML absent).**
+**Phase 16 — AWS Secrets Rotation + K8s + Runbook + Live E2E — COMPLETE. 1121/1121 tests (3 skipped / PyYAML absent).**
+**Phase 18 — Schwab Token Auto-Refresh + Admin Rate Limiting + DB Pool Config + Alertmanager — COMPLETE. 1285/1285 tests (37 skipped / PyYAML absent).**
+**Phase 19 — Kill Switch + AppState Persistence — COMPLETE. 1369/1369 tests (37 skipped / PyYAML absent).**
+**Phase 20 — Portfolio Snapshot Persistence + Evaluation Persistence + Continuity Service — COMPLETE. 1425/1425 tests (37 skipped / PyYAML absent).**
+**Phase 21 — Multi-Strategy Signal Engine + Integration & Simulation Tests — COMPLETE. 1610/1610 tests (37 skipped / PyYAML absent).**
+**Phase 22 — Feature Enrichment Pipeline — COMPLETE. 1684/1684 tests (37 skipped / PyYAML absent).**
+**Phase 23 — Intel Feed Pipeline + Intelligence API — COMPLETE. 1755/1755 tests (37 skipped / PyYAML absent).**
+  - `services/news_intelligence/seed.py` — NEW: `NewsSeedService`; `get_daily_items(reference_dt)` → 8 representative `NewsItem` objects stamped 2 hours before now; covers AI/tech, rates, energy, semis, pharma, fintech, EV, consumer themes
+  - `services/macro_policy_engine/seed.py` — NEW: `PolicyEventSeedService`; `get_daily_events(reference_dt)` → 5 `PolicyEvent` objects stamped 3 hours before now; covers rate policy, fiscal, tariffs, geopolitical, regulation
+  - `apps/worker/jobs/intel.py` — NEW: `run_intel_feed_ingestion(app_state, settings, policy_engine, news_service, policy_seed_service, news_seed_service)`; runs both seed → intel pipelines; stores results in `app_state.latest_policy_signals` + `app_state.latest_news_insights`; status "ok" / "partial" / "error" depending on which sub-pipelines succeed
+  - `apps/api/schemas/intelligence.py` — NEW: 7 Pydantic schemas: `MacroRegimeResponse`, `PolicySignalSummary`, `PolicySignalsResponse`, `NewsInsightSummary`, `NewsInsightsResponse`, `ThemeMappingSummary`, `ThematicExposureResponse`
+  - `apps/api/routes/intelligence.py` — NEW: 4 read-only endpoints: `GET /intelligence/regime`, `GET /intelligence/signals?limit=`, `GET /intelligence/insights?ticker=&limit=`, `GET /intelligence/themes/{ticker}`
+  - `apps/api/routes/__init__.py` — exports `intelligence_router`
+  - `apps/api/main.py` — mounts `intelligence_router` at `/api/v1`
+  - `apps/worker/jobs/__init__.py` — exports `run_intel_feed_ingestion`
+  - `apps/worker/main.py` — new cron job `intel_feed_ingestion` at 06:10 ET (before feature_enrichment 06:22); 14 total scheduled jobs
+  - `tests/unit/test_phase23_intelligence_api.py` — NEW: 71 tests (11 classes)
+  - `tests/unit/test_phase22_enrichment_pipeline.py` + `test_worker_jobs.py` + `test_phase18_priority18.py` — updated job count/set to 14
+
+## Pipeline Order (Morning, Weekdays ET)
+```
+05:30  broker_token_refresh
+06:00  market_data_ingestion     — OHLCV bars for 50-ticker universe
+06:10  intel_feed_ingestion      — seed → MacroPolicyEngine + NewsIntelligence → app_state
+06:15  feature_refresh           — compute/persist baseline features
+06:22  feature_enrichment        — assess macro regime from app_state.latest_policy_signals
+06:30  signal_generation         — per-ticker enrichment + strategy scoring → SignalOutput
+06:45  ranking_generation        — composite score → app_state.ranked_signals
+09:35  paper_trading_cycle       — morning execution
+12:00  paper_trading_cycle       — midday execution
+17:00  daily_evaluation
+17:15  attribution_analysis
+17:30  generate_daily_report
+17:45  publish_operator_summary
+18:00  generate_improvement_proposals
+```
+**Phase 18 — Schwab Token Auto-Refresh + Admin Rate Limiting + DB Pool Config + Alertmanager — COMPLETE. 1285/1285 tests (37 skipped / PyYAML absent).**
+**Phase 19 — Kill Switch + AppState Persistence — COMPLETE. 1369/1369 tests (37 skipped / PyYAML absent).**
+**Phase 20 — Portfolio Snapshot Persistence + Evaluation Persistence + Continuity Service — COMPLETE. 1425/1425 tests (37 skipped / PyYAML absent).**
+**Phase 21 — Multi-Strategy Signal Engine + Integration & Simulation Tests — COMPLETE. 1610/1610 tests (37 skipped / PyYAML absent).**
+**Phase 22 — Feature Enrichment Pipeline — COMPLETE. 1684/1684 tests (37 skipped / PyYAML absent).**
+  - `services/feature_store/enrichment.py` — NEW: `FeatureEnrichmentService`; `enrich(fs, policy_signals, news_insights)` → populates all 5 FeatureSet overlay fields; `enrich_batch()` shares macro computation across batch; `assess_macro_regime()` used by worker job
+  - `services/feature_store/__init__.py` — exports `FeatureEnrichmentService`
+  - `services/reporting/models.py` — BUG FIX: added `is_clean` property to `FillReconciliationSummary` (`discrepancies == 0`); was only on `FillReconciliationRecord`
+  - `apps/api/state.py` — 3 new fields: `latest_policy_signals: list`, `latest_news_insights: list`, `current_macro_regime: str = "NEUTRAL"`
+  - `apps/worker/jobs/ingestion.py` — NEW `run_feature_enrichment(app_state, settings, enrichment_service)`: reads `app_state.latest_policy_signals`, calls `FeatureEnrichmentService.assess_macro_regime()`, sets `app_state.current_macro_regime`
+  - `apps/worker/jobs/signal_ranking.py` — `run_signal_generation` now reads `app_state.latest_policy_signals` + `app_state.latest_news_insights` and passes to `svc.run()`
+  - `services/signal_engine/service.py` — `SignalEngineService.__init__` accepts `enrichment_service=None`; `run()` accepts `policy_signals` + `news_insights`; calls `_enrichment_service.enrich(fs, ...)` before scoring each ticker
+  - `apps/worker/jobs/__init__.py` — exports `run_feature_enrichment`
+  - `apps/worker/main.py` — new cron job `feature_enrichment` at 06:22 ET (between feature_refresh 06:15 and signal_generation 06:30); 13 total scheduled jobs
+  - `tests/unit/test_phase22_enrichment_pipeline.py` — NEW: 74 tests (14 classes)
+  - `tests/unit/test_worker_jobs.py` + `test_phase18_priority18.py` — updated job count/set to match 13 jobs
+
+## What APIS Is
+An Autonomous Portfolio Intelligence System for U.S. equities. A disciplined, modular, auditable portfolio operating system: ingests market/macro/news/politics/rumor signals, ranks equity ideas, manages a paper portfolio under strict risk rules, grades itself daily, and improves itself in a controlled way.
+
+## Current Build Stage
+**Phase 1 — Foundation Scaffolding — COMPLETE. Gate A: PASSED (44/44 tests).**
+**Phase 2 — Database Layer — COMPLETE.**
+**Phase 3 — Research Engine — COMPLETE. Gate B: PASSED (108/108 tests).**
+**Phase 4 — Portfolio + Risk Engine — COMPLETE. Gate C: PASSED (185/185 tests).**
+**Phase 5 — Evaluation Engine — COMPLETE. Gate D: PASSED (228/228 tests).**
+**Phase 6 — Self-Improvement Engine — COMPLETE. Gate E: PASSED (301/301 tests).**
+**Phase 7 — Paper Trading Integration — COMPLETE. Gate F: PASSED (367/367 tests).**
+**Phase 8 — FastAPI Routes — COMPLETE. Gate G: PASSED (445/445 tests).**
+**Phase 9 — Background Worker Jobs — COMPLETE. Gate H: PASSED (494/494 tests).**
+**Phase 10 — Remaining Integrations — COMPLETE. 575/575 tests.**
+**Phase 11 — Concrete Service Implementations — COMPLETE. 646/646 tests.**
+**Phase 12 — Live Paper Trading Loop — COMPLETE. 722/722 tests.**
+**Phase 13 — Live Mode Gate, Secrets Management, Grafana — COMPLETE. 810/810 tests.**
+**Phase 14 — Concrete Impls + Monitoring + E2E — COMPLETE. 916/916 tests (3 skipped / PyYAML absent).**
+**Phase 15 — Production Deployment Readiness — COMPLETE. 996/996 tests (3 skipped / PyYAML absent).**
+**Phase 16 — AWS Secrets Rotation + K8s + Runbook + Live E2E — COMPLETE. 1121/1121 tests (3 skipped / PyYAML absent).**
+**Phase 18 — Schwab Token Auto-Refresh + Admin Rate Limiting + DB Pool Config + Alertmanager — COMPLETE. 1285/1285 tests (37 skipped / PyYAML absent).**
+**Phase 19 — Kill Switch + AppState Persistence — COMPLETE. 1369/1369 tests (37 skipped / PyYAML absent).**
+**Phase 21 — Multi-Strategy Signal Engine + Integration & Simulation Tests — COMPLETE. 1610/1610 tests (37 skipped / PyYAML absent).**
+  - `services/feature_store/models.py` — 5 new optional overlay fields on `FeatureSet`: `theme_scores: dict`, `macro_bias: float`, `macro_regime: str`, `sentiment_score: float`, `sentiment_confidence: float` (all backward-compatible defaults)
+  - `services/signal_engine/models.py` — 2 new `SignalType` enum values: `THEME_ALIGNMENT = "theme_alignment"`, `MACRO_TAILWIND = "macro_tailwind"`
+  - `services/signal_engine/strategies/theme_alignment.py` — NEW: `ThemeAlignmentStrategy` (key: `theme_alignment_v1`); score = mean of active `theme_scores` (≥0.05); confidence = min(1.0, n_active/3); neutral when no data; horizon=POSITIONAL; never contains_rumor
+  - `services/signal_engine/strategies/macro_tailwind.py` — NEW: `MacroTailwindStrategy` (key: `macro_tailwind_v1`); base = clamp((bias+1)/2); regime adjustments: RISK_ON +0.05, RISK_OFF -0.05, STAGFLATION -0.03; confidence = abs(bias); neutral at bias=0+NEUTRAL
+  - `services/signal_engine/strategies/sentiment.py` — NEW: `SentimentStrategy` (key: `sentiment_v1`); score = 0.5 + (base-0.5)*confidence; contains_rumor when confidence<0.3 AND abs(sentiment)>0.05; tiered reliability; horizon=SWING
+  - `services/signal_engine/strategies/__init__.py` — Extended: exports all 4 strategies
+  - `services/signal_engine/service.py` — Default strategies list expanded from `[MomentumStrategy()]` to all 4 strategies
+  - `tests/unit/test_phase21_signal_enhancement.py` — NEW: 110 tests (14 classes)
+  - `tests/integration/test_research_pipeline_integration.py` — NEW: 32 tests (5 classes); real service instances, no DB
+  - `tests/simulation/test_paper_cycle_simulation.py` — NEW: 43 tests (9 classes); full paper-trading cycle with `PaperBrokerAdapter` injection; gates: kill-switch, mode-guard, no-rankings, broker-auth; multi-strategy pipeline end-to-end
+  - `tests/unit/test_signal_engine.py` — Updated `test_score_from_features_returns_outputs` to assert `len(outputs) == len(feature_sets) * len(service._strategies)` (was hardcoded `== 2`)
+
+**Phase 20 — Portfolio Snapshot Persistence + Evaluation Persistence + Continuity Service — COMPLETE. 1425/1425 tests (37 skipped / PyYAML absent).**
+  - `services/continuity/models.py` — `ContinuitySnapshot` dataclass (11 fields, `to_dict()`/`from_dict()` JSON roundtrip) + `SessionContext` dataclass (10 fields + `summary_lines`)
+  - `services/continuity/config.py` — `ContinuityConfig(snapshot_dir, snapshot_filename, max_snapshot_age_hours=48)`
+  - `services/continuity/service.py` — `ContinuityService`: `take_snapshot`, `save_snapshot`, `load_snapshot` (stale-check + corrupt-safe), `get_session_context`
+  - `services/continuity/__init__.py` — exports `ContinuityService`
+  - `apps/worker/jobs/paper_trading.py` — `_persist_portfolio_snapshot()` fire-and-forget after each successful cycle (inserts `PortfolioSnapshot` row)
+  - `apps/worker/jobs/evaluation.py` — `_persist_evaluation_run()` fire-and-forget after scorecard (inserts `EvaluationRun` + 8 `EvaluationMetric` rows)
+  - `apps/api/schemas/portfolio.py` — `PortfolioSnapshotRecord` + `PortfolioSnapshotHistoryResponse`
+  - `apps/api/schemas/evaluation.py` — `EvaluationRunRecord` + `EvaluationRunHistoryResponse`
+  - `apps/api/routes/portfolio.py` — `GET /api/v1/portfolio/snapshots?limit=20` (DB-backed, DESC, fallback empty list)
+  - `apps/api/routes/evaluation.py` — `GET /api/v1/evaluation/runs?limit=20` (DB-backed, with metrics dict, fallback empty list)
+  - `apps/api/state.py` — `last_snapshot_at: Optional[datetime]` + `last_snapshot_equity: Optional[float]` fields
+  - `apps/api/main.py` — `_load_persisted_state()` extended: restores latest portfolio snapshot equity baseline from DB at startup
+  - `tests/unit/test_phase20_priority20.py` — NEW: 56 tests (15 classes)
+  - `infra/db/models/system_state.py` — NEW: `SystemStateEntry` ORM (string PK, `value_text`, `updated_at`); constants `KEY_KILL_SWITCH_ACTIVE`, `KEY_KILL_SWITCH_ACTIVATED_AT`, `KEY_KILL_SWITCH_ACTIVATED_BY`, `KEY_PAPER_CYCLE_COUNT`
+  - `infra/db/versions/c2d3e4f5a6b7_add_system_state.py` — NEW: Alembic migration (down_revision: b1c2d3e4f5a6); creates `system_state` table (`key VARCHAR(100) PK`, `value_text TEXT`, `updated_at TIMESTAMPTZ`)
+  - `infra/db/models/__init__.py` — Added `AdminEvent` (was missing) and `SystemStateEntry` to imports + `__all__`
+  - `apps/api/state.py` — Added 4 fields: `kill_switch_active: bool = False`, `kill_switch_activated_at`, `kill_switch_activated_by`, `paper_cycle_count: int = 0`
+  - `apps/worker/jobs/paper_trading.py` — Kill switch guard fires FIRST (before mode guard); fixed pre-existing bug: `paper_cycle_results.append(result)` was never called; added `paper_cycle_count` increment + `_persist_paper_cycle_count()` fire-and-forget DB upsert
+  - `apps/api/routes/admin.py` — Added `POST /api/v1/admin/kill-switch` (activate/deactivate + 409 if env=True) and `GET /api/v1/admin/kill-switch`; `_persist_kill_switch()` helper; `KillSwitchRequest` + `KillSwitchStatusResponse` models; uses `AppStateDep` FastAPI DI
+  - `apps/api/main.py` — Added `_load_persisted_state()` (non-fatal; loads kill switch + paper_cycle_count from DB on startup); `lifespan` context manager passed to FastAPI; kill_switch component added to `/health`; `/system/status` uses effective kill
+  - `services/live_mode_gate/service.py` — Effective kill switch = `settings.kill_switch OR app_state.kill_switch_active`; `paper_cycle_count` is authoritative durable counter; fallback to `len(paper_cycle_results)` when count is 0
+  - `apps/api/routes/config.py` — `get_active_config` + `get_risk_status` use effective kill switch
+  - `apps/api/routes/metrics.py` — `apis_kill_switch_active` metric uses effective kill switch
+  - `tests/unit/test_phase19_priority19.py` — NEW: 84 tests (13 classes)
+  - `config/settings.py` — Added `db_pool_size`, `db_max_overflow`, `db_pool_recycle`, `db_pool_timeout` settings (pydantic-settings, env-configurable)
+  - `infra/db/session.py` — `_build_engine()` now passes all 4 pool settings to `create_engine`
+  - `apps/api/routes/admin.py` — In-process sliding-window rate limiter: 20 req/60 s/IP, HTTP 429 + Retry-After header; `_check_rate_limit()` + `_get_client_ip()` helper; wired to both admin handlers
+  - `apps/worker/jobs/broker_refresh.py` — NEW: `run_broker_token_refresh()` job (Schwab-only; sets `broker_auth_expired` on `BrokerAuthenticationError`; never raises)
+  - `apps/worker/jobs/__init__.py` — Exports `run_broker_token_refresh`
+  - `apps/worker/main.py` — Added `_job_broker_token_refresh()` wrapper scheduled at 05:30 ET weekdays (12 total jobs)
+  - `infra/monitoring/alertmanager/alertmanager.yml` — NEW: Full Alertmanager config (PagerDuty critical, Slack warnings/critical, inhibit rules)
+  - `infra/monitoring/prometheus/prometheus.yml` — Alerting block uncommented; points at alertmanager:9093
+  - `infra/docker/docker-compose.yml` — Added `alertmanager` service (prom/alertmanager:v0.27.0, port 9093); `alertmanager_data` volume; prometheus `depends_on: alertmanager`
+  - `apis/.env.example` — Added `APIS_DB_POOL_*`, `SLACK_WEBHOOK_URL`, `SLACK_CHANNEL_*`, `PAGERDUTY_INTEGRATION_KEY` vars
+  - `tests/unit/test_phase18_priority18.py` — NEW: 83 tests (80 passing, 3 skipped — PyYAML)
+  - `tests/unit/test_worker_jobs.py` — Updated `_EXPECTED_JOB_IDS` + job count assertion from 11→12
+  - `tests/conftest.py` — Added autouse `_reset_admin_rate_limiter` fixture (clears rate-limit store between tests)
+  - `tests/unit/test_phase16_priority16.py` — Added `_mock_request()` helper; all 12 direct `invalidate_secrets()` calls now pass `request=_mock_request()`
+
+**Phase 17 — Broker Auth Expiry Detection + Admin Audit Log + K8s Hardening — COMPLETE. 1205/1205 tests (34 skipped / PyYAML absent).**
+  - `apps/api/state.py` — Added `broker_auth_expired: bool` and `broker_auth_expired_at: Optional[datetime]` fields
+  - `apps/worker/jobs/paper_trading.py` — Catches `BrokerAuthenticationError` in broker-connect step; sets state flag + early returns with status=error_broker_auth; clears flag on successful reconnect
+  - `apps/api/main.py` — `/health` now includes `broker_auth: ok|expired` component; `expired` triggers overall=degraded
+  - `apps/api/routes/metrics.py` — Added `apis_broker_auth_expired` Prometheus gauge (1=expired, 0=ok)
+  - `infra/db/models/audit.py` — Added `AdminEvent` ORM model (table: admin_events; fields: event_timestamp, event_type, result, source_ip, secret_name, secret_backend, details_json)
+  - `infra/db/versions/b1c2d3e4f5a6_add_admin_events.py` — Alembic migration creates admin_events table (down_revision: 9ed5639351bb)
+  - `apps/api/routes/admin.py` — Major update: fire-and-forget `_log_admin_event()` helper; `_get_client_ip()` (X-Forwarded-For + fallback); `request: Request` param on all handlers; audit log on 503/401/200; added `GET /api/v1/admin/events` endpoint (bearer auth; paginated; DB query; 503 on DB failure)
+  - `infra/k8s/hpa.yaml` — HPA: minReplicas=2, maxReplicas=10, CPU 70%/Memory 80%; scaleDown stabilization 300s, scaleUp 30s
+  - `infra/k8s/network-policy.yaml` — Two NetworkPolicy resources: apis-api-netpol (ingress 8000, egress 443/5432/6379/7497/53) + apis-worker-netpol (no ingress, egress identical)
+  - `infra/k8s/kustomization.yaml` — Added hpa.yaml + network-policy.yaml to resources list (now 8 resources)
+  - `infra/monitoring/prometheus/rules/apis_alerts.yaml` — Added `BrokerAuthExpired` critical alert (expr: apis_broker_auth_expired==1, for: 0m, in apis.paper_loop group; now 11 total alert rules)
+  - `tests/unit/test_phase17_priority17.py` — 84 new mock-based unit tests (14 classes)
+
+## What APIS Is
+An Autonomous Portfolio Intelligence System for U.S. equities. A disciplined, modular, auditable portfolio operating system: ingests market/macro/news/politics/rumor signals, ranks equity ideas, manages a paper portfolio under strict risk rules, grades itself daily, and improves itself in a controlled way.
+
+## Current Build Stage
+**Phase 1 — Foundation Scaffolding — COMPLETE. Gate A: PASSED (44/44 tests).**
+**Phase 2 — Database Layer — COMPLETE.**
+**Phase 3 — Research Engine — COMPLETE. Gate B: PASSED (108/108 tests).**
+**Phase 4 — Portfolio + Risk Engine — COMPLETE. Gate C: PASSED (185/185 tests).**
+**Phase 5 — Evaluation Engine — COMPLETE. Gate D: PASSED (228/228 tests).**
+**Phase 6 — Self-Improvement Engine — COMPLETE. Gate E: PASSED (301/301 tests).**
+**Phase 7 — Paper Trading Integration — COMPLETE. Gate F: PASSED (367/367 tests).**
+**Phase 8 — FastAPI Routes — COMPLETE. Gate G: PASSED (445/445 tests).**
+**Phase 9 — Background Worker Jobs — COMPLETE. Gate H: PASSED (494/494 tests).**
+**Phase 10 — Remaining Integrations — COMPLETE. 575/575 tests.**
+**Phase 11 — Concrete Service Implementations — COMPLETE. 646/646 tests.**
+**Phase 12 — Live Paper Trading Loop — COMPLETE. 722/722 tests.**
+**Phase 13 — Live Mode Gate, Secrets Management, Grafana — COMPLETE. 810/810 tests.**
+**Phase 14 — Concrete Impls + Monitoring + E2E — COMPLETE. 916/916 tests (3 skipped / PyYAML absent).**
+**Phase 15 — Production Deployment Readiness — COMPLETE. 996/996 tests (3 skipped / PyYAML absent).**
+**Phase 16 — AWS Secrets Rotation + K8s + Runbook + Live E2E — COMPLETE. 1121/1121 tests (3 skipped / PyYAML absent).**
+  - `config/settings.py` — Added `admin_rotation_token` field (APIS_ADMIN_ROTATION_TOKEN env var, default empty)
+  - `apps/api/routes/admin.py` — `POST /api/v1/admin/invalidate-secrets` rotation hook: HMAC constant-time auth, AWSSecretManager.invalidate_cache(), skipped_env_backend path; 503 when disabled
+  - `apps/api/routes/__init__.py` — `admin_router` exported
+  - `apps/api/main.py` — `admin_router` mounted under /api/v1
+  - `infra/k8s/namespace.yaml` — Kubernetes Namespace (apis)
+  - `infra/k8s/configmap.yaml` — Non-secret env vars (operating mode, risk controls, infra URLs)
+  - `infra/k8s/secret.yaml` — Opaque Secret template with all credential keys (placeholder values; do not commit real secrets)
+  - `infra/k8s/api-deployment.yaml` — API Deployment: 2 replicas, RollingUpdate, runAsNonRoot, liveness+readiness+startup probes, resource limits, Prometheus annotations
+  - `infra/k8s/api-service.yaml` — ClusterIP Service + metrics Service for API
+  - `infra/k8s/worker-deployment.yaml` — Worker Deployment: 1 replica, Recreate strategy, runAsNonRoot, resource limits
+  - `infra/k8s/kustomization.yaml` — Kustomize root overlay (all resources + image tag overrides)
+  - `docs/runbooks/mode_transition_runbook.md` — Full operating mode transition runbook: RESEARCH→PAPER, PAPER→HUMAN_APPROVED, HUMAN_APPROVED→RESTRICTED_LIVE; pre-flight checklists, rollback, kill switch, post-transition checklist
+  - `tests/e2e/test_schwab_paper_e2e.py` — 12 Schwab paper E2E test classes (auto-skip without creds): connect, account, positions, orders, market hours, lifecycle, idempotency, full cycle, refresh_auth
+  - `tests/e2e/test_ibkr_paper_e2e.py` — 12 IBKR paper E2E test classes (auto-skip without port): connect, paper port guard, account, positions, orders, market hours, lifecycle, idempotency, full cycle
+  - `.env.example` — Added APIS_ADMIN_ROTATION_TOKEN key with generation instruction
+  - `tests/unit/test_phase16_priority16.py` — 125 new Phase 16 tests (10 classes)
+  - `infra/monitoring/grafana/provisioning/datasources/prometheus.yaml` — Grafana datasource auto-provisioning
+  - `infra/monitoring/grafana/provisioning/dashboards/apis.yaml` — Grafana dashboard auto-provisioning
+  - `infra/monitoring/prometheus/prometheus.yml` — Prometheus server config (scrape: apis_api:8000, rule_files)
+  - `infra/monitoring/prometheus/rules/apis_alerts.yaml` — 10 alert rules across 4 groups (safety, paper_loop, portfolio, pipeline)
+  - `tests/e2e/test_alpaca_paper_e2e.py` — 30 E2E tests against Alpaca paper; auto-skip without credentials
+  - `tests/unit/test_phase14_priority14.py` — 100+ mock-based unit tests for all Phase 14 code
+  - market_data service: NormalizedBar, LiquidityMetrics, MarketSnapshot, MarketDataService (yfinance-backed)
+  - news_intelligence: keyword NLP (35+ positive / 40+ negative words, 12 theme keyword sets)
+  - macro_policy_engine: rule-based event processing, sector/theme routing, regime assessment
+  - theme_engine: 50-ticker static registry with 12 themes (DIRECT/SECOND_ORDER/INDIRECT)
+  - rumor_scoring: ticker extraction + text normalisation utilities
+  - IBKR adapter: full ib_insync concrete implementation (connect, orders, positions, fills, market hours)
+  - backtest engine: day-by-day simulation harness (in-memory pipeline, synthetic fills, Sharpe/drawdown metrics)
+
+## Current Operating Mode
+**research** (paper/live not yet active)
+
+## Components That Exist (cumulative)
+All prior components PLUS (Phase 13):
+- `services/live_mode_gate/` — LiveModeGateService, GateRequirement, GateStatus, LiveModeGateResult; checks PAPER→HUMAN_APPROVED and HUMAN_APPROVED→RESTRICTED_LIVE gates; kill switch check, cycle count, eval history, error rate, portfolio init, rankings available
+- `apps/api/routes/live_gate.py` — GET /api/v1/live-gate/status, POST /api/v1/live-gate/promote; advisory-only (operator still changes env var)
+- `apps/api/schemas/live_gate.py` — GateRequirementSchema, LiveGateStatusResponse, LiveGatePromoteRequest, LiveGatePromoteResponse, PromotableMode
+- `config/secrets.py` — SecretManager ABC, EnvSecretManager (concrete), AWSSecretManager (scaffold), get_secret_manager() factory
+- `infra/monitoring/grafana_dashboard.json` — Complete Grafana dashboard (11 panels, Prometheus data source, equity/cash/positions/kill-switch/cycles/proposals)
+- `apps/api/state.py` — Phase 13 fields: `live_gate_last_result`, `live_gate_promotion_pending`
+
+All prior components PLUS (Phase 12):
+- `apps/worker/jobs/paper_trading.py` — `run_paper_trading_cycle`: ranked→portfolio→risk→execute→evaluate loop; mode guard (PAPER/HUMAN_APPROVED only); structured result dict; all exceptions caught
+- `apps/api/state.py` — Phase 12 fields: `paper_loop_active`, `last_paper_cycle_at`, `paper_cycle_count`, `paper_cycle_errors`
+- `apps/worker/main.py` — 11 scheduled jobs; paper trading cycle added (morning 09:30 + midday runs)
+- `broker_adapters/schwab/adapter.py` — Schwab OAuth 2.0 REST API adapter scaffold (all methods raise NotImplementedError with implementation guidance)
+- `infra/docker/docker-compose.yml` — Full Docker Compose: postgres (v17), redis (v7-alpine), api (uvicorn), worker (APScheduler); healthchecks on postgres/redis
+- `infra/docker/Dockerfile` — Multi-stage build: builder → api/worker targets
+- `infra/docker/init-db.sql` — Creates `apis_test` database
+- `apps/api/routes/metrics.py` — Prometheus-compatible scrape endpoint at `GET /metrics`; hand-crafted plain-text output (no external prometheus-client dep)
+- `services/market_data/` — models, config, utils, service, schemas (NormalizedBar, LiquidityMetrics, MarketSnapshot)
+- `services/news_intelligence/utils.py` — keyword NLP: score_sentiment, extract_tickers_from_text, detect_themes, generate_market_implication
+- `services/news_intelligence/service.py` — concrete NLP pipeline (credibility weight, sentiment, ticker extraction, themes)
+- `services/macro_policy_engine/utils.py` — rule sets: EVENT_TYPE_SECTORS, EVENT_TYPE_THEMES, EVENT_TYPE_DEFAULT_BIAS, compute_directional_bias
+- `services/macro_policy_engine/service.py` — concrete process_event + assess_regime (RISK_ON/OFF/STAGFLATION/NEUTRAL)
+- `services/theme_engine/utils.py` — TICKER_THEME_REGISTRY (50 tickers × 12 themes)
+- `services/theme_engine/service.py` — concrete get_exposure from registry
+- `services/rumor_scoring/utils.py` — extract_tickers_from_rumor, normalize_source_text
+- `broker_adapters/ibkr/adapter.py` — full concrete ib_insync implementation
+- `services/backtest/` — BacktestConfig, BacktestEngine, BacktestResult, DayResult
+
+## Components Not Yet Built
+- Integration / E2E tests against live Schwab / IBKR paper accounts (require real credentials)
+- Database-backed secrets rotation: AWSSecretManager.invalidate_cache() hook on AWS rotation event
+- Operating mode transition checklist: research → paper pre-flight runbook
+
+## Current Architecture Decisions
+- APScheduler v3 BackgroundScheduler — in-process (no Redis job queue for MVP)
+- Session factory (`SessionLocal`) is injected into DB-backed jobs; None-safe fallback for no-DB environments
+- All job functions return a structured result dict for observability
+- Exceptions are always caught inside job functions (scheduler thread must not die)
+
+
+## What APIS Is
+An Autonomous Portfolio Intelligence System for U.S. equities. A disciplined, modular, auditable portfolio operating system: ingests market/macro/news/politics/rumor signals, ranks equity ideas, manages a paper portfolio under strict risk rules, grades itself daily, and improves itself in a controlled way.
+
+## Current Build Stage
+**Phase 1 — Foundation Scaffolding — COMPLETE. Gate A: PASSED (44/44 tests).**
+**Phase 2 — Database Layer — COMPLETE.**
+- Infrastructure: PostgreSQL 17.9, `apis` + `apis_test` databases, packages installed
+- Alembic: environment configured at `infra/db/`; migration `9ed5639351bb_initial_schema` applied
+- ORM: 28 tables defined across 9 model modules; `alembic check` clean (no drift)
+**Phase 3 — Research Engine — COMPLETE. Gate B: PASSED (108/108 tests).**
+- `config/universe.py` — 50-ticker universe across 8 segments; `get_universe_tickers()` helper
+- `services/data_ingestion/` — YFinanceAdapter (secondary_verified reliability), DataIngestionService, upsert via pg_insert ON CONFLICT DO NOTHING
+- `services/feature_store/` — BaselineFeaturePipeline (11 features: momentum × 3, risk × 2, liquidity × 1, trend × 5), FeatureStoreService
+- `services/signal_engine/` — MomentumStrategy (weighted sub-scores, explanation_dict, rationale, source tag, contains_rumor=False), SignalEngineService
+- `services/ranking_engine/` — RankingEngineService (composite score, thesis_summary, disconfirming_factors, sizing_hint, source_reliability_tier, contains_rumor propagation)
+- New packages installed: yfinance 1.2.0, pandas 3.0.1, numpy 2.4.3
+**Phase 4 — Portfolio + Risk Engine — COMPLETE. Gate C: PASSED (185/185 tests).**
+- `services/portfolio_engine/models.py` — PortfolioState, PortfolioPosition (market_value, cost_basis, unrealized_pnl properties), PortfolioAction, ActionType, SizingResult, PortfolioSnapshot
+- `services/portfolio_engine/service.py` — PortfolioEngineService: apply_ranked_opportunities, open_position, close_position, snapshot, compute_sizing (half-Kelly capped at max_single_name_pct)
+- `services/risk_engine/models.py` — RiskViolation, RiskCheckResult (is_hard_blocked property), RiskSeverity
+- `services/risk_engine/service.py` — RiskEngineService: validate_action (master gatekeeper), check_kill_switch, check_portfolio_limits (max_positions + max_single_name_pct), check_daily_loss_limit, check_drawdown
+- `services/execution_engine/models.py` — ExecutionRequest, ExecutionResult, ExecutionStatus
+- `services/execution_engine/service.py` — ExecutionEngineService: execute_action (kill-switch re-check, OPEN→BUY/CLOSE→SELL routing, fill recording), execute_approved_actions batch
+**Phase 5 — Evaluation Engine — COMPLETE. Gate D: PASSED (228/228 tests).**
+- `services/evaluation_engine/models.py` — TradeRecord, PositionGrade, BenchmarkComparison, DrawdownMetrics, AttributionRecord, PerformanceAttribution, DailyScorecard
+- `services/evaluation_engine/config.py` — EvaluationConfig (grade thresholds, benchmark tickers)
+- `services/evaluation_engine/service.py` — EvaluationEngineService: grade_closed_trade, compute_drawdown_metrics, compute_attribution, generate_daily_scorecard
+**Phase 7 — Paper Trading Integration — COMPLETE. Gate F: PASSED (367/367 tests).**
+- `broker_adapters/alpaca/adapter.py` — AlpacaBrokerAdapter: wraps alpaca-py TradingClient (paper=True default), full BaseBrokerAdapter implementation, SDK→APIS model translation (_to_order, _to_position, _synthesise_fill), duplicate key guard, market-hours check via Alpaca clock API
+- `services/reporting/models.py` — FillExpectation, FillReconciliationRecord (is_clean property), FillReconciliationSummary (total/matched/discrepancies/avg_slippage_bps/max_slippage_bps), DailyOperationalReport (reconciliation_clean property, full daily metrics)
+- `services/reporting/service.py` — ReportingService: reconcile_fills (MATCHED/PRICE_DRIFT/QTY_MISMATCH/MISSING_FILL), check_pnl_consistency (drift tolerance $0.05), generate_daily_report (narrative, all Gate F fields)
+**Phase 8 — FastAPI Routes — COMPLETE. Gate G: PASSED (445/445 tests).**
+- `apps/api/state.py` — ApiAppState singleton (latest_rankings, portfolio_state, proposed_actions, latest_scorecard, latest_daily_report, evaluation_history, report_history, promoted_versions)
+- `apps/api/deps.py` — AppStateDep, SettingsDep FastAPI dependency aliases
+- `apps/api/schemas/` — 6 schema modules: recommendations, portfolio, actions, evaluation, reports, system
+- `apps/api/routes/recommendations.py` — GET /api/v1/recommendations/latest (filters: limit/min_score/contains_rumor/action), GET /api/v1/recommendations/{ticker}
+- `apps/api/routes/portfolio.py` — GET /api/v1/portfolio, /positions, /positions/{ticker}
+- `apps/api/routes/actions.py` — GET /api/v1/actions/proposed, POST /api/v1/actions/review (mode-guarded: PAPER/HUMAN_APPROVED only)
+- `apps/api/routes/evaluation.py` — GET /api/v1/evaluation/latest, /history
+- `apps/api/routes/reports.py` — GET /api/v1/reports/daily/latest, /daily/history
+- `apps/api/routes/config.py` — GET /api/v1/config/active, /risk/status
+- `apps/api/main.py` — all routers mounted under /api/v1 prefix
+- FastAPI 0.135.1 + httpx 0.28.1 installed (needed for TestClient)
+Phase 9 next: Background worker jobs (APScheduler) + ranking/eval/report pipeline wiring.
+- `services/self_improvement/models.py` — ImprovementProposal (ProposalType enum, is_protected property, ProposalStatus), ProposalEvaluation (metric_deltas, improvement_count, regression_count), PromotionDecision (accept/reject record with full traceability), PROTECTED_COMPONENTS frozenset
+- `services/self_improvement/config.py` — SelfImprovementConfig (min_improving_metrics, max_regressing_metrics, min_primary_metric_delta, primary_metric_key, max_proposals_per_cycle, version_label_prefix)
+- `services/self_improvement/service.py` — SelfImprovementService: generate_proposals (scorecard + attribution → proposals, capped at max_proposals_per_cycle), evaluate_proposal (guardrail + metric threshold checks), promote_or_reject (promotion guard: no self-approval, all decisions traceable)
+Phase 7 next: Paper Trading Integration (Alpaca adapter) → Gate F QA.
+
+## Current Operating Mode
+**research** (paper/live not yet active)
+
+## Components That Exist
+- `README.md`, `pyproject.toml`, `requirements.txt`, `.env.example`, `.gitignore` — top-level files
+- `state/` — all 5 state files created (this session)
+- `config/settings.py` — pydantic-settings config (created this session)
+- `config/logging_config.py` — structlog config (created this session)
+- `broker_adapters/base/` — abstract BrokerAdapter, domain models, exceptions (created this session)
+- `broker_adapters/paper/` — full paper broker implementation (created this session)
+- `services/` — 16 service stubs with `__init__.py`, `service.py`, `models.py`, `schemas.py` placeholders
+- `apps/api/`, `apps/worker/`, `apps/dashboard/` — app stubs
+- `tests/` — test harness scaffold + Gate A tests
+- `infra/`, `scripts/`, `research/`, `data/`, `models/`, `strategies/` — directory stubs
+
+## Components Built
+- **config/universe.py** — trading universe config, 50 tickers, 8 segments
+- **data_ingestion** — YFinanceAdapter + DataIngestionService (ingest_universe_bars, get_or_create_security, persist_bars)
+- **feature_store** — BaselineFeaturePipeline (11 feature keys), FeatureStoreService (compute_and_persist, get_features, ensure_feature_catalog)
+- **signal_engine** — MomentumStrategy (score → SignalOutput with full explanation), SignalEngineService (run + score_from_features)
+- **ranking_engine** — RankingEngineService (rank_signals + run DB path, full Gate B compliance)
+
+## Components Not Yet Built
+- market_data, news_intelligence, macro_policy_engine, theme_engine, rumor_scoring services (Phase 5+)
+- FastAPI app with routes
+- ~~portfolio_engine, risk_engine, execution_engine~~ — COMPLETE
+- Alpaca live adapter
+- IBKR adapter
+- ~~Evaluation engine~~ — COMPLETE
+- ~~Self-improvement engine~~ — COMPLETE
+
+## Current Architecture Decisions
+- Python 3.11+
+- FastAPI for API layer
+- SQLAlchemy 2.0 + Alembic (PostgreSQL)
+- Redis for cache/queue
+- pydantic-settings for config
+- structlog for structured logging
+- BrokerAdapter abstract base with paper broker first
+- APScheduler for background jobs
+- alpaca-py official SDK for Alpaca adapter
+
+## Current Restrictions
+- Long-only, no margin, no leverage, no options
+- Max 10 positions
+- Paper trading only until Gate F passes
+- All risk checks mandatory (no bypass)
+- Self-improvement proposals cannot self-promote
+
+## Infrastructure Status
+- **PostgreSQL 17.9**: Running (`postgresql-x64-17` service). Databases: `apis`, `apis_test`. Connection: `postgresql+psycopg://postgres:ApisDev2026!@localhost:5432/apis`
+- **Redis**: Not yet installed (needed for Phase 3+, not a Phase 2 blocker)
+- **psql PATH**: `C:\Program Files\PostgreSQL\17\bin` added to user PATH
+- **.env**: Created with real connection strings
+- **Phase 2 packages**: sqlalchemy 2.0.48, alembic 1.18.4, psycopg 3.3.3, redis 7.3.0 installed in venv
+
+## Current Risks
+- No data provider finalized (yfinance for dev, real feed for paper/live)
+- Redis not yet installed (needed for Phase 3+ caching/queuing)
+- No Alpaca keys configured yet
+- ORM models have columns only; no ORM relationships defined yet (add when service layer needs them)
+- DB schema / Alembic migrations not yet written
+
+## Current Truth
+Session 1 complete. Phase 1 (Foundation Scaffolding) is DONE. Gate A passed 44/44. No data is flowing yet, no services running. The next session begins with Phase 2: Alembic setup and SQLAlchemy ORM models (all tables from DATABASE_AND_SCHEMA_SPEC.md). PostgreSQL must be provisioned before Phase 2 DB testing.
+
+Python version in use: 3.14.3 (higher than our 3.11 minimum — verified compatible).
+Virtual environment: `apis/.venv/`
+Test command: `$env:PYTHONPATH = "."; .\.venv\Scripts\pytest.exe tests/unit/ --no-cov`

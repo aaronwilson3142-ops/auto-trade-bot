@@ -1,0 +1,90 @@
+--- "/sessions/serene-epic-ride/mnt/Auto Trade Bot/CHANGES/session_001_kill_switch/originals/risk_engine_service.py"	2026-03-22 17:28:57.640894300 -0500
++++ "/sessions/serene-epic-ride/mnt/Auto Trade Bot/apis/services/risk_engine/service.py"	2026-03-22 17:29:04.834866400 -0500
+@@ -15,6 +15,13 @@
+ CLOSE actions are not blocked by position-count limits; they can always proceed
+ (subject to kill switch and drawdown limits).
+ 
++Kill switch sources (both are checked):
++  - settings.kill_switch      — env-var flag, set at process start
++  - kill_switch_fn()          — optional callable injected at construction time
++                                 that returns the runtime app_state.kill_switch_active
++                                 flag (toggled via POST /api/v1/admin/kill-switch
++                                 without requiring a process restart)
++
+ Spec references:
+   - API_AND_SERVICE_BOUNDARIES_SPEC.md § 3.11
+   - APIS_MASTER_SPEC.md § 4.1 (safety invariants)
+@@ -23,7 +30,7 @@
+ 
+ import datetime as dt
+ from decimal import Decimal, ROUND_DOWN
+-from typing import Any, Optional
++from typing import Any, Callable, Optional
+ 
+ import structlog
+ 
+@@ -73,8 +80,25 @@
+     is_hard_blocked == True the action must not proceed to execution.
+     """
+ 
+-    def __init__(self, settings: Settings) -> None:
++    def __init__(
++        self,
++        settings: Settings,
++        kill_switch_fn: Optional[Callable[[], bool]] = None,
++    ) -> None:
++        """Initialise the risk engine.
++
++        Args:
++            settings:       Application settings (provides env-var kill_switch and
++                            all risk-limit thresholds).
++            kill_switch_fn: Optional zero-argument callable that returns True when
++                            the *runtime* kill switch is active (e.g.
++                            ``lambda: app_state.kill_switch_active``).  When None,
++                            only the env-var kill_switch is checked.  When provided,
++                            the effective kill switch is
++                            ``settings.kill_switch OR kill_switch_fn()``.
++        """
+         self._settings = settings
++        self._kill_switch_fn = kill_switch_fn
+         self._log = log.bind(service="risk_engine")
+ 
+     # ── Master validator ──────────────────────────────────────────────────────
+@@ -128,14 +152,24 @@
+     # ── Individual checks ─────────────────────────────────────────────────────
+ 
+     def check_kill_switch(self) -> RiskCheckResult:
+-        """Block all activity when the kill switch is active."""
+-        if self._settings.kill_switch:
++        """Block all activity when the kill switch is active.
++
++        Checks both the env-var kill_switch (settings.kill_switch) and the
++        runtime kill_switch_fn (if provided at construction).  Either source
++        being True is sufficient to hard-block the action.
++        """
++        runtime_active = self._kill_switch_fn() if self._kill_switch_fn is not None else False
++        effective_kill = self._settings.kill_switch or runtime_active
++
++        if effective_kill:
++            source = "env+runtime" if (self._settings.kill_switch and runtime_active) \
++                else ("runtime" if runtime_active else "env")
+             return RiskCheckResult(
+                 passed=False,
+                 violations=[
+                     RiskViolation(
+                         rule_name="kill_switch",
+-                        reason="Kill switch is active — no orders permitted.",
++                        reason=f"Kill switch is active ({source}) — no orders permitted.",
+                         severity=RiskSeverity.HARD_BLOCK,
+                     )
+                 ],
+@@ -394,7 +428,8 @@
+             Pre-approved TRIM PortfolioActions for all overconcentrated positions.
+             Returns an empty list if the kill switch is active or equity is zero.
+         """
+-        if self._settings.kill_switch:
++        runtime_active = self._kill_switch_fn() if self._kill_switch_fn is not None else False
++        if self._settings.kill_switch or runtime_active:
+             return []
+ 
+         if portfolio_state.equity <= Decimal("0"):

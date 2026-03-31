@@ -1,0 +1,25 @@
+# Grafana Datasource Provisioning — Prometheus
+# Place this file at: /etc/grafana/provisioning/datasources/prometheus.yaml
+# (Grafana auto-loads files in this directory on startup)
+#
+# Docker Compose usage (mount in grafana service):
+#   volumes:
+#     - ./infra/monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+#
+# Spec reference: infra/monitoring/grafana_dashboard.json
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    # When running via docker-compose, use the service name as hostname.
+    # Change to http://localhost:9090 for non-Docker local development.
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
+      # Scrape interval should match prometheus.yml global.scrape_interval
+      timeInterval: "15s"

@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(\"c:/Users/aaron/OneDrive/Desktop/AI Projects/Auto Trade Bot/apis/apps/api/schemas/portfolio.py\")",
+      "Bash(.venv/Scripts/python -m pytest tests/unit/test_phase32_position_history.py -x -q)",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/unit/test_phase42_trailing_stop.py -v --no-cov)",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/unit/ -q --tb=short)",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/unit/test_phase26_trim_execution.py::TestPaperCycleTrimIntegration::test_trim_fires_in_cycle_for_overconcentrated_position -v --no-cov)",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/unit/ --collect-only -q --no-cov)",
+      "Bash(\"C:\\\\Users\\\\aaron\\\\AppData\\\\Local\\\\Python\\\\bin\\\\python.exe\" -c \"import sys; print\\(sys.version\\); print\\(sys.path\\)\")",
+      "Bash(where pytest:*)",
+      "Bash(.venv/Scripts/pytest tests/unit/test_phase47_drawdown_recovery.py -v)",
+      "Bash(python -m pytest tests/unit/test_phase47_drawdown_recovery.py -v)",
+      "Bash(.venv/Scripts/python -m pytest tests/unit/test_phase47_drawdown_recovery.py -v)",
+      "Bash(.venv/Scripts/python -m pytest --tb=short -q)",
+      "Bash(python -m pytest tests/unit/test_phase48_dynamic_universe.py -x -q)",
+      "Bash(.venv/Scripts/python -m pytest tests/unit/test_phase48_dynamic_universe.py -x -q)",
+      "Bash(.venv/Scripts/python -m pytest tests/unit/test_phase48_dynamic_universe.py::TestUniverseJobScheduled::test_job_count_is_26 -x -q -s)",
+      "Bash(.venv/Scripts/python -m pytest tests/unit/test_phase48_dynamic_universe.py -q)",
+      "Bash(.venv/Scripts/python -m pytest tests/unit/ -q --no-cov)",
+      "Bash(.venv/Scripts/python -m pytest tests/ -q --no-cov)"
+    ]
+  }
+}

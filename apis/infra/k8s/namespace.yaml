@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: apis
+  labels:
+    app.kubernetes.io/name: apis
+    app.kubernetes.io/part-of: autonomous-portfolio-intelligence-system

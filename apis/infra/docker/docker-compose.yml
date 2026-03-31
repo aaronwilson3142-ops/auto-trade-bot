@@ -1,0 +1,224 @@
+version: "3.9"
+
+# ---------------------------------------------------------------------------
+# APIS — Docker Compose
+#
+# Services:
+#   postgres  — PostgreSQL 17 (primary data store)
+#   redis     — Redis 7 (future: state bridge, caching)
+#   api       — FastAPI application (uvicorn)
+#   worker    — APScheduler background worker
+#
+# Usage:
+#   docker compose up -d              # start all services
+#   docker compose logs -f api        # tail API logs
+#   docker compose exec api alembic upgrade head   # apply migrations
+#   docker compose down               # stop all services
+#   docker compose down -v            # stop + wipe volumes
+#
+# Environment:
+#   Copy .env.example → .env and fill in secrets before first run.
+#   The .env file is loaded by all services automatically.
+# ---------------------------------------------------------------------------
+
+services:
+
+  # --------------------------------------------------------------------------
+  # PostgreSQL 17
+  # --------------------------------------------------------------------------
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-apis}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-apis_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-apis}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-apis}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - apis_net
+
+  # --------------------------------------------------------------------------
+  # Redis 7
+  # --------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --save 60 1 --loglevel warning
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - apis_net
+
+  # --------------------------------------------------------------------------
+  # APIS FastAPI application
+  # --------------------------------------------------------------------------
+  api:
+    build:
+      context: ../..         # workspace root (apis/ parent)
+      dockerfile: apis/infra/docker/Dockerfile
+      target: api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      APIS_DB_URL: postgresql+psycopg://${POSTGRES_USER:-apis}:${POSTGRES_PASSWORD:-apis_dev_password}@postgres:5432/${POSTGRES_DB:-apis}
+      APIS_REDIS_URL: redis://redis:6379/0
+      APIS_ENV: ${APIS_ENV:-development}
+      APIS_OPERATING_MODE: ${APIS_OPERATING_MODE:-paper}
+      APIS_LOG_LEVEL: ${APIS_LOG_LEVEL:-INFO}
+      APIS_KILL_SWITCH: ${APIS_KILL_SWITCH:-false}
+    env_file:
+      - ../../.env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../../apis:/app/apis:ro   # read-only source mount for development
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - apis_net
+
+  # --------------------------------------------------------------------------
+  # APIS Background Worker (APScheduler)
+  # --------------------------------------------------------------------------
+  worker:
+    build:
+      context: ../..
+      dockerfile: apis/infra/docker/Dockerfile
+      target: worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    environment:
+      APIS_DB_URL: postgresql+psycopg://${POSTGRES_USER:-apis}:${POSTGRES_PASSWORD:-apis_dev_password}@postgres:5432/${POSTGRES_DB:-apis}
+      APIS_REDIS_URL: redis://redis:6379/0
+      APIS_ENV: ${APIS_ENV:-development}
+      APIS_OPERATING_MODE: ${APIS_OPERATING_MODE:-paper}
+      APIS_LOG_LEVEL: ${APIS_LOG_LEVEL:-INFO}
+      APIS_KILL_SWITCH: ${APIS_KILL_SWITCH:-false}
+    env_file:
+      - ../../.env
+    networks:
+      - apis_net
+
+  # --------------------------------------------------------------------------
+  # Prometheus — metrics scrape server
+  # --------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ../monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../monitoring/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+      - "--web.enable-lifecycle"
+    depends_on:
+      api:
+        condition: service_healthy
+      alertmanager:
+        condition: service_started
+    networks:
+      - apis_net
+
+  # --------------------------------------------------------------------------
+  # Alertmanager — routes Prometheus alerts to Slack / PagerDuty
+  # --------------------------------------------------------------------------
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    restart: unless-stopped
+    ports:
+      - "9093:9093"
+    volumes:
+      - ../monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+      - "--web.external-url=http://localhost:9093"
+    environment:
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      SLACK_CHANNEL_CRITICAL: ${SLACK_CHANNEL_CRITICAL:-#apis-critical}
+      SLACK_CHANNEL_DEFAULT: ${SLACK_CHANNEL_DEFAULT:-#apis-alerts}
+      PAGERDUTY_INTEGRATION_KEY: ${PAGERDUTY_INTEGRATION_KEY:-}
+    networks:
+      - apis_net
+
+  # --------------------------------------------------------------------------
+  # Grafana — dashboards and alerting UI
+  # --------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:10.4.2
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-change_me}
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/apis.json
+    volumes:
+      - ../monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../monitoring/grafana_dashboard.json:/var/lib/grafana/dashboards/apis.json:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - apis_net
+
+
+# ---------------------------------------------------------------------------
+# Volumes
+# ---------------------------------------------------------------------------
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  alertmanager_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+
+# ---------------------------------------------------------------------------
+# Networks
+# ---------------------------------------------------------------------------
+networks:
+  apis_net:
+    driver: bridge

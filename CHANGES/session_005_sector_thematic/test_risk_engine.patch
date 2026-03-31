@@ -1,0 +1,202 @@
+--- CHANGES/session_005_sector_thematic/originals/test_risk_engine.py	2026-03-22 17:52:14.308485800 -0500
++++ apis/tests/unit/test_risk_engine.py	2026-03-22 17:54:20.735668000 -0500
+@@ -9,6 +9,8 @@
+   - drawdown: blocks new opens when drawdown exceeds weekly limit
+   - monthly_drawdown: blocks new opens when MTD loss exceeds monthly cap
+   - daily_position_cap: blocks new opens once the per-day open limit is reached
++  - sector_concentration: blocks opens that breach max_sector_pct
++  - thematic_concentration: blocks opens that breach max_thematic_pct
+   - validate_action: aggregates all violations; CLOSE actions bypass position-count
+ """
+ from __future__ import annotations
+@@ -488,6 +490,190 @@
+ 
+ 
+ # ─────────────────────────────────────────────────────────────────────────────
++# TestSectorConcentration
++# ─────────────────────────────────────────────────────────────────────────────
++
++def _tech_state(notional_each: Decimal = Decimal("15000")) -> PortfolioState:
++    """Portfolio with two technology positions worth notional_each each, equity=$100k.
++
++    AAPL and MSFT both map to 'technology' sector in the universe registry.
++    Combined sector MV = 2 * notional_each.
++    """
++    state = PortfolioState(cash=Decimal("100000") - 2 * notional_each)
++    for ticker, price in (("AAPL", Decimal("175")), ("MSFT", Decimal("300"))):
++        qty = (notional_each / price).quantize(Decimal("1"), rounding="ROUND_DOWN")
++        state.positions[ticker] = PortfolioPosition(
++            ticker=ticker,
++            quantity=qty,
++            avg_entry_price=price,
++            current_price=price,
++            opened_at=dt.datetime.utcnow(),
++        )
++    return state
++
++
++class TestSectorConcentration:
++    def test_blocks_open_that_breaches_sector_cap(self):
++        """Portfolio already 30% tech; adding NVDA (tech) would exceed 40% cap."""
++        # Two tech positions each $15k → $30k / $100k equity = 30% tech
++        state = _tech_state(Decimal("15000"))
++        # Action: add $15k of NVDA (tech) → projected tech = $45k / $100k = 45% > 40%
++        svc = RiskEngineService(settings=_settings(max_sector_pct=0.40))
++        action = PortfolioAction(
++            action_type=ActionType.OPEN,
++            ticker="NVDA",
++            reason="test",
++            target_notional=Decimal("15000"),
++        )
++        result = svc.check_sector_concentration(action, state)
++        assert result.passed is False
++        assert any(v.rule_name == "max_sector_pct" for v in result.violations)
++
++    def test_passes_open_within_sector_cap(self):
++        """Adding a small tech position that stays under 40% cap passes."""
++        state = _tech_state(Decimal("10000"))  # 20k tech / 100k = 20%
++        svc = RiskEngineService(settings=_settings(max_sector_pct=0.40))
++        action = PortfolioAction(
++            action_type=ActionType.OPEN,
++            ticker="NVDA",
++            reason="test",
++            target_notional=Decimal("5000"),  # 15k / 100k = 15% — well under 40%
++        )
++        result = svc.check_sector_concentration(action, state)
++        assert result.passed is True
++
++    def test_close_never_blocked_by_sector_cap(self):
++        """CLOSE actions must always pass the sector check."""
++        state = _tech_state(Decimal("45000"))  # already > 40% tech
++        svc = RiskEngineService(settings=_settings(max_sector_pct=0.40))
++        action = PortfolioAction(
++            action_type=ActionType.CLOSE,
++            ticker="AAPL",
++            reason="test",
++        )
++        result = svc.check_sector_concentration(action, state)
++        assert result.passed is True
++
++    def test_different_sector_never_blocked(self):
++        """Opening a healthcare ticker does not trigger the tech sector cap."""
++        state = _tech_state(Decimal("35000"))  # 70% tech, over limit
++        svc = RiskEngineService(settings=_settings(max_sector_pct=0.40))
++        # LLY → healthcare, completely separate sector
++        action = PortfolioAction(
++            action_type=ActionType.OPEN,
++            ticker="LLY",
++            reason="test",
++            target_notional=Decimal("5000"),
++        )
++        result = svc.check_sector_concentration(action, state)
++        assert result.passed is True
++
++    def test_sector_check_wired_into_validate_action(self):
++        """validate_action must include sector concentration in its pipeline."""
++        state = _tech_state(Decimal("15000"))
++        svc = RiskEngineService(settings=_settings(max_sector_pct=0.40))
++        action = PortfolioAction(
++            action_type=ActionType.OPEN,
++            ticker="NVDA",
++            reason="test",
++            target_notional=Decimal("15000"),
++        )
++        result = svc.validate_action(action, state)
++        assert result.passed is False
++        assert any(v.rule_name == "max_sector_pct" for v in result.violations)
++
++
++# ─────────────────────────────────────────────────────────────────────────────
++# TestThematicConcentration
++# ─────────────────────────────────────────────────────────────────────────────
++
++def _ai_state(notional_each: Decimal = Decimal("15000")) -> PortfolioState:
++    """Portfolio with two AI-infrastructure positions, equity=$100k.
++
++    NVDA and AMD both map to 'ai_infrastructure' theme.
++    """
++    state = PortfolioState(cash=Decimal("100000") - 2 * notional_each)
++    for ticker, price in (("NVDA", Decimal("800")), ("AMD", Decimal("150"))):
++        qty = (notional_each / price).quantize(Decimal("1"), rounding="ROUND_DOWN")
++        state.positions[ticker] = PortfolioPosition(
++            ticker=ticker,
++            quantity=qty,
++            avg_entry_price=price,
++            current_price=price,
++            opened_at=dt.datetime.utcnow(),
++        )
++    return state
++
++
++class TestThematicConcentration:
++    def test_blocks_open_that_breaches_thematic_cap(self):
++        """Portfolio already 30% AI-infra; adding ARM (ai_infra) exceeds 50% cap."""
++        state = _ai_state(Decimal("15000"))  # 30k ai_infra / 100k = 30%
++        svc = RiskEngineService(settings=_settings(max_thematic_pct=0.40))
++        action = PortfolioAction(
++            action_type=ActionType.OPEN,
++            ticker="ARM",  # ai_infrastructure theme
++            reason="test",
++            target_notional=Decimal("15000"),  # → 45k / 100k = 45% > 40%
++        )
++        result = svc.check_thematic_concentration(action, state)
++        assert result.passed is False
++        assert any(v.rule_name == "max_thematic_pct" for v in result.violations)
++
++    def test_passes_open_within_thematic_cap(self):
++        """A modest addition to the theme that stays under the cap passes."""
++        state = _ai_state(Decimal("10000"))  # 20% ai_infra
++        svc = RiskEngineService(settings=_settings(max_thematic_pct=0.50))
++        action = PortfolioAction(
++            action_type=ActionType.OPEN,
++            ticker="ARM",
++            reason="test",
++            target_notional=Decimal("5000"),  # 25k / 100k = 25% — under 50%
++        )
++        result = svc.check_thematic_concentration(action, state)
++        assert result.passed is True
++
++    def test_close_never_blocked_by_thematic_cap(self):
++        """CLOSE actions must always pass the thematic check."""
++        state = _ai_state(Decimal("40000"))  # way over 50% theme
++        svc = RiskEngineService(settings=_settings(max_thematic_pct=0.50))
++        action = PortfolioAction(
++            action_type=ActionType.CLOSE,
++            ticker="NVDA",
++            reason="test",
++        )
++        result = svc.check_thematic_concentration(action, state)
++        assert result.passed is True
++
++    def test_different_theme_never_blocked(self):
++        """Opening a healthcare ticker does not trigger the AI-infra theme cap."""
++        state = _ai_state(Decimal("40000"))  # 80% ai_infra
++        svc = RiskEngineService(settings=_settings(max_thematic_pct=0.50))
++        action = PortfolioAction(
++            action_type=ActionType.OPEN,
++            ticker="LLY",  # healthcare theme
++            reason="test",
++            target_notional=Decimal("5000"),
++        )
++        result = svc.check_thematic_concentration(action, state)
++        assert result.passed is True
++
++    def test_thematic_check_wired_into_validate_action(self):
++        """validate_action must include thematic concentration in its pipeline."""
++        state = _ai_state(Decimal("15000"))
++        svc = RiskEngineService(settings=_settings(max_thematic_pct=0.40))
++        action = PortfolioAction(
++            action_type=ActionType.OPEN,
++            ticker="ARM",
++            reason="test",
++            target_notional=Decimal("15000"),
++        )
++        result = svc.validate_action(action, state)
++        assert result.passed is False
++        assert any(v.rule_name == "max_thematic_pct" for v in result.violations)
++
++
++# ─────────────────────────────────────────────────────────────────────────────
+ # TestValidateAction (master gatekeeper)
+ # ─────────────────────────────────────────────────────────────────────────────
+ 
