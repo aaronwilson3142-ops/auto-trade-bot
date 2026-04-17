@@ -1,9 +1,21 @@
 # APIS — Next Steps
-Last Updated: 2026-04-17 (Steps 1–6 LANDED; Steps 7–8 pending operator decision on resume path)
+Last Updated: 2026-04-17 (Steps 1–6 LANDED + COMMITTED to feat/deep-dive-plan-steps-1-6; Steps 7–8 pending operator decision)
 
 ## IN PROGRESS — Deep-Dive Execution Plan (2026-04-16)
 
 Autonomous scheduled-task run `apis-execution-plan-step-1` is executing the full 8-step plan back-to-back per operator's authorisation. Per-step workflow: grep → implement → test → migrate → update state files → advance. No pausing between steps except on test failure.
+
+### Git state (2026-04-17 08:09 CT)
+Branch `feat/deep-dive-plan-steps-1-6` holds 7 new commits on top of `main` (7b0c376):
+- 9f37a47 chore: capture pre-deep-dive uncommitted repo state (67 files, +11026 / -3464)
+- f8c6889 feat(deep-dive): Step 1 — un-bury 6 hard-coded constants into settings (+255 tests)
+- 2d83cc3 feat(deep-dive): Step 2 — stability invariants + idempotency keys + observation floor 10→50 (+1491)
+- e9cd8b5 feat(deep-dive): Step 3 — trade-count lift (lower buy threshold + conditional ranking-min) (+261)
+- 614ed1e feat(deep-dive): Step 4 — score-weighted rebalance allocator with floor/cap guardrails (+579)
+- 1b4995d feat(deep-dive): Step 5 — ATR-scaled per-family stops + portfolio_fit sizing (+605)
+- bbe6855 feat(deep-dive): Step 6 — Proposal Outcome Ledger with per-type measurement windows (DEC-035) (+1705 / -42)
+
+Push to remote is deferred — this repo has no `origin` remote configured. Commits are durable locally. To push, operator can add a remote first (`git remote add origin <url>`) then `git push -u origin feat/deep-dive-plan-steps-1-6`.
 
 ### Step status
 - **Step 1** — Un-bury 6 hard-coded constants — **DONE 2026-04-16**. 24 tests added (23 pass, 1 skipped for sandbox Python 3.10 only). Pure refactor; defaults byte-for-byte preserved (DEC-032).

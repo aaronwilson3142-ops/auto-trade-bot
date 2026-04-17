@@ -3,6 +3,30 @@ Append one entry per mandatory checkpoint. Never overwrite existing entries.
 
 ---
 
+### [2026-04-17 13:09 UTC] Deep-Dive — commit Steps 1–6 onto feat branch
+
+- **Capacity Trigger:** Operator chose "Commit Steps 1–6 first, then decide" + "One commit per step on a feature branch" after the overnight autonomous run landed Steps 1–6 uncommitted.
+- **Actions:**
+  1. Cut / confirmed branch `feat/deep-dive-plan-steps-1-6` (pre-existing, no commits on it yet). On-disk HEAD matched `main` (7b0c376).
+  2. Authored `_commit_deep_dive.ps1` — native-Windows PowerShell script (Desktop Commander + `Start-Process` + `-RedirectStandardOutput` pattern) that bypasses the OneDrive-mount sandbox-filesystem caching that had blocked every `git add` invocation from the Linux sandbox.
+  3. Iterated through 3 invocation bugs in the script: (a) `& $path | Out-String` "document in pipeline" parse error, (b) Start-Process `-ArgumentList` space-splitting paths with spaces → fixed by using relative paths (`_cd_lists/…`) under the working-directory cwd, (c) `Set-Content -Encoding utf8` BOM corrupting the first pathspec → fixed by switching to `[System.IO.File]::WriteAllText(..., UTF8Encoding($false))`.
+  4. Ran 7 commits end-to-end — 1 chore catchup + 6 step commits — all with exit=0.
+- **Commits (oldest→newest):**
+  - `9f37a47` chore: capture pre-deep-dive uncommitted repo state (67 files, +11026 / -3464) — bundles Phase 57 insider-flow scaffold, Phase 59 state-persistence restore, Phase 64 position-persistence tests, Phase 66 AI-tilt tuning, entrypoint-api.sh self-heal, seed_securities / flip_kill_switch_off / run_backtest_sweep helpers, pointintime adapter scaffold, docker/k8s/prometheus config drift, gitignore secret-photo rule, + every cross-cutting file Steps 1–6 touched.
+  - `f8c6889` feat(deep-dive): Step 1 (+255 test lines)
+  - `2d83cc3` feat(deep-dive): Step 2 (+1491 new lines — action_orchestrator, broker_adapter, idempotency migration, 4 test files)
+  - `e9cd8b5` feat(deep-dive): Step 3 (+261 test lines)
+  - `614ed1e` feat(deep-dive): Step 4 (+579 new lines — rebalancing_engine allocator + tests)
+  - `1b4995d` feat(deep-dive): Step 5 (+605 new lines — family_params + position_origin_strategy migration + tests)
+  - `bbe6855` feat(deep-dive): Step 6 (+1705 / -42 — outcome_ledger service + proposal_outcomes migration + daily assessment job + tests + CHANGELOG/NEXT_STEPS)
+- **Push status:** Deferred. Repo has NO `origin` remote configured (confirmed `git remote` empty). Commits are durable locally on `feat/deep-dive-plan-steps-1-6`. To push, operator can `git remote add origin <url>` then `git push -u origin feat/deep-dive-plan-steps-1-6`.
+- **Open Items:** Steps 7 (Shadow Portfolio) + 8 (Thompson bandit) remain "NOT STARTED" on the autonomous plan. Awaiting operator's resume decision (overnight reschedule / implement interactively / pause).
+- **Blockers:** None.
+- **Risks:** Low. Local branch is clean; `main` is untouched.
+- **Confidence:** High. Every commit verified via `git log` + `git show --stat` after the script finished.
+
+---
+
 ### [2026-03-31 UTC] Ops — Securities table seed fix + worker volume mount
 
 - **Capacity Trigger:** User asked why paper cycle count was still at 1 despite the worker running for days with 7 cycles/day scheduled.
