@@ -68,3 +68,52 @@ class PromotedVersion(Base, TimestampMixin):
     promotion_timestamp: Mapped[datetime] = mapped_column(sa.DateTime, nullable=False)
     promotion_reason: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     rollback_reference: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+
+
+class ProposalOutcome(Base, TimestampMixin):
+    """Deep-Dive Plan Step 6 Rec 10 — outcome ledger for improvement proposals.
+
+    One row per (proposal_id, decision).  ``decision`` is the moment a proposal
+    transitions out of "generated" into a terminal state (PROMOTED/REJECTED/
+    EXECUTED/REVERTED).  The ledger records the baseline metric snapshot at
+    that instant and the realized metric snapshot after ``measurement_window_days``
+    have elapsed.  The daily assessment job (apps/worker/jobs/
+    proposal_outcome_assessment.py) fills in ``realized_metric_snapshot``,
+    ``outcome_verdict``, ``outcome_confidence``, and ``measured_at`` once the
+    window is closed.
+
+    Per-type windows live in services/self_improvement/outcome_ledger.py
+    (PROPOSAL_OUTCOME_WINDOWS) per DEC-035.  FK target is UUID because
+    ``ImprovementProposal.id`` is a PG_UUID (plan §6.3 spec showed INTEGER PK
+    which was inaccurate — code-of-record wins).
+    """
+
+    __tablename__ = "proposal_outcomes"
+    __table_args__ = (
+        sa.UniqueConstraint("proposal_id", "decision", name="uq_proposal_outcome_proposal_decision"),
+        sa.Index("ix_proposal_outcome_decision_at", "decision_at"),
+        sa.Index("ix_proposal_outcome_verdict", "outcome_verdict"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    proposal_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        sa.ForeignKey("improvement_proposals.id"),
+        nullable=False,
+    )
+    decision: Mapped[str] = mapped_column(sa.String(20), nullable=False)
+    # PROMOTED | REJECTED | EXECUTED | REVERTED
+    decision_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
+    measurement_window_days: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    baseline_metric_snapshot: Mapped[Any] = mapped_column(JSONB, nullable=False)
+    realized_metric_snapshot: Mapped[Any | None] = mapped_column(JSONB, nullable=True)
+    outcome_verdict: Mapped[str | None] = mapped_column(sa.String(20), nullable=True)
+    # improved | unchanged | regressed | inconclusive
+    outcome_confidence: Mapped[float | None] = mapped_column(
+        sa.Numeric(4, 3), nullable=True
+    )
+    measured_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )

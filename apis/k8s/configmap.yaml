@@ -7,7 +7,7 @@ data:
   APIS_ENV: "production"
   APIS_OPERATING_MODE: "paper"
   APIS_LOG_LEVEL: "INFO"
-  APIS_MAX_POSITIONS: "10"
+  APIS_MAX_POSITIONS: "15"
   APIS_DB_URL: "postgresql+psycopg://apis:$(POSTGRES_PASSWORD)@postgres-svc:5432/apis"
   APIS_REDIS_URL: "redis://redis-svc:6379/0"
   ALPACA_BASE_URL: "https://paper-api.alpaca.markets"

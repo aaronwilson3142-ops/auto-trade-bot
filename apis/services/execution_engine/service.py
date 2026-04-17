@@ -105,6 +105,10 @@ class ExecutionEngineService:
                 error_message="Action was marked BLOCKED by risk engine.",
             )
 
+        # ── Inject price into paper broker (paper adapter needs explicit prices) ─
+        if hasattr(self._broker, "set_price") and request.current_price > Decimal("0"):
+            self._broker.set_price(action.ticker, request.current_price)
+
         try:
             if action.action_type == ActionType.OPEN:
                 return self._execute_open(request)
@@ -163,7 +167,12 @@ class ExecutionEngineService:
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     def _execute_open(self, request: ExecutionRequest) -> ExecutionResult:
-        """Buy: floor(target_notional / price) shares, market order."""
+        """Buy: floor(target_notional / price) shares, market order.
+
+        Quantity resolution order:
+        1. target_notional / price  (primary — set by portfolio engine sizing)
+        2. target_quantity directly  (fallback — set by rebalancing service)
+        """
         action = request.action
         price = request.current_price
 
@@ -174,13 +183,35 @@ class ExecutionEngineService:
                 error_message=f"Invalid price {price} for OPEN action.",
             )
 
-        quantity = (action.target_notional / price).to_integral_value(rounding=ROUND_DOWN)
+        # Primary: derive quantity from notional
+        if action.target_notional > Decimal("0"):
+            quantity = (action.target_notional / price).to_integral_value(rounding=ROUND_DOWN)
+        # Fallback: use pre-computed target_quantity (e.g. from rebalancing)
+        elif action.target_quantity is not None and action.target_quantity > Decimal("0"):
+            quantity = action.target_quantity.to_integral_value(rounding=ROUND_DOWN)
+            log.info(
+                "execution_using_target_quantity_fallback",
+                ticker=action.ticker,
+                target_quantity=str(action.target_quantity),
+                price=str(price),
+            )
+        else:
+            quantity = Decimal("0")
+
         if quantity <= Decimal("0"):
+            log.warning(
+                "execution_rejected_zero_quantity",
+                ticker=action.ticker,
+                target_notional=str(action.target_notional),
+                target_quantity=str(action.target_quantity),
+                price=str(price),
+            )
             return ExecutionResult(
                 status=ExecutionStatus.REJECTED,
                 action=action,
                 error_message=(
                     f"Computed quantity is 0: notional={action.target_notional} "
+                    f"target_quantity={action.target_quantity} "
                     f"price={price}. Order not submitted."
                 ),
             )

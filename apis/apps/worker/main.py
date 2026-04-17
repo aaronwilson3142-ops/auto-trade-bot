@@ -23,13 +23,8 @@ All times are Eastern Time (US/Eastern).  Jobs only fire on weekdays.
   17:20  run_signal_quality_update     — match closed trades to signals, compute per-strategy quality (Phase 46)
   06:45  run_ranking_generation        — composite score + write to ApiAppState
   06:52  run_weight_optimization       — Sharpe-proportional strategy weights
-  09:35  run_paper_trading_cycle       — morning execution: rank → risk → execute
-  10:30  run_paper_trading_cycle       — late-morning execution
-  11:30  run_paper_trading_cycle       — pre-midday execution
-  12:00  run_paper_trading_cycle       — midday execution: re-rank → risk → execute
-  13:30  run_paper_trading_cycle       — early-afternoon execution
-  14:30  run_paper_trading_cycle       — afternoon execution
-  15:30  run_paper_trading_cycle       — pre-close execution
+  09:35–15:30  run_paper_trading_cycle (×12) — ~30-min cadence for accelerated learning
+               09:35, 10:00, 10:30, 11:00, 11:30, 12:00, 12:30, 13:00, 13:30, 14:00, 14:30, 15:30 ET
   17:00  run_daily_evaluation          — DailyScorecard → app_state
   17:15  run_attribution_analysis      — attribution log
   17:20  run_signal_quality_update     — per-strategy signal quality (Phase 46)
@@ -574,65 +569,27 @@ def build_scheduler() -> BackgroundScheduler:
     )
 
     # Paper trading cycles — market hours only; mode guard inside the job
-    # 7 intraday cycles: 09:35, 10:30, 11:30, 12:00, 13:30, 14:30, 15:30 ET
-    # More frequent cycles accumulate richer paper-trade data for evaluation
-    # and self-improvement without changing any risk rules.
-    scheduler.add_job(
-        _job_paper_trading_cycle,
-        CronTrigger(day_of_week=_weekday, hour=9, minute=35, timezone=_ET),
-        id="paper_trading_cycle_morning",
-        name="Paper Trading Cycle (Morning)",
-        replace_existing=True,
-        misfire_grace_time=300,
-    )
-    scheduler.add_job(
-        _job_paper_trading_cycle,
-        CronTrigger(day_of_week=_weekday, hour=10, minute=30, timezone=_ET),
-        id="paper_trading_cycle_late_morning",
-        name="Paper Trading Cycle (Late Morning)",
-        replace_existing=True,
-        misfire_grace_time=300,
-    )
-    scheduler.add_job(
-        _job_paper_trading_cycle,
-        CronTrigger(day_of_week=_weekday, hour=11, minute=30, timezone=_ET),
-        id="paper_trading_cycle_late_morning_2",
-        name="Paper Trading Cycle (Pre-Midday)",
-        replace_existing=True,
-        misfire_grace_time=300,
-    )
-    scheduler.add_job(
-        _job_paper_trading_cycle,
-        CronTrigger(day_of_week=_weekday, hour=12, minute=0, timezone=_ET),
-        id="paper_trading_cycle_midday",
-        name="Paper Trading Cycle (Midday)",
-        replace_existing=True,
-        misfire_grace_time=300,
-    )
-    scheduler.add_job(
-        _job_paper_trading_cycle,
-        CronTrigger(day_of_week=_weekday, hour=13, minute=30, timezone=_ET),
-        id="paper_trading_cycle_early_afternoon",
-        name="Paper Trading Cycle (Early Afternoon)",
-        replace_existing=True,
-        misfire_grace_time=300,
-    )
-    scheduler.add_job(
-        _job_paper_trading_cycle,
-        CronTrigger(day_of_week=_weekday, hour=14, minute=30, timezone=_ET),
-        id="paper_trading_cycle_afternoon",
-        name="Paper Trading Cycle (Afternoon)",
-        replace_existing=True,
-        misfire_grace_time=300,
-    )
-    scheduler.add_job(
-        _job_paper_trading_cycle,
-        CronTrigger(day_of_week=_weekday, hour=15, minute=30, timezone=_ET),
-        id="paper_trading_cycle_close",
-        name="Paper Trading Cycle (Pre-Close)",
-        replace_existing=True,
-        misfire_grace_time=300,
-    )
+    # 7 intraday cycles spread across the trading day (09:35–15:30 ET).
+    # Reverted from 12 cycles (learning acceleration) back to standard
+    # cadence to reduce turnover before live trading transition.
+    _paper_cycle_schedule = [
+        (9,  35, "morning",          "Morning Open"),
+        (10, 30, "late_morning",     "Late Morning"),
+        (11, 30, "pre_midday",       "Pre-Midday"),
+        (12,  0, "midday",           "Midday"),
+        (13, 30, "early_afternoon",  "Early Afternoon"),
+        (14, 30, "afternoon",        "Afternoon"),
+        (15, 30, "close",            "Pre-Close"),
+    ]
+    for _hour, _minute, _id_suffix, _label in _paper_cycle_schedule:
+        scheduler.add_job(
+            _job_paper_trading_cycle,
+            CronTrigger(day_of_week=_weekday, hour=_hour, minute=_minute, timezone=_ET),
+            id=f"paper_trading_cycle_{_id_suffix}",
+            name=f"Paper Trading Cycle ({_label})",
+            replace_existing=True,
+            misfire_grace_time=300,
+        )
 
     return scheduler
 
@@ -661,6 +618,187 @@ def _setup_alert_service() -> None:
             logger.warning("webhook_alert_service_init_failed", error=str(exc))
 
 
+def _restore_rankings_from_db() -> None:
+    """Restore latest_rankings into app_state from the DB.
+
+    Mirrors the logic in ``apps.api.main._load_persisted_state()`` so that
+    a worker restart mid-day does not leave ``latest_rankings`` empty and
+    cause every subsequent paper-trading cycle to skip with
+    ``skipped_no_rankings``.  Phase 62 fix — 2026-04-13.
+    """
+    try:
+        import sqlalchemy as _sa
+
+        from infra.db.models import Security
+        from infra.db.models.signal import RankedOpportunity, RankingRun
+        from infra.db.session import db_session as _db_session_rank
+        from services.ranking_engine.models import RankedResult
+
+        app_state = get_app_state()
+
+        with _db_session_rank() as db:
+            latest_run = db.execute(
+                _sa.select(RankingRun).order_by(RankingRun.run_timestamp.desc()).limit(1)
+            ).scalar_one_or_none()
+
+            if latest_run is not None:
+                rows = db.execute(
+                    _sa.select(RankedOpportunity, Security.ticker)
+                    .join(Security, Security.id == RankedOpportunity.security_id)
+                    .where(RankedOpportunity.ranking_run_id == latest_run.id)
+                    .order_by(RankedOpportunity.rank_position)
+                ).all()
+
+                restored: list[RankedResult] = []
+                for opp, ticker in rows:
+                    restored.append(RankedResult(
+                        rank_position=opp.rank_position,
+                        security_id=opp.security_id,
+                        ticker=ticker,
+                        composite_score=opp.composite_score,
+                        portfolio_fit_score=opp.portfolio_fit_score,
+                        recommended_action=opp.recommended_action,
+                        target_horizon=opp.target_horizon or "medium",
+                        thesis_summary=opp.thesis_summary or "",
+                        disconfirming_factors=opp.disconfirming_factors or "",
+                        sizing_hint_pct=opp.sizing_hint_pct,
+                        source_reliability_tier="secondary_verified",
+                        contains_rumor=False,
+                        as_of=latest_run.run_timestamp,
+                    ))
+
+                if restored:
+                    app_state.latest_rankings = restored
+                    app_state.last_ranking_run_id = str(latest_run.id)
+                    logger.info(
+                        "latest_rankings_restored_from_db",
+                        count=len(restored),
+                        run_id=str(latest_run.id),
+                    )
+                else:
+                    logger.info("latest_rankings_restore_empty_run")
+            else:
+                logger.info("latest_rankings_restore_no_runs")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("latest_rankings_restore_failed", error=str(exc))
+
+
+def _restore_evaluation_history_from_db() -> None:
+    """Restore evaluation_history into app_state from the DB.
+
+    The live-mode readiness gate (``min_evaluation_history`` and
+    ``min_sharpe_estimate``) counts entries in ``app_state.evaluation_history``,
+    which is an in-memory list that resets on every worker restart.  Since
+    ``run_daily_evaluation`` only fires once per weekday at 17:00 ET, any
+    worker restart truncates the history to 0 and forces several trading
+    days before promotion can clear the gate again.
+
+    This restore reads EvaluationRun + EvaluationMetric rows from the DB and
+    rehydrates ``app_state.evaluation_history`` with lightweight proxy
+    scorecards carrying the metric fields the gate checks.  Phase 63 fix —
+    2026-04-14.
+    """
+    try:
+        import datetime as _dt_eval
+        from decimal import Decimal as _Dec_eval
+        from types import SimpleNamespace as _SN
+
+        import sqlalchemy as _sa
+
+        from infra.db.models.evaluation import EvaluationMetric, EvaluationRun
+        from infra.db.session import db_session as _db_session_eval
+
+        app_state = get_app_state()
+
+        with _db_session_eval() as db:
+            # Most recent 90 evaluation runs, oldest first (matches append order)
+            runs = db.execute(
+                _sa.select(EvaluationRun)
+                .order_by(EvaluationRun.run_timestamp.desc())
+                .limit(90)
+            ).scalars().all()
+
+            if not runs:
+                logger.info("evaluation_history_restore_no_runs")
+                return
+
+            # Fetch metrics for all restored runs in one query
+            run_ids = [r.id for r in runs]
+            metric_rows = db.execute(
+                _sa.select(EvaluationMetric)
+                .where(EvaluationMetric.evaluation_run_id.in_(run_ids))
+            ).scalars().all()
+
+            metrics_by_run: dict = {}
+            for m in metric_rows:
+                metrics_by_run.setdefault(m.evaluation_run_id, {})[m.metric_key] = (
+                    m.metric_value
+                )
+
+            restored: list = []
+            for run in runs:
+                m = metrics_by_run.get(run.id, {})
+                restored.append(
+                    _SN(
+                        scorecard_date=run.evaluation_period_end
+                        or run.evaluation_period_start
+                        or run.run_timestamp.date(),
+                        mode=run.mode,
+                        equity=m.get("equity"),
+                        daily_return_pct=m.get("daily_return_pct"),
+                        net_pnl=m.get("net_pnl"),
+                        hit_rate=m.get("hit_rate"),
+                        current_drawdown_pct=m.get("current_drawdown_pct"),
+                        max_drawdown_pct=m.get("max_drawdown_pct"),
+                        position_count=(
+                            int(m["position_count"])
+                            if m.get("position_count") is not None
+                            else None
+                        ),
+                        closed_trade_count=(
+                            int(m["closed_trade_count"])
+                            if m.get("closed_trade_count") is not None
+                            else None
+                        ),
+                    )
+                )
+
+            # Reverse so oldest-first matches the in-memory append order used
+            # by run_daily_evaluation
+            app_state.evaluation_history = list(reversed(restored))
+            logger.info(
+                "evaluation_history_restored_from_db",
+                count=len(restored),
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("evaluation_history_restore_failed", error=str(exc))
+
+
+def _seed_reference_data() -> None:
+    """Ensure the securities, themes, and security_themes tables are populated.
+
+    Called once at worker startup.  Idempotent — skips rows that already exist.
+    Silently skips when the database is unavailable.
+    """
+    sf = _make_session_factory()
+    if sf is None:
+        logger.warning("seed_reference_data_skipped_no_session_factory")
+        return
+    try:
+        from infra.db.seed_securities import run_all_seeds
+
+        with sf() as session:
+            counts = run_all_seeds(session)
+            session.commit()
+        total = sum(counts.values())
+        if total > 0:
+            logger.info("seed_reference_data_complete", **counts)
+        else:
+            logger.info("seed_reference_data_already_up_to_date")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("seed_reference_data_failed", error=str(exc))
+
+
 def main() -> None:
     """Start the APIS worker scheduler and block until interrupted."""
     logger.info(
@@ -669,6 +807,22 @@ def main() -> None:
         kill_switch=settings.is_kill_switch_active,
     )
 
+    # Deep-Dive Plan Step 1 (2026-04-16) — log all 6 un-buried constants
+    # at startup so operators have visibility into their effective values.
+    logger.info(
+        "deep_dive_step1_settings",
+        buy_threshold=settings.buy_threshold,
+        watch_threshold=settings.watch_threshold,
+        source_weight_hit_rate_floor=settings.source_weight_hit_rate_floor,
+        ranking_threshold_avg_loss_floor=settings.ranking_threshold_avg_loss_floor,
+        ai_ranking_bonus_map_keys=sorted(settings.ai_ranking_bonus_map.keys()),
+        ai_theme_bonus_map_keys=sorted(settings.ai_theme_bonus_map.keys()),
+        rebalance_target_ttl_seconds=settings.rebalance_target_ttl_seconds,
+    )
+
+    _seed_reference_data()
+    _restore_rankings_from_db()
+    _restore_evaluation_history_from_db()
     _setup_alert_service()
     scheduler = build_scheduler()
     scheduler.start()

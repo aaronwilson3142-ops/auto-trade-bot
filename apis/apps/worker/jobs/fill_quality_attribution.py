@@ -51,18 +51,18 @@ def _fetch_subsequent_price(
         import sqlalchemy as _sa  # noqa: PLC0415
 
         from infra.db.models import Security as _Sec  # noqa: PLC0415
-        from infra.db.models.market_data import SecurityBar as _Bar  # noqa: PLC0415
+        from infra.db.models.market_data import DailyMarketBar as _Bar  # noqa: PLC0415
 
         # Approximate: N trading days ≈ N*1.5 calendar days
         target_date = filled_at.date() + dt.timedelta(days=int(n_days * 1.5))
 
         with session_factory() as db:
             row = db.execute(
-                _sa.select(_Bar.close_price)
+                _sa.select(_Bar.close)
                 .join(_Sec, _Sec.id == _Bar.security_id)
                 .where(_Sec.ticker == ticker.upper())
-                .where(_Bar.bar_date >= target_date)
-                .order_by(_Bar.bar_date.asc())
+                .where(_Bar.trade_date >= target_date)
+                .order_by(_Bar.trade_date.asc())
                 .limit(1)
             ).first()
             if row and row[0] is not None:

@@ -278,6 +278,7 @@ class RebalancingService:
                     reason=f"rebalance_open: drift={entry.drift_pct:+.2%}",
                     risk_approved=False,
                     target_quantity=qty,
+                    target_notional=Decimal(str(round(target_usd, 2))),
                 ))
 
         return actions

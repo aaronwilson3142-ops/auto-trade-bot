@@ -25,11 +25,20 @@ from config.logging_config import get_logger
 from config.settings import Settings, get_settings
 
 
-def _persist_evaluation_run(scorecard: Any, mode: str) -> None:
+def _persist_evaluation_run(
+    scorecard: Any,
+    mode: str,
+    run_id: str | None = None,
+) -> None:
     """Fire-and-forget: write EvaluationRun + EvaluationMetric rows to DB.
 
     Never raises — DB failures are logged at WARNING level only.
     Called at the end of every successful run_daily_evaluation.
+
+    Deep-Dive Step 2 Rec 4: when ``run_id`` is provided, the EvaluationRun
+    row gets ``idempotency_key = f"{run_id}:evaluation_run"``; a retry of
+    the same daily evaluation job can't duplicate the row.  When absent,
+    falls back to the prior unconditional insert path.
     """
     try:
         from decimal import Decimal as _Decimal
@@ -38,13 +47,34 @@ def _persist_evaluation_run(scorecard: Any, mode: str) -> None:
         from infra.db.models.evaluation import EvaluationRun as _DBRun
         from infra.db.session import db_session as _db_session
 
+        idem_key = f"{run_id}:evaluation_run" if run_id else None
+
         with _db_session() as db:
+            # If idempotency is requested, check if row already exists
+            # before inserting (simpler than ON CONFLICT + RETURNING id
+            # since we need the run.id for the child metric rows).
+            existing = None
+            if idem_key is not None:
+                from sqlalchemy import select
+                existing = db.execute(
+                    select(_DBRun).where(_DBRun.idempotency_key == idem_key)
+                ).scalar_one_or_none()
+
+            if existing is not None:
+                logger.info(
+                    "persist_evaluation_run_skipped_duplicate",
+                    run_id=run_id,
+                    idempotency_key=idem_key,
+                )
+                return
+
             run = _DBRun(
                 run_timestamp=dt.datetime.now(dt.UTC),
                 evaluation_period_start=scorecard.scorecard_date,
                 evaluation_period_end=scorecard.scorecard_date,
                 mode=mode,
                 status="complete",
+                idempotency_key=idem_key,
             )
             db.add(run)
             db.flush()  # populate run.id before referencing it
@@ -186,7 +216,11 @@ def run_daily_evaluation(
             app_state.evaluation_history = app_state.evaluation_history[-max_history:]
 
         # Persist evaluation results to DB (fire-and-forget, Priority 20)
-        _persist_evaluation_run(scorecard, cfg.operating_mode.value)
+        # Deep-Dive Step 2 Rec 4: pass run_id = "{scorecard_date}:{mode}" so the
+        # EvaluationRun row's idempotency_key prevents duplicate inserts on
+        # retry of the same daily evaluation.
+        _run_id = f"{scorecard.scorecard_date}:{cfg.operating_mode.value}"
+        _persist_evaluation_run(scorecard, cfg.operating_mode.value, run_id=_run_id)
 
         # ── Phase 31: Daily evaluation alert ────────────────────────────────
         _alert_svc = getattr(app_state, "alert_service", None)

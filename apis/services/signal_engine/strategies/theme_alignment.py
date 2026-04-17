@@ -31,6 +31,7 @@ import logging
 import math
 from decimal import Decimal, InvalidOperation
 
+from config.settings import get_settings
 from services.feature_store.models import FeatureSet
 from services.signal_engine.models import (
     HorizonClassification,
@@ -46,6 +47,13 @@ CONFIG_VERSION = "1.0"
 
 # Minimum theme score considered "non-zero" for coverage calculation
 _MIN_THEME_SCORE = 0.05
+
+# ── AI-Heavy Bias (2026-04-16) ──────────────────────────────────────────
+# The theme-bonus multiplier map previously declared here was moved into
+# ``config/settings.py`` (``ai_theme_bonus_map``) as part of Deep-Dive Plan
+# Step 1.  Defaults preserve the pre-refactor values byte-for-byte.  DEC-032
+# keeps the magnitudes frozen; only the storage location moves.
+
 
 
 def _clamp(x: float, lo: float = 0.0, hi: float = 1.0) -> float:
@@ -80,11 +88,15 @@ class ThemeAlignmentStrategy:
         """
         theme_scores: dict = feature_set.theme_scores or {}
 
-        # Identify themes with meaningful exposure
-        active_themes = {
-            k: v for k, v in theme_scores.items()
-            if isinstance(v, (int, float)) and v >= _MIN_THEME_SCORE
-        }
+        # Identify themes with meaningful exposure and apply AI bonus.
+        # Bonus map sourced from settings (Deep-Dive Plan Step 1).
+        _settings = get_settings()
+        _bonus_map = getattr(_settings, "ai_theme_bonus_map", {}) or {}
+        active_themes = {}
+        for k, v in theme_scores.items():
+            if isinstance(v, (int, float)) and v >= _MIN_THEME_SCORE:
+                bonus = float(_bonus_map.get(k, 1.0))
+                active_themes[k] = min(v * bonus, 1.0)  # clamp to [0, 1]
 
         if not active_themes:
             signal_score = 0.5
@@ -150,11 +162,12 @@ class ThemeAlignmentStrategy:
 
     @staticmethod
     def _compute_risk(fs: FeatureSet) -> float:
-        """Derive risk score from volatility_20d."""
+        """Derive risk score from volatility_20d (0=low risk, 1=high risk)."""
         vol = fs.get("volatility_20d")
         if vol is None:
             return 0.5
-        return _clamp(float(vol) / 1.0)
+        # Normalise: 0% vol → 0.0, 40%+ vol → 1.0 (annualised decimal)
+        return _clamp(float(vol) * 2.5)
 
     @staticmethod
     def _compute_liquidity(fs: FeatureSet) -> float:

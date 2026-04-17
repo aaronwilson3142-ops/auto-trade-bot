@@ -26,6 +26,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
+from config.settings import get_settings
 from services.self_improvement.config import SelfImprovementConfig
 from services.self_improvement.models import (
     ImprovementProposal,
@@ -41,8 +42,27 @@ class SelfImprovementService:
 
     def __init__(self, config: SelfImprovementConfig | None = None) -> None:
         self._config = config or SelfImprovementConfig()
+        # Deep-Dive Plan Step 6 Rec 10 — optional outcome-ledger-driven
+        # suppression of proposal types whose batting average is too low.
+        # Populated by :meth:`apply_outcome_feedback` before generate_proposals
+        # is called.  Empty set when the ledger flag is off or no history yet.
+        self._suppressed_types: set[str] = set()
 
     # ── Proposal generation ────────────────────────────────────────────────────
+
+    def apply_outcome_feedback(self, suppressed_types: set[str] | None) -> None:
+        """Attach a set of proposal_type values that should be suppressed.
+
+        Callers compute this set via
+        :meth:`ProposalOutcomeLedgerService.types_to_suppress` — it's kept
+        out of ``generate_proposals``'s hot path so the ledger dependency
+        stays optional and the signature doesn't break existing callers.
+
+        Passing ``None`` or an empty set clears the suppression list.
+        Flag-gated at the caller: check
+        ``settings.proposal_outcome_ledger_enabled`` before populating.
+        """
+        self._suppressed_types = set(suppressed_types) if suppressed_types else set()
 
     def generate_proposals(
         self,
@@ -83,8 +103,17 @@ class SelfImprovementService:
             str(attribution_summary.get("avg_loss_pct", "0"))
         )
 
+        # Rule floors sourced from settings (Deep-Dive Plan Step 1).
+        _settings = get_settings()
+        _hit_rate_floor = Decimal(
+            str(getattr(_settings, "source_weight_hit_rate_floor", 0.50))
+        )
+        _avg_loss_floor = Decimal(
+            str(getattr(_settings, "ranking_threshold_avg_loss_floor", -0.02))
+        )
+
         # ── Rule 1: low hit-rate → investigate source weights ─────────────────
-        if hit_rate < Decimal("0.50") and scorecard_grade in ("D", "F", "C"):
+        if hit_rate < _hit_rate_floor and scorecard_grade in ("D", "F", "C"):
             proposals.append(
                 ImprovementProposal(
                     proposal_type=ProposalType.SOURCE_WEIGHT,
@@ -102,7 +131,7 @@ class SelfImprovementService:
             )
 
         # ── Rule 2: consistent losses → adjust ranking threshold ──────────────
-        if avg_loss_pct < Decimal("-0.02") and scorecard_grade in ("D", "F"):
+        if avg_loss_pct < _avg_loss_floor and scorecard_grade in ("D", "F"):
             proposals.append(
                 ImprovementProposal(
                     proposal_type=ProposalType.RANKING_THRESHOLD,
@@ -155,6 +184,16 @@ class SelfImprovementService:
                     expected_benefit="Reduce overconfident entries on weak setups",
                 )
             )
+
+        # Deep-Dive Plan Step 6 Rec 10 — suppress proposal types that the
+        # outcome ledger flagged as regressing more than 50 % of the time.
+        # apply_outcome_feedback() is no-op when the ledger flag is off, so
+        # this filter is a pass-through in default config.
+        if self._suppressed_types:
+            proposals = [
+                p for p in proposals
+                if p.proposal_type.value not in self._suppressed_types
+            ]
 
         # Cap at configured maximum
         return proposals[: self._config.max_proposals_per_cycle]

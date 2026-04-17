@@ -476,6 +476,7 @@ class RiskEngineService:
         ranked_scores: dict[str, Decimal] | None = None,
         reference_dt: dt.datetime | None = None,
         peak_prices: dict[str, float] | None = None,
+        atr_by_ticker: dict[str, float] | None = None,
     ) -> list[PortfolioAction]:
         """Evaluate open positions against five exit triggers.
 
@@ -501,13 +502,40 @@ class RiskEngineService:
             CLOSE PortfolioActions for all triggered positions.
         """
         now = reference_dt or dt.datetime.now(dt.UTC)
-        stop_loss = Decimal(str(self._settings.stop_loss_pct))
-        max_age_days = self._settings.max_position_age_days
+        legacy_stop_loss = Decimal(str(self._settings.stop_loss_pct))
+        legacy_max_age_days = self._settings.max_position_age_days
         score_threshold = Decimal(str(self._settings.exit_score_threshold))
         exit_actions: list[PortfolioAction] = []
+        atr_stops_on = bool(getattr(self._settings, "atr_stops_enabled", False))
 
         for ticker, position in positions.items():
             trigger_reason: str | None = None
+
+            # -- Deep-Dive Plan Step 5 Rec 7 -- per-family ATR-scaled exits ---
+            # Flag OFF => identical to legacy behaviour (stop_loss/max_age/
+            # trailing use the flat settings values).  Flag ON => look up the
+            # family via Position.origin_strategy, then compute per-position
+            # stop/trailing pcts from ATR and family max_age_days.
+            if atr_stops_on:
+                from services.risk_engine.family_params import (  # noqa: PLC0415
+                    resolve_family, compute_atr_stop_pct, compute_atr_trailing_pct,
+                )
+                fam = resolve_family(getattr(position, "origin_strategy", ""))
+                _atr = (atr_by_ticker or {}).get(ticker)
+                _pos_price = float(position.current_price or 0)
+                stop_loss = Decimal(str(
+                    compute_atr_stop_pct(fam, _atr, _pos_price)
+                ))
+                max_age_days = fam.max_age_days
+                _family_trailing_pct = Decimal(str(
+                    compute_atr_trailing_pct(fam, _atr, _pos_price)
+                ))
+                _family_activation_pct = Decimal(str(fam.activation_pct))
+            else:
+                stop_loss = legacy_stop_loss
+                max_age_days = legacy_max_age_days
+                _family_trailing_pct = None
+                _family_activation_pct = None
 
             # ── 1. Stop-loss ─────────────────────────────────────────────────
             if position.unrealized_pnl_pct < -stop_loss:
@@ -526,8 +554,12 @@ class RiskEngineService:
                     )
 
             # ── 3. Trailing stop ─────────────────────────────────────────────
-            trailing_pct = Decimal(str(self._settings.trailing_stop_pct))
-            activation_pct = Decimal(str(self._settings.trailing_stop_activation_pct))
+            if atr_stops_on and _family_trailing_pct is not None:
+                trailing_pct = _family_trailing_pct
+                activation_pct = _family_activation_pct
+            else:
+                trailing_pct = Decimal(str(self._settings.trailing_stop_pct))
+                activation_pct = Decimal(str(self._settings.trailing_stop_activation_pct))
             if trigger_reason is None and trailing_pct > Decimal("0") and peak_prices is not None:
                 peak = peak_prices.get(ticker)
                 if peak is not None and peak > 0:

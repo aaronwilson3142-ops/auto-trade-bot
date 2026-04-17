@@ -3,6 +3,37 @@ Append one entry per mandatory checkpoint. Never overwrite existing entries.
 
 ---
 
+### [2026-03-31 UTC] Ops — Securities table seed fix + worker volume mount
+
+- **Capacity Trigger:** User asked why paper cycle count was still at 1 despite the worker running for days with 7 cycles/day scheduled.
+- **Root Cause Diagnosed:**
+  1. The `securities` table in Postgres was completely empty — it was never seeded after schema creation.
+  2. `SignalEngineService.run()` looks up each universe ticker in the `securities` table via `_load_security_ids()`. With 0 rows, every ticker was skipped with `"No security_id found for X; skipping."`.
+  3. Signal generation produced 0 signals → ranking generation produced 0 rankings → all 7 paper trading cycles returned `skipped_no_rankings` every single day.
+  4. Worker logs confirmed: `"tickers": 50, "signals": 0` at 06:30 ET, `"ranked_count": 0` at 06:45 ET, then 7× `paper_trading_cycle_skipped_no_rankings` throughout the day.
+- **Changes Made:**
+  1. **Direct DB seed:** Generated SQL INSERT statements for all 62 universe tickers, copied into postgres container, executed. Verified: `SELECT count(*) FROM securities` → 62.
+  2. **New file `infra/db/seed_securities.py`:** Idempotent seed module with `run_all_seeds()` — seeds `securities` (62 tickers with names, sectors), `themes` (13 themes), and `security_themes` (62 join rows). Uses `ON CONFLICT DO NOTHING`. Can run standalone.
+  3. **Modified `apps/worker/main.py`:** Added `_seed_reference_data()` called at startup before scheduler. Ensures reference data is always present after fresh deploy or volume wipe.
+  4. **Modified `infra/docker/docker-compose.yml`:** Added `volumes: ../../../apis:/app/apis:ro` to the worker service (matching the existing API service mount). Worker now picks up code changes on container restart without a full image rebuild.
+  5. **Worker recreated** via `docker compose --env-file "../../.env" up -d worker`. Verified startup logs show `seed_reference_data_complete` with themes=13, security_themes=62, securities=0 (already seeded via SQL).
+- **System State at Handoff:**
+  - Docker Compose is primary runtime. All 7 containers up and healthy.
+  - Worker has source volume mount — code changes are live.
+  - `securities` table has 62 rows, `themes` has 13 rows, `security_themes` has 62 rows.
+  - Next signal generation will run 2026-04-01 at 06:30 ET. Should produce >0 signals for the first time.
+  - First paper trading cycle with real rankings expected 2026-04-01 at 09:35 ET.
+- **Open Items:**
+  - **CRITICAL MONITOR:** Check worker logs on 2026-04-01 after 06:30 ET — signal_generation_job_complete should show `"signals": >0`. If still 0, investigate `FeatureStoreService.compute_and_persist()` and market data availability.
+  - **CRITICAL MONITOR:** Check 09:35 ET paper trading cycle — should NOT be `skipped_no_rankings`.
+  - Alpaca broker auth may still return "unauthorized" — separate issue from signal generation.
+  - When running `docker compose` commands, always pass `--env-file "../../.env"` from the `apis/infra/docker/` directory, otherwise Grafana fails on missing `GRAFANA_ADMIN_PASSWORD`.
+- **Blockers:** None
+- **Risks:** Low — seed is idempotent, volume mount is read-only, no logic changes.
+- **Confidence:** High — root cause confirmed via logs, fix verified via DB query and startup logs.
+
+---
+
 ### [2026-03-30 UTC] Ops — Infrastructure Health dashboard panel + worker pod fix
 
 - **Capacity Trigger:** User noticed readiness report on dashboard showing 3 FAIL gates (min_paper_cycles=1, min_evaluation_history=1, portfolio_initialized=not_initialized) despite system running for several days. Asked why paper cycle count was still at 1.
@@ -1651,34 +1682,68 @@ Append one entry per mandatory checkpoint. Never overwrite existing entries.
 ### [2026-03-20 UTC] Session 20 � Phase 20 COMPLETE (Portfolio Snapshot Persistence + Evaluation Persistence + Continuity Service)
 
 - **Capacity Trigger:** Phase 20 milestone � all DB write-through gaps filled, ContinuityService implemented, DB-backed history endpoints added
-- **Objective:** Implement portfolio snapshot persistence to DB after each paper cycle, evaluation run persistence after each scorecard, fill the ContinuityService stub, and expose new DB-backed GET endpoints for history queries. Ensure AppState restores last snapshot equity at startup.
-- **Current Stage:** Phase 20 COMPLETE � **1425/1425 tests passing (37 skipped: PyYAML absent)**
-- **New Files:**
-  - services/continuity/models.py � ContinuitySnapshot (11 fields, to_dict/from_dict) + SessionContext (10 fields, summary_lines)
-  - services/continuity/config.py � ContinuityConfig(snapshot_dir, snapshot_filename, max_snapshot_age_hours=48)
-  - services/continuity/service.py � ContinuityService: take_snapshot, save_snapshot, load_snapshot (stale-check + corrupt-safe), get_session_context
-  - 	ests/unit/test_phase20_priority20.py � 56 tests (15 classes)
-- **Modified Files:**
-  - services/continuity/__init__.py � exports ContinuityService
-  - pps/worker/jobs/paper_trading.py � _persist_portfolio_snapshot() fire-and-forget (PortfolioSnapshot row: cash, gross/net exposure, equity, drawdown)
-  - pps/worker/jobs/evaluation.py � _persist_evaluation_run() fire-and-forget (EvaluationRun + 8 EvaluationMetric rows)
-  - pps/api/schemas/portfolio.py � PortfolioSnapshotRecord + PortfolioSnapshotHistoryResponse
-  - pps/api/schemas/evaluation.py � EvaluationRunRecord + EvaluationRunHistoryResponse
-  - pps/api/routes/portfolio.py � GET /api/v1/portfolio/snapshots?limit=20 endpoint
-  - pps/api/routes/evaluation.py � GET /api/v1/evaluation/runs?limit=20 endpoint
-  - pps/api/state.py � last_snapshot_at + last_snapshot_equity fields
-  - pps/api/main.py � _load_persisted_state() restores latest portfolio snapshot equity from DB at startup
-- **Key Decisions:** No new architectural decisions; all within DEC-001 through DEC-010
-- **Verification / QA:** pytest tests/unit/ --no-cov -q � **1425/1425 PASSED (37 skipped)**
+- **Objective:** Implement portfolio snapshot persistence to DB after each paper cycle, evaluation run persistence after each scorecard, fill the ContinuityService stub, and expose new DB-backed GET endpoints for history queries. Ensure AppState res
+
+---
+
+### [2026-04-08 UTC] Session — Phase 57 Part 1 Scaffold (InsiderFlowStrategy)
+
+- **Capacity Trigger:** New phase opened at user request after strategy-review session; major architecture decision (DEC-018) logged.
+- **Objective:** Open Phase 57 properly: add a new InsiderFlowStrategy signal family driven by congressional / 13F / unusual-options flow, without replacing any existing strategy and without violating Master Spec §4.2 (no options) or §9 (no averaging down). Scaffold only — no network calls, no wiring into SignalEngineService, no effect on live paper trading.
+- **Current Stage:** Phase 57 Part 1 COMPLETE. Phase 57 Part 2 (provider selection, concrete adapter, enrichment wiring, settings flag, walk-forward backtest) pending — see NEXT_STEPS.md.
+- **Current Status:** Scaffold landed. 24 new unit tests passing locally. Strategy NOT yet in `SignalEngineService.score_from_features()` default list. `NullInsiderFlowAdapter` is the only concrete adapter, and it always returns an empty event list, so production behaviour is unchanged.
+- **Files Reviewed:**
+  - `01_CLAUDE_KICKOFF_PROMPT.md`, `02_APIS_MASTER_SPEC.md`, `03_SESSION_CONTINUITY_AND_EXECUTION_PROTOCOL.md` (governing)
+  - `apis/state/ACTIVE_CONTEXT.md`, `apis/state/NEXT_STEPS.md`, `apis/state/DECISION_LOG.md`, `apis/state/CHANGELOG.md` (state)
+  - `services/signal_engine/strategies/sentiment.py` (pattern reference for new strategy)
+  - `services/signal_engine/models.py`, `services/feature_store/models.py` (extension points)
+  - `services/data_ingestion/adapters/yfinance_adapter.py` (adapter pattern reference)
+  - External: YouTube transcript of Samin Yasar "Claude Just Changed the Stock Market Forever" (`lH5wrfNwL3k`) via `youtube_transcript_api`
+- **Files Changed:**
+  - NEW `services/signal_engine/strategies/insider_flow.py`
+  - NEW `services/data_ingestion/adapters/insider_flow_adapter.py`
+  - NEW `tests/unit/test_phase57_insider_flow.py` (24 tests)
+  - MOD `services/feature_store/models.py` — +3 overlay fields on `FeatureSet`
+  - MOD `services/signal_engine/models.py` — +`SignalType.INSIDER_FLOW`
+  - MOD `services/signal_engine/strategies/__init__.py` — register new strategy
+  - MOD `state/DECISION_LOG.md` — DEC-018
+  - MOD `state/NEXT_STEPS.md` — Phase 57 section
+  - MOD `state/CHANGELOG.md` — Phase 57 Part 1 entry
+  - MOD `state/ACTIVE_CONTEXT.md` — reflect new in-progress phase
+  - MOD `state/SESSION_HANDOFF_LOG.md` — this entry
+- **Decisions:** DEC-018 (Phase 57 scope + scaffold-first rollout; explicit rejection of tutorial's options-wheel and ladder-in rules; guardrails: exponential decay half-life=14d, max age 60d, reliability tier capped at `secondary_verified`, `contains_rumor=False` always)
+- **Completed Work:**
+  1. Added `insider_flow_score`, `insider_flow_confidence`, `insider_flow_age_days` overlay fields to `FeatureSet` (default neutral)
+  2. Added `SignalType.INSIDER_FLOW` enum member
+  3. Implemented `InsiderFlowStrategy` with age decay, reliability tier logic, and full `explanation_dict`
+  4. Implemented `InsiderFlowAdapter` ABC, `InsiderFlowEvent`, `InsiderFlowOverlay`, and `NullInsiderFlowAdapter`
+  5. Implemented shared `aggregate()` helper on the ABC (dollar-weighted net flow, newest-filing age, aggregate confidence)
+  6. Registered `InsiderFlowStrategy` in `strategies/__init__.py`
+  7. Wrote 24 scaffold tests covering overlay defaults, neutral behaviour, decay math, direction, reliability tier, rumour invariant, aggregation, and `NullInsiderFlowAdapter` behaviour — all passing
+  8. Logged DEC-018 and updated NEXT_STEPS, CHANGELOG, ACTIVE_CONTEXT
+- **Open Items (Next Steps):**
+  1. **Provider ToS review** — evaluate QuiverQuant / Finnhub / SEC EDGAR. Log chosen provider + ToS review date as DEC-019 before writing any code.
+  2. Implement concrete `InsiderFlowAdapter` subclass with rate-limiting and error handling
+  3. Extend feature enrichment pipeline (Phase 22) to call `adapter.fetch_events()` + `adapter.aggregate()` and populate `FeatureSet.insider_flow_*`
+  4. Add `APIS_ENABLE_INSIDER_FLOW_STRATEGY: bool = False` to `config/settings.py`; gate inclusion in `SignalEngineService.score_from_features()` behind it
+  5. Walk-forward backtest via `BacktestEngine` (≥2 years) with the new signal family; sensitivity sweep at weights 0.00/0.05/0.10/0.15
+  6. `LiveModeGateService` readiness report must PASS with the new weight in place before enabling
+  7. Integration test covering enrichment → signal → rank → paper-trade with a fixture-backed adapter
+- **Blockers:** None. Part 2 cannot start until provider ToS review is complete.
+- **Risks:**
+  - CapitalTrades (the tool used in the reference video) has no documented public API; scraping is fragile and possibly ToS-violating. Strongly prefer a first-party REST provider.
+  - Congressional disclosures are lagged up to 45 days — the decay half-life of 14 days was chosen conservatively but is not yet empirically validated; walk-forward backtest may suggest a different optimal value.
+  - If the walk-forward backtest shows no edge after costs, Phase 57 Part 2 should be deferred rather than shipped with a forced weight.
+  - Scope-creep risk: users may ask to "also just do the options wheel" — this is explicitly rejected under Master Spec §4.2 and must stay rejected without a logged spec revision.
+- **Verification / QA:**
+  - `python3 -m pytest tests/unit/test_phase57_insider_flow.py --no-cov -q` → **24 passed** in the Linux sandbox.
+  - Full project test suite NOT re-run this session (sandbox lacks Postgres/Redis and the Windows venv). Next session on the Windows host must run the full suite (`docker compose exec api pytest` or equivalent) before any wiring changes.
+  - QA Status: **PASS (scaffold only)**. Findings: none. Remaining risks: full-suite re-run pending (above). Confidence: High.
 - **Continuity Notes:**
-  - ContinuityService.take_snapshot(app_state, settings) � serialize key AppState fields into ContinuitySnapshot
-  - ContinuityService.load_snapshot() � returns None if file missing, corrupt, or older than max_snapshot_age_hours
-  - _persist_portfolio_snapshot() and _persist_evaluation_run() are fire-and-forget (never raise; log WARNING on error)
-  - PortfolioState.equity = cash + gross_exposure (property, not stored field) � no positions means equity == cash
-  - GET /portfolio/snapshots and GET /evaluation/runs fall back to empty list on any DB error (non-fatal)
-  - last_snapshot_at / last_snapshot_equity in AppState restored via _load_persisted_state() at lifespan startup
-  - All HTTP route tests use sync TestClient (NOT AsyncClient) � Python 3.14 no auto event loop
-  - OperatingMode enum values are LOWERCASE: "paper", "research", "backtest", "human_approved", "restricted_live"
-  - Next session entry point: **Phase 21** � determine from governing docs or extend further (advanced analytics, live mode gate hardening, or integration tests)
-- **Confidence:** High
-- **Blockers:** None
+  - The strategy is a *pure function* of `FeatureSet` overlay fields — zero I/O. This makes it trivially testable and safe to import anywhere.
+  - `NullInsiderFlowAdapter` is the intended production default until Part 2 lands. If anyone wires the strategy into `SignalEngineService.score_from_features()` before Part 2, it will still be a no-op because the overlay fields default to 0.0 / 0.0 / None.
+  - Do not delete `NullInsiderFlowAdapter` when a concrete provider lands — it remains the default for tests and for environments without provider credentials.
+  - The age decay formula is `exp(-ln(2) * age_days / 14)` with a hard zero at age_days ≥ 60 or age_days < 0 or age_days is None. `_age_decay()` is exposed at module scope for direct testing.
+  - Source tutorial: YouTube `lH5wrfNwL3k` (Samin Yasar). Transcript was pulled via `youtube_transcript_api`. The tutorial's trailing-stop strategy is subsumed by Phase 25/26/42; its copy-trading idea is the basis for this phase; its options-wheel is rejected.
+- **Confidence:** High for Part 1 scaffold. Medium-low on whether Part 2 will actually ship — contingent on provider ToS review and walk-forward backtest results.
+

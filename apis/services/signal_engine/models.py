@@ -33,6 +33,7 @@ class SignalType(str, Enum):
     COMPOSITE = "composite"
     THEME_ALIGNMENT = "theme_alignment"
     MACRO_TAILWIND = "macro_tailwind"
+    INSIDER_FLOW = "insider_flow"  # Phase 57 — congressional / whale / unusual-options flow
 
 
 @dataclass

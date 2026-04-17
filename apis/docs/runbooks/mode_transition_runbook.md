@@ -61,7 +61,7 @@ curl http://localhost:8000/api/v1/live-gate/status
 - `PAPER → HUMAN_APPROVED` gate requirements will all show `not_met` at this stage — that is expected; you are going to `PAPER` first, not `HUMAN_APPROVED`
 
 #### 5. Risk controls confirmed
-- [ ] `APIS_MAX_POSITIONS` = 10 (MVP hard cap)
+- [ ] `APIS_MAX_POSITIONS` ≤ 15 (spec hard cap; raised from 10 on 2026-04-15)
 - [ ] `APIS_DAILY_LOSS_LIMIT_PCT` ≤ 0.02
 - [ ] `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT` ≤ 0.05
 - [ ] `APIS_MAX_SINGLE_NAME_PCT` ≤ 0.20

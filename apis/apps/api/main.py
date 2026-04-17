@@ -164,12 +164,323 @@ def _load_persisted_state() -> None:
                     if latest_snap.equity_value is not None
                     else None
                 )
+                # Restore last_paper_cycle_at so the health check doesn't
+                # report "no_data" after every restart.  The snapshot timestamp
+                # is the best available proxy for the last successful cycle.
+                # Ensure timezone-aware (health check uses UTC-aware datetime).
+                _snap_ts = latest_snap.snapshot_timestamp
+                if _snap_ts is not None and _snap_ts.tzinfo is None:
+                    _snap_ts = _snap_ts.replace(tzinfo=_dt.timezone.utc)
+                app_state.last_paper_cycle_at = _snap_ts
                 logger.info(
                     "portfolio_snapshot_restored",
                     equity=app_state.last_snapshot_equity,
+                    last_cycle_at=str(latest_snap.snapshot_timestamp),
                 )
     except Exception as exc:  # noqa: BLE001
         logger.warning("load_portfolio_snapshot_failed", error=str(exc))
+
+    # ── Phase 59: Restore portfolio_state from open Position rows ───────────
+    try:
+        import sqlalchemy as _sa_port
+        from decimal import Decimal as _Dec
+
+        from infra.db.models import Security
+        from infra.db.models.portfolio import Position as _DBPosition
+        from infra.db.models.portfolio import PortfolioSnapshot as _DBSnap2
+        from infra.db.session import db_session as _db_sess_port
+        from services.portfolio_engine.models import PortfolioPosition, PortfolioState
+
+        with _db_sess_port() as db:
+            # Get latest snapshot for cash / HWM / SOD
+            snap = db.execute(
+                _sa_port.select(_DBSnap2)
+                .order_by(_DBSnap2.snapshot_timestamp.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+
+            # Get open positions
+            open_rows = db.execute(
+                _sa_port.select(_DBPosition, Security.ticker)
+                .join(Security, Security.id == _DBPosition.security_id)
+                .where(_DBPosition.status == "open")
+                .order_by(_DBPosition.opened_at)
+            ).all()
+
+            if snap is not None or open_rows:
+                positions: dict[str, PortfolioPosition] = {}
+                for pos, ticker in open_rows:
+                    qty = _Dec(str(pos.quantity)) if pos.quantity else _Dec("0")
+                    entry = _Dec(str(pos.entry_price)) if pos.entry_price else _Dec("0")
+                    # Use market_value / quantity as current price proxy; fall back to entry
+                    if pos.market_value and qty > 0:
+                        cur_price = (_Dec(str(pos.market_value)) / qty).quantize(_Dec("0.000001"))
+                    else:
+                        cur_price = entry
+                    positions[ticker] = PortfolioPosition(
+                        ticker=ticker,
+                        quantity=qty,
+                        avg_entry_price=entry,
+                        current_price=cur_price,
+                        opened_at=pos.opened_at,
+                        thesis_summary=(pos.thesis_snapshot_json or {}).get("summary", "") if isinstance(pos.thesis_snapshot_json, dict) else "",
+                        strategy_key="",
+                        security_id=pos.security_id,
+                    )
+
+                cash = _Dec(str(snap.cash_balance)) if snap and snap.cash_balance else _Dec("100000")
+                equity_val = _Dec(str(snap.equity_value)) if snap and snap.equity_value else None
+
+                # Phase 63 guard (2026-04-14): refuse to restore a corrupt
+                # snapshot where cash went negative with zero authoritative
+                # position rows.  This situation means an earlier cycle's
+                # broker-sync wrote -$94k cash into the snapshot without
+                # also persisting matching Position rows, so any restart
+                # rehydrates the phantom liability forever.  Treat this as
+                # a fresh start to let the system recover.
+                if cash < _Dec("0") and not positions:
+                    logger.warning(
+                        "portfolio_state_restore_phantom_cash_reset",
+                        snapshot_cash=str(cash),
+                        snapshot_equity=str(equity_val),
+                        reason="negative cash with zero open positions — resetting to $100k",
+                    )
+                    cash = _Dec("100000")
+                    equity_val = _Dec("100000")
+
+                app_state.portfolio_state = PortfolioState(
+                    cash=cash,
+                    positions=positions,
+                    start_of_day_equity=equity_val,
+                    start_of_month_equity=equity_val,
+                    high_water_mark=equity_val,
+                    daily_opens_count=0,
+                )
+                logger.info(
+                    "portfolio_state_restored_from_db",
+                    positions=len(positions),
+                    cash=str(cash),
+                    equity=str(equity_val),
+                )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("portfolio_state_restore_failed", error=str(exc))
+
+    # ── Phase 59: Restore closed_trades + trade_grades from closed Positions ─
+    try:
+        import sqlalchemy as _sa_ct
+        from decimal import Decimal as _Dec2
+
+        from infra.db.models import Security as _Sec2
+        from infra.db.models.portfolio import Position as _DBPos2
+        from infra.db.session import db_session as _db_sess_ct
+        from services.evaluation_engine.models import PositionGrade
+        from services.portfolio_engine.models import ActionType, ClosedTrade
+
+        with _db_sess_ct() as db:
+            closed_rows = db.execute(
+                _sa_ct.select(_DBPos2, _Sec2.ticker)
+                .join(_Sec2, _Sec2.id == _DBPos2.security_id)
+                .where(_DBPos2.status == "closed")
+                .where(_DBPos2.closed_at.isnot(None))
+                .order_by(_DBPos2.closed_at.desc())
+                .limit(200)
+            ).all()
+
+            restored_trades: list = []
+            restored_grades: list = []
+            for pos, ticker in closed_rows:
+                entry_p = _Dec2(str(pos.entry_price)) if pos.entry_price else _Dec2("0")
+                exit_p = _Dec2(str(pos.exit_price)) if pos.exit_price else entry_p
+                qty = _Dec2(str(pos.quantity)) if pos.quantity else _Dec2("0")
+                r_pnl = _Dec2(str(pos.realized_pnl)) if pos.realized_pnl else (exit_p - entry_p) * qty
+                cost = entry_p * qty if qty else _Dec2("1")
+                r_pnl_pct = (r_pnl / cost) if cost else _Dec2("0")
+                opened = pos.opened_at or _dt.datetime.now(_dt.timezone.utc)
+                closed = pos.closed_at or _dt.datetime.now(_dt.timezone.utc)
+                hold_days = (closed.date() - opened.date()).days if closed and opened else 0
+
+                ct = ClosedTrade(
+                    ticker=ticker,
+                    action_type=ActionType.CLOSE,
+                    fill_price=exit_p,
+                    avg_entry_price=entry_p,
+                    quantity=qty,
+                    realized_pnl=r_pnl,
+                    realized_pnl_pct=r_pnl_pct,
+                    reason="restored_from_db",
+                    opened_at=opened,
+                    closed_at=closed,
+                    hold_duration_days=hold_days,
+                )
+                restored_trades.append(ct)
+
+                # Re-derive the trade grade from P&L percentage
+                if r_pnl_pct >= _Dec2("0.05"):
+                    grade = "A"
+                elif r_pnl_pct >= _Dec2("0.02"):
+                    grade = "B"
+                elif r_pnl_pct >= _Dec2("0"):
+                    grade = "C"
+                elif r_pnl_pct >= _Dec2("-0.03"):
+                    grade = "D"
+                else:
+                    grade = "F"
+                restored_grades.append(PositionGrade(
+                    ticker=ticker,
+                    strategy_key="",
+                    realized_pnl=r_pnl,
+                    realized_pnl_pct=r_pnl_pct,
+                    holding_days=hold_days,
+                    is_winner=r_pnl > 0,
+                    exit_reason="restored_from_db",
+                    grade=grade,
+                ))
+
+            if restored_trades:
+                # Reverse so oldest-first matches the in-memory append order
+                app_state.closed_trades = list(reversed(restored_trades))
+                app_state.trade_grades = list(reversed(restored_grades))
+                logger.info(
+                    "closed_trades_restored_from_db",
+                    count=len(restored_trades),
+                )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("closed_trades_restore_failed", error=str(exc))
+
+    # ── Phase 59: Restore active_weight_profile from WeightProfile table ─────
+    try:
+        import json as _json_wp
+        import sqlalchemy as _sa_wp
+
+        from infra.db.models.weight_profile import WeightProfile as _DBWeight
+        from infra.db.session import db_session as _db_sess_wp
+        from services.signal_engine.weight_optimizer import WeightProfileRecord
+
+        with _db_sess_wp() as db:
+            row = db.execute(
+                _sa_wp.select(_DBWeight)
+                .where(_DBWeight.is_active.is_(True))
+                .order_by(_DBWeight.created_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+
+            if row is not None:
+                app_state.active_weight_profile = WeightProfileRecord(
+                    id=str(row.id),
+                    profile_name=row.profile_name,
+                    source=row.source,
+                    weights=_json_wp.loads(row.weights_json) if row.weights_json else {},
+                    sharpe_metrics=_json_wp.loads(row.sharpe_metrics_json) if row.sharpe_metrics_json else {},
+                    is_active=True,
+                    optimization_run_id=row.optimization_run_id,
+                    notes=row.notes,
+                    created_at=row.created_at,
+                )
+                logger.info("weight_profile_restored_from_db", profile=row.profile_name)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("weight_profile_restore_failed", error=str(exc))
+
+    # ── Phase 59: Restore current_regime_result from RegimeSnapshot table ────
+    try:
+        import json as _json_rg
+        import sqlalchemy as _sa_rg
+
+        from infra.db.models.regime_detection import RegimeSnapshot as _DBRegime
+        from infra.db.session import db_session as _db_sess_rg
+        from services.signal_engine.regime_detection import MarketRegime, RegimeResult
+
+        with _db_sess_rg() as db:
+            rows = db.execute(
+                _sa_rg.select(_DBRegime)
+                .order_by(_DBRegime.created_at.desc())
+                .limit(30)
+            ).all()
+
+            regime_history: list = []
+            for row in rows:
+                basis = _json_rg.loads(row.detection_basis_json) if row.detection_basis_json else {}
+                rr = RegimeResult(
+                    regime=MarketRegime(row.regime),
+                    confidence=row.confidence,
+                    detection_basis=basis,
+                    is_manual_override=row.is_manual_override,
+                    override_reason=row.override_reason,
+                    detected_at=row.created_at,
+                )
+                regime_history.append(rr)
+
+            if regime_history:
+                app_state.current_regime_result = regime_history[0]
+                # Reverse so newest-last matches the append order
+                app_state.regime_history = list(reversed(regime_history))
+                logger.info(
+                    "regime_result_restored_from_db",
+                    regime=regime_history[0].regime.value,
+                    confidence=regime_history[0].confidence,
+                )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("regime_result_restore_failed", error=str(exc))
+
+    # ── Phase 59: Restore latest_readiness_report from ReadinessSnapshot ─────
+    try:
+        import json as _json_rr
+        import sqlalchemy as _sa_rr
+
+        from infra.db.models.readiness import ReadinessSnapshot as _DBReady
+        from infra.db.session import db_session as _db_sess_rr
+        from services.readiness.models import ReadinessGateRow, ReadinessReport
+
+        with _db_sess_rr() as db:
+            row = db.execute(
+                _sa_rr.select(_DBReady)
+                .order_by(_DBReady.captured_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+
+            if row is not None:
+                gates_raw = _json_rr.loads(row.gates_json) if row.gates_json else []
+                gate_rows = [ReadinessGateRow(**g) for g in gates_raw]
+                app_state.latest_readiness_report = ReadinessReport(
+                    generated_at=row.captured_at,
+                    current_mode=row.current_mode,
+                    target_mode=row.target_mode,
+                    overall_status=row.overall_status,
+                    gate_rows=gate_rows,
+                    pass_count=row.pass_count,
+                    warn_count=row.warn_count,
+                    fail_count=row.fail_count,
+                    recommendation=row.recommendation or "",
+                )
+                logger.info(
+                    "readiness_report_restored_from_db",
+                    status=row.overall_status,
+                )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("readiness_report_restore_failed", error=str(exc))
+
+    # ── Phase 59: Restore promoted_versions from PromotedVersion table ───────
+    try:
+        import sqlalchemy as _sa_pv
+
+        from infra.db.models.self_improvement import PromotedVersion as _DBPromoted
+        from infra.db.session import db_session as _db_sess_pv
+
+        with _db_sess_pv() as db:
+            rows = db.execute(
+                _sa_pv.select(_DBPromoted)
+                .order_by(_DBPromoted.promotion_timestamp.desc())
+            ).scalars().all()
+
+            if rows:
+                promoted: dict[str, str] = {}
+                for row in rows:
+                    key = f"{row.component_type}:{row.component_key}"
+                    if key not in promoted:  # latest per component
+                        promoted[key] = row.version_label
+                app_state.promoted_versions = promoted
+                logger.info("promoted_versions_restored_from_db", count=len(promoted))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("promoted_versions_restore_failed", error=str(exc))
 
     # ── Phase 31: Initialize webhook alert service ──────────────────────────
     try:
@@ -205,6 +516,172 @@ def _load_persisted_state() -> None:
         logger.warning("broker_adapter_init_failed", error=str(exc))
 
 
+def _run_startup_catchup() -> None:
+    """Re-run morning pipeline jobs that were missed due to a process restart.
+
+    Phase 59 — Dashboard State Persistence & Worker Resilience.
+
+    On startup, checks the current time (ET) and the day of week.  If it is
+    a weekday and past the scheduled time for a morning-pipeline job, AND the
+    corresponding app_state field is still empty/None (meaning neither the DB
+    restore nor a previous run populated it), the job is fired synchronously
+    in dependency order.
+
+    This ensures the dashboard is fully populated within a few minutes of any
+    mid-day restart, rather than staying blank until the next scheduled slot.
+
+    All jobs are fire-and-forget with their own try/except, so a single
+    failure does not block the rest.
+    """
+    import zoneinfo
+
+    from apps.api.state import get_app_state
+
+    app_state = get_app_state()
+    cfg = get_settings()
+
+    et = zoneinfo.ZoneInfo("US/Eastern")
+    now = _dt.datetime.now(et)
+
+    # Only catch up on weekdays
+    if now.weekday() >= 5:  # Saturday=5, Sunday=6
+        logger.info("startup_catchup_skipped_weekend")
+        return
+
+    current_hour_min = now.hour * 60 + now.minute
+    logger.info(
+        "startup_catchup_starting",
+        current_time_et=now.strftime("%H:%M"),
+        weekday=now.strftime("%A"),
+    )
+
+    # Define the catch-up jobs in dependency order.
+    # Each tuple: (scheduled_minute_of_day, field_to_check, job_function_name, job_args_builder)
+    # We only run a job if its scheduled time has passed AND the corresponding
+    # app_state field is still at its default (empty/None).
+
+    def _session_factory():
+        try:
+            from infra.db.session import SessionLocal
+            return SessionLocal
+        except Exception:
+            return None
+
+    catchup_ran = 0
+
+    # 06:16 — Correlation refresh
+    if current_hour_min >= 376 and not app_state.correlation_matrix:
+        try:
+            from apps.worker.jobs import run_correlation_refresh
+            logger.info("startup_catchup_running", job="correlation_refresh")
+            run_correlation_refresh(app_state=app_state, settings=cfg, session_factory=_session_factory())
+            catchup_ran += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("startup_catchup_failed", job="correlation_refresh", error=str(exc))
+
+    # 06:17 — Liquidity refresh
+    if current_hour_min >= 377 and not app_state.latest_dollar_volumes:
+        try:
+            from apps.worker.jobs import run_liquidity_refresh
+            logger.info("startup_catchup_running", job="liquidity_refresh")
+            run_liquidity_refresh(app_state=app_state, settings=cfg, session_factory=_session_factory())
+            catchup_ran += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("startup_catchup_failed", job="liquidity_refresh", error=str(exc))
+
+    # 06:19 — VaR refresh
+    if current_hour_min >= 379 and app_state.latest_var_result is None:
+        try:
+            from apps.worker.jobs import run_var_refresh
+            logger.info("startup_catchup_running", job="var_refresh")
+            run_var_refresh(app_state=app_state, settings=cfg, session_factory=_session_factory())
+            catchup_ran += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("startup_catchup_failed", job="var_refresh", error=str(exc))
+
+    # 06:20 — Regime detection (only if not already restored from DB)
+    if current_hour_min >= 380 and app_state.current_regime_result is None:
+        try:
+            from apps.worker.jobs import run_regime_detection
+            logger.info("startup_catchup_running", job="regime_detection")
+            run_regime_detection(app_state=app_state, settings=cfg, session_factory=_session_factory())
+            catchup_ran += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("startup_catchup_failed", job="regime_detection", error=str(exc))
+
+    # 06:21 — Stress test
+    if current_hour_min >= 381 and app_state.latest_stress_result is None:
+        try:
+            from apps.worker.jobs import run_stress_test
+            logger.info("startup_catchup_running", job="stress_test")
+            run_stress_test(app_state=app_state, settings=cfg)
+            catchup_ran += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("startup_catchup_failed", job="stress_test", error=str(exc))
+
+    # 06:23 — Earnings calendar
+    if current_hour_min >= 383 and app_state.latest_earnings_calendar is None:
+        try:
+            from apps.worker.jobs import run_earnings_refresh
+            logger.info("startup_catchup_running", job="earnings_refresh")
+            run_earnings_refresh(app_state=app_state, settings=cfg)
+            catchup_ran += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("startup_catchup_failed", job="earnings_refresh", error=str(exc))
+
+    # 06:25 — Universe refresh
+    if current_hour_min >= 385 and not app_state.active_universe:
+        try:
+            from apps.worker.jobs import run_universe_refresh
+            logger.info("startup_catchup_running", job="universe_refresh")
+            run_universe_refresh(app_state=app_state, settings=cfg, session_factory=_session_factory())
+            catchup_ran += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("startup_catchup_failed", job="universe_refresh", error=str(exc))
+
+    # 06:26 — Rebalance check
+    if current_hour_min >= 386 and not app_state.rebalance_targets:
+        try:
+            from apps.worker.jobs import run_rebalance_check
+            logger.info("startup_catchup_running", job="rebalance_check")
+            run_rebalance_check(app_state=app_state, settings=cfg)
+            catchup_ran += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("startup_catchup_failed", job="rebalance_check", error=str(exc))
+
+    # 06:30 — Signal generation (only if rankings are empty — rankings depend on signals)
+    if current_hour_min >= 390 and not app_state.latest_rankings:
+        try:
+            from apps.worker.jobs import run_signal_generation
+            logger.info("startup_catchup_running", job="signal_generation")
+            run_signal_generation(app_state=app_state, settings=cfg, session_factory=_session_factory())
+            catchup_ran += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("startup_catchup_failed", job="signal_generation", error=str(exc))
+
+        # 06:45 — Ranking generation (only if signals were just re-run)
+        if current_hour_min >= 405:
+            try:
+                from apps.worker.jobs import run_ranking_generation
+                logger.info("startup_catchup_running", job="ranking_generation")
+                run_ranking_generation(app_state=app_state, settings=cfg, session_factory=_session_factory())
+                catchup_ran += 1
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("startup_catchup_failed", job="ranking_generation", error=str(exc))
+
+    # 06:52 — Weight optimization (only if not already restored from DB)
+    if current_hour_min >= 412 and app_state.active_weight_profile is None:
+        try:
+            from apps.worker.jobs import run_weight_optimization
+            logger.info("startup_catchup_running", job="weight_optimization")
+            run_weight_optimization(app_state=app_state, settings=cfg, session_factory=_session_factory())
+            catchup_ran += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("startup_catchup_failed", job="weight_optimization", error=str(exc))
+
+    logger.info("startup_catchup_complete", jobs_ran=catchup_ran)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: ARG001
     """FastAPI lifespan — runs _load_persisted_state() on startup, then
@@ -214,6 +691,7 @@ async def lifespan(app: FastAPI):  # noqa: ARG001
     in-memory state and the API served stale data to the dashboard.
     """
     _load_persisted_state()
+    _run_startup_catchup()
 
     # Start the APScheduler in a background thread inside this process.
     # Both the scheduler jobs and the API routes now call get_app_state()
@@ -221,9 +699,11 @@ async def lifespan(app: FastAPI):  # noqa: ARG001
     scheduler = None
     try:
         from apps.worker.main import (
+            _restore_evaluation_history_from_db,  # noqa: PLC0415
             _setup_alert_service,  # noqa: PLC0415
             build_scheduler,  # noqa: PLC0415
         )
+        _restore_evaluation_history_from_db()
         _setup_alert_service()
         scheduler = build_scheduler()
         scheduler.start()
@@ -234,6 +714,14 @@ async def lifespan(app: FastAPI):  # noqa: ARG001
     except Exception as exc:  # noqa: BLE001
         logger.error("apis_scheduler_start_failed", error=str(exc))
 
+    # Expose the scheduler instance to the health endpoint (module-level
+    # reference so /health can directly inspect `scheduler.running` rather
+    # than inferring liveness from paper-cycle timestamps, which are only
+    # refreshed during US market hours and produce false `stale` results
+    # every morning and on weekends).
+    global _APSCHEDULER_INSTANCE
+    _APSCHEDULER_INSTANCE = scheduler
+
     yield
 
     # Graceful shutdown
@@ -243,6 +731,12 @@ async def lifespan(app: FastAPI):  # noqa: ARG001
             logger.info("apis_scheduler_stopped")
         except Exception as exc:  # noqa: BLE001
             logger.warning("apis_scheduler_stop_failed", error=str(exc))
+    _APSCHEDULER_INSTANCE = None
+
+
+# Module-level handle to the in-process APScheduler instance. Populated by
+# the FastAPI lifespan above so /health can inspect it directly.
+_APSCHEDULER_INSTANCE: object | None = None
 
 
 app = FastAPI(
@@ -373,13 +867,44 @@ async def health(state: AppStateDep, cfg: SettingsDep) -> JSONResponse:
         except Exception:
             components["broker"] = "error"
 
-    # ── Scheduler (inferred from paper cycle timestamps) ──────────────────────
+    # ── Scheduler (inspect the in-process APScheduler instance directly) ─────
+    # Prior implementation inferred scheduler health from `last_paper_cycle_at`,
+    # but paper trading cycles only run 09:35–15:30 ET. Outside those hours
+    # (every morning before 09:35 ET, every evening after 15:30 ET, and every
+    # weekend) the most recent cycle is always >2h old, so the old check
+    # produced a persistent false "stale" status — forcing needless daily
+    # container restarts. The in-process scheduler instance is the source of
+    # truth: if it exists and `.running` is True, the scheduler is alive.
+    sched = _APSCHEDULER_INSTANCE
+    if sched is None:
+        components["scheduler"] = "down"
+    else:
+        try:
+            if getattr(sched, "running", False):
+                components["scheduler"] = "ok"
+            else:
+                components["scheduler"] = "stopped"
+        except Exception:
+            components["scheduler"] = "error"
+
+    # ── Paper cycle freshness (informational — only stale during market hours)
     last_cycle = state.last_paper_cycle_at
     if last_cycle is None:
-        components["scheduler"] = "no_data"
+        components["paper_cycle"] = "no_data"
     else:
         age_s = (_dt.datetime.now(tz=_dt.UTC) - last_cycle).total_seconds()
-        components["scheduler"] = "stale" if age_s > 7200 else "ok"
+        # Only flag stale if we're currently *inside* the paper-cycle window
+        # (09:35–15:30 ET, Mon–Fri). Outside that window, stale is expected.
+        now_et = _dt.datetime.now(tz=_dt.UTC) - _dt.timedelta(hours=4)  # EDT offset
+        in_cycle_window = (
+            now_et.weekday() < 5
+            and (now_et.hour, now_et.minute) >= (9, 35)
+            and (now_et.hour, now_et.minute) <= (15, 30)
+        )
+        if in_cycle_window and age_s > 7200:
+            components["paper_cycle"] = "stale"
+        else:
+            components["paper_cycle"] = "ok"
 
     # ── Broker auth token ─────────────────────────────────────────────────────
     components["broker_auth"] = "expired" if state.broker_auth_expired else "ok"
@@ -391,7 +916,7 @@ async def health(state: AppStateDep, cfg: SettingsDep) -> JSONResponse:
     # ── Overall status ────────────────────────────────────────────────────────
     if components["db"] == "down":
         overall = "down"
-    elif any(v in ("down", "error", "stale", "expired", "active") for v in components.values()):
+    elif any(v in ("down", "error", "stale", "stopped", "expired", "active") for v in components.values()):
         overall = "degraded"
     else:
         overall = "ok"

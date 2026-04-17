@@ -126,6 +126,8 @@ services:
       PYTHONUNBUFFERED: "1"
     env_file:
       - ../../.env
+    volumes:
+      - ../../../apis:/app/apis:ro   # read-only source mount for development
     healthcheck:
       # Confirms the worker process is alive by checking the Redis heartbeat key
       # written every 60 s by apps/worker/main.py.  start_period gives the worker

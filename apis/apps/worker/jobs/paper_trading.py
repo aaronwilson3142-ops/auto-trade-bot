@@ -30,6 +30,7 @@ Spec references
 from __future__ import annotations
 
 import datetime as dt
+import uuid
 from decimal import Decimal
 from typing import Any
 
@@ -70,53 +71,284 @@ def _persist_paper_cycle_count(count: int) -> None:
         logger.warning("persist_paper_cycle_count_failed", error=str(exc))
 
 
-def _persist_portfolio_snapshot(portfolio_state: Any, mode: str) -> None:
+def _persist_portfolio_snapshot(
+    portfolio_state: Any,
+    mode: str,
+    cycle_id: str | None = None,
+) -> None:
     """Fire-and-forget: insert a PortfolioSnapshot row into the DB.
 
     Never raises — DB failures are logged at WARNING level only.
     Called after every successful paper trading cycle.
+
+    Deep-Dive Step 2 Rec 4: when ``cycle_id`` is provided, populates
+    ``idempotency_key = f"{cycle_id}:portfolio_snapshot"`` and uses
+    ``INSERT ... ON CONFLICT DO NOTHING`` on the unique index so retries
+    are safe.  When ``cycle_id`` is None, falls back to plain insert
+    (legacy behavior) to preserve backward compatibility with tests.
     """
     try:
         from decimal import Decimal as _Decimal
+
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
 
         from infra.db.models.portfolio import PortfolioSnapshot as _DBSnap
         from infra.db.session import db_session as _db_session
 
+        idem_key = f"{cycle_id}:portfolio_snapshot" if cycle_id else None
+        values = dict(
+            snapshot_timestamp=dt.datetime.now(dt.UTC),
+            mode=mode,
+            cash_balance=_Decimal(str(portfolio_state.cash)),
+            gross_exposure=_Decimal(str(portfolio_state.gross_exposure)),
+            net_exposure=(
+                _Decimal(str(portfolio_state.equity))
+                - _Decimal(str(portfolio_state.cash))
+            ),
+            equity_value=_Decimal(str(portfolio_state.equity)),
+            drawdown_pct=_Decimal(str(portfolio_state.drawdown_pct)),
+            notes=None,
+            idempotency_key=idem_key,
+        )
         with _db_session() as db:
-            snap = _DBSnap(
-                snapshot_timestamp=dt.datetime.now(dt.UTC),
-                mode=mode,
-                cash_balance=_Decimal(str(portfolio_state.cash)),
-                gross_exposure=_Decimal(str(portfolio_state.gross_exposure)),
-                net_exposure=(
-                    _Decimal(str(portfolio_state.equity))
-                    - _Decimal(str(portfolio_state.cash))
-                ),
-                equity_value=_Decimal(str(portfolio_state.equity)),
-                drawdown_pct=_Decimal(str(portfolio_state.drawdown_pct)),
-                notes=None,
-            )
-            db.add(snap)
+            if idem_key is not None:
+                stmt = pg_insert(_DBSnap).values(**values)
+                stmt = stmt.on_conflict_do_nothing(
+                    constraint="uq_portfolio_snapshot_idempotency_key"
+                )
+                db.execute(stmt)
+            else:
+                db.add(_DBSnap(**values))
     except Exception as exc:  # noqa: BLE001
         logger.warning("persist_portfolio_snapshot_failed %s", exc)
 
 
-def _persist_position_history(portfolio_state: Any, snapshot_at: Any) -> None:
-    """Fire-and-forget: insert one PositionHistory row per open position.
+def _persist_positions(
+    portfolio_state: Any,
+    closed_trades_this_cycle: list | None,
+    run_at: Any,
+) -> None:
+    """Phase 64: Authoritative Position table upsert.
 
-    Never raises — DB failures are logged at WARNING level only.
-    Called after broker sync so prices are current.
+    Writes one row per open position in ``portfolio_state`` with status='open',
+    and closes any previously-open Position rows whose ticker is no longer in
+    the portfolio state (status='closed', closed_at, exit_price, realized_pnl).
+
+    This is the root fix for the Phantom Broker Positions bug: the restore path
+    in ``_load_persisted_state`` reads from this table, so without authoritative
+    writes here the only rehydrated state came from negative-cash snapshots
+    with no matching positions.
+
+    Fire-and-forget: never raises — DB failures are logged at WARNING level.
     """
     try:
         from decimal import Decimal as _Decimal
 
+        from sqlalchemy import select as _select
+
+        from infra.db.models import Security as _Security
+        from infra.db.models.portfolio import Position as _DBPosition
+        from infra.db.session import db_session as _db_session
+
+        # Build ticker -> ClosedTrade map for realized_pnl / exit_price on closes
+        ct_by_ticker: dict[str, Any] = {}
+        for _ct in closed_trades_this_cycle or []:
+            if getattr(_ct, "ticker", None):
+                ct_by_ticker[_ct.ticker] = _ct
+
+        with _db_session() as db:
+            # Resolve ticker -> security_id for every open position
+            open_tickers = list(portfolio_state.positions.keys())
+            sec_by_ticker: dict[str, Any] = {}
+            if open_tickers:
+                sec_rows = db.execute(
+                    _select(_Security).where(_Security.ticker.in_(open_tickers))
+                ).scalars().all()
+                sec_by_ticker = {s.ticker: s for s in sec_rows}
+
+            # ── Upsert open positions ────────────────────────────────────────
+            for ticker, pos in portfolio_state.positions.items():
+                sec = sec_by_ticker.get(ticker)
+                sec_id = getattr(pos, "security_id", None) or (sec.id if sec else None)
+                if sec_id is None:
+                    logger.warning(
+                        "persist_positions_missing_security",
+                        ticker=ticker,
+                    )
+                    continue
+
+                existing = db.execute(
+                    _select(_DBPosition)
+                    .where(_DBPosition.security_id == sec_id)
+                    .where(_DBPosition.status == "open")
+                    .order_by(_DBPosition.opened_at.desc())
+                    .limit(1)
+                ).scalar_one_or_none()
+
+                qty = _Decimal(str(pos.quantity)) if pos.quantity else _Decimal("0")
+                entry = _Decimal(str(pos.avg_entry_price)) if pos.avg_entry_price else _Decimal("0")
+                cur = _Decimal(str(pos.current_price)) if pos.current_price else entry
+                cost = (entry * qty).quantize(_Decimal("0.0001"))
+                mv = (cur * qty).quantize(_Decimal("0.0001"))
+                upl = (mv - cost).quantize(_Decimal("0.0001"))
+
+                if existing is None:
+                    db.add(_DBPosition(
+                        security_id=sec_id,
+                        opened_at=getattr(pos, "opened_at", None) or run_at,
+                        status="open",
+                        entry_price=entry,
+                        quantity=qty,
+                        cost_basis=cost,
+                        market_value=mv,
+                        unrealized_pnl=upl,
+                    ))
+                else:
+                    existing.quantity = qty
+                    existing.entry_price = entry
+                    existing.cost_basis = cost
+                    existing.market_value = mv
+                    existing.unrealized_pnl = upl
+
+            # ── Close DB positions that are no longer in portfolio_state ─────
+            open_db_rows = db.execute(
+                _select(_DBPosition, _Security.ticker)
+                .join(_Security, _Security.id == _DBPosition.security_id)
+                .where(_DBPosition.status == "open")
+            ).all()
+            held_tickers = set(portfolio_state.positions.keys())
+            for row, ticker in open_db_rows:
+                if ticker in held_tickers:
+                    continue
+                ct = ct_by_ticker.get(ticker)
+                row.status = "closed"
+                row.closed_at = run_at
+                if ct is not None:
+                    if getattr(ct, "fill_price", None) is not None:
+                        row.exit_price = _Decimal(str(ct.fill_price))
+                    if getattr(ct, "realized_pnl", None) is not None:
+                        row.realized_pnl = _Decimal(str(ct.realized_pnl))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("persist_positions_failed", error=str(exc))
+
+
+def _fresh_rebalance_targets(app_state: Any, settings: Any) -> dict:
+    """Return ``app_state.rebalance_targets`` iff the computed_at timestamp is
+    within ``settings.rebalance_target_ttl_seconds`` of now.  Otherwise return
+    an empty dict (stale targets are treated as absent).
+
+    Step 1 (Deep-Dive Plan 2026-04-16): replaces the implicit "indefinite"
+    freshness window previously used for rebalance-target CLOSE suppression
+    and merge.  TTL default is 3600 s = 1 hr; set to 0 to disable the check.
+    """
+    targets = getattr(app_state, "rebalance_targets", {}) or {}
+    if not targets:
+        return {}
+    ttl = int(getattr(settings, "rebalance_target_ttl_seconds", 3600))
+    if ttl <= 0:
+        # Freshness check disabled → legacy behavior (always honor targets)
+        return targets
+    computed_at = getattr(app_state, "rebalance_computed_at", None)
+    if computed_at is None:
+        # No timestamp → treat as stale (safer; avoids honoring ancient targets)
+        return {}
+    try:
+        if computed_at.tzinfo is None:
+            computed_at = computed_at.replace(tzinfo=dt.timezone.utc)
+        age = (dt.datetime.now(dt.timezone.utc) - computed_at).total_seconds()
+    except Exception:  # noqa: BLE001
+        return {}
+    if age > ttl:
+        return {}
+    return targets
+
+
+def _apply_ranking_min_filter(
+    rankings: list[Any],
+    app_state: Any,
+    settings: Any,
+) -> list[Any]:
+    """Filter a rankings list by composite-score floor.
+
+    Legacy behavior (`conditional_ranking_min_enabled=False`, default):
+    every ranking must satisfy ``composite_score >= ranking_min_composite_score``.
+
+    Deep-Dive Plan Step 3 Rec 8 (flag ON): a ranking for a ticker that is
+    **currently held** AND has ≥1 prior closed trade graded A or B in
+    ``app_state.trade_grades`` gets a looser floor, ``ranking_min_held_positive``
+    (default 0.20).  All other tickers still use the strict floor.  The flag
+    default is OFF so this helper is bit-for-bit the legacy filter.
+    """
+    min_score = float(getattr(settings, "ranking_min_composite_score", 0.30))
+    if not getattr(settings, "conditional_ranking_min_enabled", False):
+        return [
+            r for r in rankings
+            if float(getattr(r, "composite_score", None) or 0) >= min_score
+        ]
+
+    loose_score = float(getattr(settings, "ranking_min_held_positive", 0.20))
+
+    current_positions: set[str] = set()
+    try:
+        ps = getattr(app_state, "portfolio_state", None)
+        if ps is not None:
+            current_positions = set(getattr(ps, "positions", {}).keys())
+    except Exception:  # noqa: BLE001
+        current_positions = set()
+
+    positive_counts: dict[str, int] = {}
+    try:
+        for g in getattr(app_state, "trade_grades", []) or []:
+            t = getattr(g, "ticker", None)
+            grade = getattr(g, "grade", None)
+            if t and grade in ("A", "B"):
+                positive_counts[t] = positive_counts.get(t, 0) + 1
+    except Exception:  # noqa: BLE001
+        positive_counts = {}
+
+    out: list[Any] = []
+    for r in rankings:
+        t = getattr(r, "ticker", None) or getattr(r, "symbol", None)
+        cs = float(getattr(r, "composite_score", None) or 0)
+        if t in current_positions and positive_counts.get(t, 0) > 0:
+            if cs >= loose_score:
+                out.append(r)
+        elif cs >= min_score:
+            out.append(r)
+    return out
+
+
+def _persist_position_history(
+    portfolio_state: Any,
+    snapshot_at: Any,
+    cycle_id: str | None = None,
+) -> None:
+    """Fire-and-forget: insert one PositionHistory row per open position.
+
+    Never raises — DB failures are logged at WARNING level only.
+    Called after broker sync so prices are current.
+
+    Deep-Dive Step 2 Rec 4: when ``cycle_id`` is provided, each row gets
+    ``idempotency_key = f"{cycle_id}:position_history:{ticker}"`` and the
+    insert uses ``ON CONFLICT DO NOTHING`` so retries of the same cycle
+    are no-ops.
+    """
+    try:
+        from decimal import Decimal as _Decimal
+
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
         from infra.db.models.portfolio import PositionHistory as _PosHist
         from infra.db.session import db_session as _db_session
 
-        rows = []
+        rows: list[dict] = []
         for pos in portfolio_state.positions.values():
+            idem = (
+                f"{cycle_id}:position_history:{pos.ticker}"
+                if cycle_id else None
+            )
             rows.append(
-                _PosHist(
+                dict(
                     ticker=pos.ticker,
                     snapshot_at=snapshot_at,
                     quantity=_Decimal(str(pos.quantity)),
@@ -126,11 +358,20 @@ def _persist_position_history(portfolio_state: Any, snapshot_at: Any) -> None:
                     cost_basis=_Decimal(str(pos.cost_basis)),
                     unrealized_pnl=_Decimal(str(pos.unrealized_pnl)),
                     unrealized_pnl_pct=_Decimal(str(pos.unrealized_pnl_pct)),
+                    idempotency_key=idem,
                 )
             )
         if rows:
             with _db_session() as db:
-                db.add_all(rows)
+                if cycle_id is not None:
+                    for r in rows:
+                        stmt = pg_insert(_PosHist).values(**r)
+                        stmt = stmt.on_conflict_do_nothing(
+                            constraint="uq_position_history_idempotency_key"
+                        )
+                        db.execute(stmt)
+                else:
+                    db.add_all([_PosHist(**r) for r in rows])
     except Exception as exc:  # noqa: BLE001
         logger.warning("persist_position_history_failed", error=str(exc))
 
@@ -168,11 +409,17 @@ def run_paper_trading_cycle(
     """
     cfg = settings or get_settings()
     run_at = dt.datetime.now(dt.UTC)
+    # Deep-Dive Step 2 Rec 4: stable cycle id used as the namespace for
+    # idempotency keys written to portfolio_snapshots and position_history.
+    # A retry of the same cycle uses the same id → unique constraint makes
+    # duplicate rows impossible.
+    cycle_id = uuid.uuid4().hex
 
     logger.info(
         "paper_trading_cycle_starting",
         mode=cfg.operating_mode.value,
         run_at=run_at.isoformat(),
+        cycle_id=cycle_id,
     )
 
     # ── Kill switch guard (checked FIRST — overrides everything) ──────────────
@@ -205,6 +452,77 @@ def run_paper_trading_cycle(
             "errors": [],
         }
 
+    # ── Deep-Dive Step 2 Rec 1: Broker-adapter health invariant ──────────────
+    # Safety gate: if the broker adapter is absent while the DB says we have
+    # live open positions, fire the kill switch and abort this cycle.  If the
+    # adapter's reported positions drift from the DB, log a warning and let
+    # the cycle proceed using the DB as the source of truth.  Healthy state
+    # → no-op.  Feature-flagged via APIS_BROKER_HEALTH_INVARIANT_ENABLED
+    # (default ON per DEC-034).
+    if getattr(cfg, "broker_health_invariant_enabled", True):
+        try:
+            from services.broker_adapter.health import (
+                BrokerAdapterHealthError as _BrokerHealthErr,
+                check_broker_adapter_health as _check_broker_health,
+            )
+
+            def _fire_ks() -> None:
+                try:
+                    app_state.kill_switch_active = True
+                except Exception:  # noqa: BLE001
+                    pass
+
+            _check_broker_health(
+                app_state,
+                cfg,
+                fire_kill_switch_fn=_fire_ks,
+            )
+        except _BrokerHealthErr as _bhe:  # adapter absent with live positions
+            logger.error(
+                "broker_adapter_health_invariant_violated",
+                error=str(_bhe),
+                cycle_id=cycle_id,
+            )
+            _alert_svc = getattr(app_state, "alert_service", None)
+            if _alert_svc is not None:
+                try:
+                    from services.alerting.models import (
+                        AlertEvent,
+                        AlertSeverity,
+                    )
+                    _alert_svc.send_alert(AlertEvent(
+                        event_type="broker_adapter_health_violation",
+                        severity=AlertSeverity.CRITICAL.value,
+                        title=(
+                            "APIS: Broker adapter missing while live positions "
+                            "exist — kill switch fired, cycle aborted"
+                        ),
+                        payload={
+                            "error": str(_bhe),
+                            "cycle_id": cycle_id,
+                            "run_at": run_at.isoformat(),
+                        },
+                    ))
+                except Exception:  # noqa: BLE001
+                    pass
+            return {
+                "status": "error_broker_health",
+                "mode": cfg.operating_mode.value,
+                "run_at": run_at.isoformat(),
+                "proposed_count": 0,
+                "approved_count": 0,
+                "executed_count": 0,
+                "reconciliation_clean": None,
+                "errors": [f"broker_health: {_bhe}"],
+            }
+        except Exception as _bh_exc:  # noqa: BLE001
+            # Never let the invariant crash the scheduler — log and proceed.
+            logger.warning(
+                "broker_adapter_health_check_failed",
+                error=str(_bh_exc),
+                cycle_id=cycle_id,
+            )
+
     # ── Rankings check ────────────────────────────────────────────────────────
     rankings = list(app_state.latest_rankings)
     if not rankings:
@@ -219,6 +537,22 @@ def run_paper_trading_cycle(
             "reconciliation_clean": None,
             "errors": [],
         }
+
+    # ── Minimum composite score filter (learning acceleration) ────────────
+    # Delegates to _apply_ranking_min_filter for unit testability.
+    _min_score = getattr(cfg, "ranking_min_composite_score", 0.30)
+    _pre_filter_count = len(rankings)
+    rankings = _apply_ranking_min_filter(rankings, app_state, cfg)
+    if _pre_filter_count != len(rankings):
+        logger.info(
+            "paper_cycle_min_score_filter",
+            threshold=_min_score,
+            before=_pre_filter_count,
+            after=len(rankings),
+            conditional_on=bool(
+                getattr(cfg, "conditional_ranking_min_enabled", False)
+            ),
+        )
 
     errors: list[str] = []
 
@@ -236,9 +570,13 @@ def run_paper_trading_cycle(
         from services.risk_engine.service import RiskEngineService
 
         # ── Build services ────────────────────────────────────────────────────
-        _broker = broker or getattr(app_state, "broker_adapter", None) or PaperBrokerAdapter(
-            market_open=True
-        )
+        # Phase 65: persist the PaperBrokerAdapter in app_state so positions
+        # survive across cycles.  Previously a new adapter was created every
+        # cycle, losing all in-memory position state.
+        _broker = broker or getattr(app_state, "broker_adapter", None)
+        if _broker is None:
+            _broker = PaperBrokerAdapter(market_open=True)
+            app_state.broker_adapter = _broker
         # Runtime kill switch lambda — lets RiskEngine + ExecutionEngine check
         # app_state.kill_switch_active (toggled via API) without a process restart.
         _ks_fn = lambda: bool(getattr(app_state, "kill_switch_active", False))  # noqa: E731
@@ -323,6 +661,93 @@ def run_paper_trading_cycle(
             portfolio_state=portfolio_state,
         )
 
+        # ── Phase 65: Suppress portfolio-engine CLOSEs for tickers that have
+        # active rebalance targets.  The portfolio engine closes any position
+        # whose ticker is NOT in ``buy_tickers`` (recommended_action == "buy"),
+        # but the rebalancing engine independently wants to KEEP those positions
+        # based on target-weight drift.  Without this filter the two systems
+        # contradict each other: portfolio engine closes, rebalancer re-opens,
+        # creating an alternating open/close churn every cycle.
+        _reb_targets = _fresh_rebalance_targets(app_state, cfg)
+        if _reb_targets:
+            _before = len(proposed_actions)
+            proposed_actions = [
+                a for a in proposed_actions
+                if not (
+                    a.action_type == ActionType.CLOSE
+                    and getattr(a, "reason", "") == "not_in_buy_set"
+                    and a.ticker in _reb_targets
+                )
+            ]
+            _suppressed = _before - len(proposed_actions)
+            if _suppressed:
+                logger.info(
+                    "phase65_close_suppressed_rebalance_active",
+                    suppressed_count=_suppressed,
+                )
+
+        # ── Deep-Dive Step 2 Rec 2: Action-conflict detector ─────────────────
+        # Drop any opposing action pairs on the same ticker (OPEN vs CLOSE
+        # today; extensible later) after portfolio + rebalancer merge.  The
+        # higher-composite-score action wins; ties go to OPEN.  Flag-gated via
+        # APIS_ACTION_CONFLICT_DETECTOR_ENABLED (default ON per DEC-034).
+        if getattr(cfg, "action_conflict_detector_enabled", True):
+            try:
+                from services.action_orchestrator.invariants import (
+                    resolve_action_conflicts as _resolve_conflicts,
+                )
+
+                def _conflict_alert(conflict: Any) -> None:
+                    _alert_svc = getattr(app_state, "alert_service", None)
+                    if _alert_svc is None:
+                        return
+                    try:
+                        from services.alerting.models import (
+                            AlertEvent,
+                            AlertSeverity,
+                        )
+                        _alert_svc.send_alert(AlertEvent(
+                            event_type="action_conflict_dropped",
+                            severity=AlertSeverity.INFO.value,
+                            title=(
+                                f"APIS: Action conflict on {conflict.ticker} — "
+                                f"kept {conflict.kept_action_type} (score "
+                                f"{conflict.kept_score:.4f}), dropped "
+                                f"{conflict.dropped_action_type} (score "
+                                f"{conflict.dropped_score:.4f})"
+                            ),
+                            payload={
+                                "ticker": conflict.ticker,
+                                "kept_action_type": conflict.kept_action_type,
+                                "kept_score": float(conflict.kept_score),
+                                "dropped_action_type": conflict.dropped_action_type,
+                                "dropped_score": float(conflict.dropped_score),
+                                "resolution_reason": conflict.resolution_reason,
+                                "cycle_id": cycle_id,
+                            },
+                        ))
+                    except Exception:  # noqa: BLE001
+                        pass
+
+                _conflict_report = _resolve_conflicts(
+                    proposed_actions,
+                    settings=cfg,
+                    alert_fn=_conflict_alert,
+                )
+                if _conflict_report.conflicts:
+                    logger.warning(
+                        "action_conflicts_resolved",
+                        conflict_count=len(_conflict_report.conflicts),
+                        cycle_id=cycle_id,
+                    )
+                proposed_actions = list(_conflict_report.resolved_actions)
+            except Exception as _conflict_exc:  # noqa: BLE001
+                logger.warning(
+                    "action_conflict_detector_failed",
+                    error=str(_conflict_exc),
+                    cycle_id=cycle_id,
+                )
+
         # ── Phase 39: Correlation-aware size adjustment ───────────────────────
         # Apply pairwise correlation penalty to OPEN actions before risk gating.
         # Highly correlated candidates receive reduced target_notional / quantity.
@@ -372,7 +797,9 @@ def run_paper_trading_cycle(
             )
             app_state.sector_filtered_count = _sector_dropped
         except Exception as _sect_exc:  # noqa: BLE001
-            logger.warning("sector_exposure_filter_failed", error=str(_sect_exc))
+            logger.error("sector_exposure_filter_failed", error=str(_sect_exc))
+            # Fail-safe: drop all OPEN actions when filter crashes; CLOSE/TRIM pass through.
+            proposed_actions = [a for a in proposed_actions if a.action_type != ActionType.OPEN]
 
         # ── Phase 41: Liquidity filter ────────────────────────────────────────
         # Drop OPEN actions for illiquid tickers (dollar_volume_20d below
@@ -395,7 +822,9 @@ def run_paper_trading_cycle(
                 logger.info("liquidity_filter_applied", dropped_count=_liq_dropped)
             app_state.liquidity_filtered_count = _liq_dropped
         except Exception as _liq_exc:  # noqa: BLE001
-            logger.warning("liquidity_filter_failed", error=str(_liq_exc))
+            logger.error("liquidity_filter_failed", error=str(_liq_exc))
+            # Fail-safe: drop all OPEN actions when filter crashes; CLOSE/TRIM pass through.
+            proposed_actions = [a for a in proposed_actions if a.action_type != ActionType.OPEN]
 
         # ── Phase 43: Portfolio VaR gate ─────────────────────────────────────
         # Block new OPEN actions when 1-day 95% portfolio VaR exceeds the
@@ -415,7 +844,9 @@ def run_paper_trading_cycle(
                     logger.info("var_gate_applied", blocked_count=_var_blocked)
                 app_state.var_filtered_count = _var_blocked
         except Exception as _var_exc:  # noqa: BLE001
-            logger.warning("var_gate_failed", error=str(_var_exc))
+            logger.error("var_gate_failed", error=str(_var_exc))
+            # Fail-safe: drop all OPEN actions when VaR gate crashes; CLOSE/TRIM pass through.
+            proposed_actions = [a for a in proposed_actions if a.action_type != ActionType.OPEN]
 
         # ── Phase 44: Portfolio stress test gate ─────────────────────────────
         # Block new OPEN actions when the worst-case historical-scenario stressed
@@ -436,7 +867,9 @@ def run_paper_trading_cycle(
                     logger.info("stress_gate_applied", blocked_count=_stress_blocked)
                 app_state.stress_blocked_count = _stress_blocked
         except Exception as _stress_exc:  # noqa: BLE001
-            logger.warning("stress_gate_failed", error=str(_stress_exc))
+            logger.error("stress_gate_failed", error=str(_stress_exc))
+            # Fail-safe: drop all OPEN actions when stress gate crashes; CLOSE/TRIM pass through.
+            proposed_actions = [a for a in proposed_actions if a.action_type != ActionType.OPEN]
 
         # ── Phase 45: Earnings proximity gate ─────────────────────────────────
         # Block new OPEN actions for tickers with earnings within the configured
@@ -491,9 +924,14 @@ def run_paper_trading_cycle(
                             AlertEvent,
                             AlertSeverity,
                         )
+                        _dd_severity = (
+                            AlertSeverity.INFO.value
+                            if new_state == "NORMAL"
+                            else AlertSeverity.WARNING.value
+                        )
                         _alert_svc_dd.send_alert(AlertEvent(
                             event_type="drawdown_state_change",
-                            severity=AlertSeverity.WARNING.value,
+                            severity=_dd_severity,
                             title=f"APIS: Drawdown state changed {prev_state} -> {new_state}",
                             payload={
                                 "previous_state": prev_state,
@@ -511,8 +949,7 @@ def run_paper_trading_cycle(
                     new=new_state,
                     drawdown_pct=round(drawdown_result.current_drawdown_pct, 4),
                 )
-            else:
-                app_state.drawdown_state = new_state
+            # (No state change — no update needed)
 
             # Apply drawdown recovery adjustments to OPEN actions
             _dd_adjusted: list = []
@@ -587,7 +1024,7 @@ def run_paper_trading_cycle(
                 RebalancingService as _RebSvc,  # noqa: PLC0415
             )
 
-            _reb_targets = getattr(app_state, "rebalance_targets", {}) or {}
+            _reb_targets = _fresh_rebalance_targets(app_state, cfg)
             if _reb_targets and getattr(cfg, "enable_rebalancing", True):
                 _reb_equity = float(portfolio_state.equity) if portfolio_state.equity else 0.0
                 _reb_actions = _RebSvc.generate_rebalance_actions(
@@ -775,6 +1212,22 @@ def run_paper_trading_cycle(
                 if bp.ticker in portfolio_state.positions:
                     portfolio_state.positions[bp.ticker].quantity = bp.quantity
                     portfolio_state.positions[bp.ticker].current_price = bp.current_price
+                else:
+                    # Add new positions opened by the broker (e.g. via execution
+                    # engine) that don't yet exist in portfolio_state.  Without
+                    # this, cash is debited but gross_exposure stays 0, producing
+                    # negative equity and blocking future OPEN actions.
+                    from services.portfolio_engine.models import PortfolioPosition
+                    portfolio_state.positions[bp.ticker] = PortfolioPosition(
+                        ticker=bp.ticker,
+                        quantity=bp.quantity,
+                        avg_entry_price=getattr(bp, "average_entry_price", bp.current_price),
+                        current_price=bp.current_price,
+                        opened_at=run_at,
+                        thesis_summary="",
+                        strategy_key="",
+                        security_id=None,
+                    )
             # Remove positions that broker no longer holds
             broker_tickers = {bp.ticker for bp in broker_positions}
             stale = [t for t in list(portfolio_state.positions) if t not in broker_tickers]
@@ -805,7 +1258,15 @@ def run_paper_trading_cycle(
 
         # ── Persist results back to ApiAppState ───────────────────────────────
         app_state.portfolio_state = portfolio_state
-        app_state.proposed_actions = proposed_actions
+
+        # Remove actions that were sent for execution (filled, rejected, blocked,
+        # or errored) so they don't linger in proposed_actions forever.
+        _executed_tickers = {
+            req.action.ticker for req in approved_requests
+        }
+        app_state.proposed_actions = [
+            a for a in proposed_actions if a.ticker not in _executed_tickers
+        ]
         if hasattr(app_state, "last_paper_cycle_at"):
             app_state.last_paper_cycle_at = run_at
         if hasattr(app_state, "paper_loop_active"):
@@ -827,12 +1288,35 @@ def run_paper_trading_cycle(
             app_state.paper_cycle_results.append(result)
 
         # Persist portfolio snapshot to DB (fire-and-forget, Priority 20)
+        # Deep-Dive Step 2 Rec 4: pass cycle_id so the insert is idempotent on
+        # retry of the same cycle.
         if app_state.portfolio_state is not None:
-            _persist_portfolio_snapshot(app_state.portfolio_state, cfg.operating_mode.value)
+            _persist_portfolio_snapshot(
+                app_state.portfolio_state,
+                cfg.operating_mode.value,
+                cycle_id=cycle_id,
+            )
 
         # Persist per-position P&L snapshots to DB (fire-and-forget, Phase 32)
+        # Deep-Dive Step 2 Rec 4: per-ticker idempotency key keyed on cycle_id.
         if app_state.portfolio_state is not None and app_state.portfolio_state.positions:
-            _persist_position_history(app_state.portfolio_state, run_at)
+            _persist_position_history(
+                app_state.portfolio_state,
+                run_at,
+                cycle_id=cycle_id,
+            )
+
+        # Persist authoritative Position rows (fire-and-forget, Phase 64)
+        # Root fix for phantom-broker-positions bug: ensures the restore path
+        # in _load_persisted_state() finds matching position rows instead of
+        # phantom negative cash.
+        if app_state.portfolio_state is not None:
+            _newly_closed_this_cycle = getattr(app_state, "closed_trades", [])[_pre_record_count:]
+            _persist_positions(
+                app_state.portfolio_state,
+                _newly_closed_this_cycle,
+                run_at,
+            )
 
         # ── Phase 50: Factor Exposure Monitoring ──────────────────────────────
         # Compute portfolio factor exposure (MOMENTUM / VALUE / GROWTH / QUALITY /

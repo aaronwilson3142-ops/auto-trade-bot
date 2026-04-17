@@ -23,11 +23,13 @@ in [0.0, 1.0] (RankedResult or any duck-type with .composite_score).
 Regime-Adaptive Weights
 -----------------------
 Each regime has a predefined strategy weight vector that favours strategies
-most likely to outperform in that environment:
-    BULL_TREND  — momentum-heavy  (0.35 momentum, 0.20 theme, 0.20 sentiment)
-    BEAR_TREND  — defensive       (0.35 macro_tailwind, 0.30 valuation)
-    SIDEWAYS    — fundamentals    (0.35 valuation, 0.20 macro_tailwind)
-    HIGH_VOL    — sentiment-led   (0.30 sentiment, 0.30 macro_tailwind)
+most likely to outperform in that environment.  **AI-Heavy Bias (2026-04-16):**
+theme_alignment is now the dominant or co-dominant factor in every regime to
+heavily favour AI/infrastructure/power/cybersecurity stocks:
+    BULL_TREND  — AI-theme led    (0.40 theme, 0.25 momentum)
+    BEAR_TREND  — defensive+AI    (0.30 valuation, 0.25 theme, 0.25 macro)
+    SIDEWAYS    — AI+fundamentals (0.35 theme, 0.30 valuation)
+    HIGH_VOL    — AI+balanced     (0.30 theme, 0.20 macro, 0.20 sentiment, 0.20 valuation)
 
 The job (run_regime_detection at 06:20 ET) writes the adaptive weights to
 ``app_state.active_weight_profile`` so the 06:45 ranking cycle picks them up.
@@ -79,32 +81,37 @@ class MarketRegime(str, Enum):
 # ---------------------------------------------------------------------------
 
 REGIME_DEFAULT_WEIGHTS: dict[MarketRegime, dict[str, float]] = {
+    # ── AI-Heavy Bias (2026-04-16) ──────────────────────────────────────
+    # theme_alignment_v1 boosted significantly across all regimes so that
+    # AI/infrastructure/power/cybersecurity themes dominate stock selection.
+    # Non-AI names can still be picked if they score exceptionally well on
+    # momentum + valuation, but AI-aligned tickers get a structural edge.
     MarketRegime.BULL_TREND: {
-        "momentum_v1":        0.35,
-        "theme_alignment_v1": 0.20,
-        "macro_tailwind_v1":  0.15,
-        "sentiment_v1":       0.20,
+        "momentum_v1":        0.25,
+        "theme_alignment_v1": 0.40,
+        "macro_tailwind_v1":  0.10,
+        "sentiment_v1":       0.15,
         "valuation_v1":       0.10,
     },
     MarketRegime.BEAR_TREND: {
         "momentum_v1":        0.10,
-        "theme_alignment_v1": 0.10,
-        "macro_tailwind_v1":  0.35,
-        "sentiment_v1":       0.15,
+        "theme_alignment_v1": 0.25,
+        "macro_tailwind_v1":  0.25,
+        "sentiment_v1":       0.10,
         "valuation_v1":       0.30,
     },
     MarketRegime.SIDEWAYS: {
-        "momentum_v1":        0.15,
-        "theme_alignment_v1": 0.15,
-        "macro_tailwind_v1":  0.20,
-        "sentiment_v1":       0.15,
-        "valuation_v1":       0.35,
+        "momentum_v1":        0.10,
+        "theme_alignment_v1": 0.35,
+        "macro_tailwind_v1":  0.15,
+        "sentiment_v1":       0.10,
+        "valuation_v1":       0.30,
     },
     MarketRegime.HIGH_VOL: {
         "momentum_v1":        0.10,
-        "theme_alignment_v1": 0.10,
-        "macro_tailwind_v1":  0.30,
-        "sentiment_v1":       0.30,
+        "theme_alignment_v1": 0.30,
+        "macro_tailwind_v1":  0.20,
+        "sentiment_v1":       0.20,
         "valuation_v1":       0.20,
     },
 }

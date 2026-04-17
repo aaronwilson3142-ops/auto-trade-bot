@@ -45,13 +45,13 @@ class TestSettingsLoad:
         assert s.max_positions == 10
 
     def test_max_positions_cannot_exceed_spec_limit(self) -> None:
-        """Spec hard cap: MVP max_positions <= 10."""
+        """Spec hard cap: max_positions <= 15 (raised from 10 on 2026-04-15)."""
         from pydantic import ValidationError
 
         from config.settings import Settings
 
-        with pytest.raises(ValidationError, match="10"):
-            Settings(max_positions=11)  # type: ignore[call-arg]
+        with pytest.raises(ValidationError, match="15"):
+            Settings(max_positions=16)  # type: ignore[call-arg]
 
     def test_restricted_live_mode_blocked_via_env(self) -> None:
         """RESTRICTED_LIVE cannot be set via config — requires explicit gate passage."""

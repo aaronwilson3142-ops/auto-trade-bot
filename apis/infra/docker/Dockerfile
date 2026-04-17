@@ -43,7 +43,14 @@ WORKDIR /app/apis
 
 EXPOSE 8000
 
-CMD ["uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info"]
+# Bake the entrypoint script into /usr/local/bin (not /app/apis) so it is
+# unaffected by the read-only dev source-mount.  The script runs
+# `alembic upgrade head` before exec-ing uvicorn — see the script header
+# for rationale.
+COPY apis/infra/docker/entrypoint-api.sh /usr/local/bin/entrypoint-api.sh
+RUN chmod +x /usr/local/bin/entrypoint-api.sh
+
+ENTRYPOINT ["/usr/local/bin/entrypoint-api.sh"]
 
 
 # ---------------------------------------------------------------------------

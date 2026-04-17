@@ -104,18 +104,21 @@ def run_var_refresh(
         try:
             from infra.db.models.market_data import DailyMarketBar  # noqa: PLC0415
 
+            from infra.db.models import Security  # noqa: PLC0415
+
             with session_factory() as session:
                 rows = (
                     session.query(
-                        DailyMarketBar.ticker,
-                        DailyMarketBar.bar_date,
-                        DailyMarketBar.close_price,
+                        Security.ticker,
+                        DailyMarketBar.trade_date,
+                        DailyMarketBar.close,
                     )
+                    .join(Security, Security.id == DailyMarketBar.security_id)
                     .filter(
-                        DailyMarketBar.ticker.in_(tickers),
-                        DailyMarketBar.bar_date >= cutoff,
+                        Security.ticker.in_(tickers),
+                        DailyMarketBar.trade_date >= cutoff,
                     )
-                    .order_by(DailyMarketBar.ticker, DailyMarketBar.bar_date)
+                    .order_by(Security.ticker, DailyMarketBar.trade_date)
                     .all()
                 )
 

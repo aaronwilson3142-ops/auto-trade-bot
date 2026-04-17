@@ -195,10 +195,26 @@ class PortfolioEngineService:
         p = max(0.0, min(1.0, p))
 
         half_kelly_pct = 0.5 * max(0.0, 2.0 * p - 1.0)
+        # -- Deep-Dive Plan Step 5 Rec 5 -- portfolio_fit promotion ------------
+        # Flag OFF => untouched half-Kelly (byte-for-byte legacy).
+        # Flag ON => multiply by portfolio_fit_score when the ranking engine
+        # produced one; missing fit score leaves Kelly alone.  The downstream
+        # min() with max_single_name_pct still binds, so this can only REDUCE
+        # a size, never inflate past the risk-engine cap.
+        fit_on = bool(getattr(self._settings, "portfolio_fit_sizing_enabled", False))
+        fit_score = ranked_result.portfolio_fit_score
+        if fit_on and fit_score is not None:
+            try:
+                fit_f = max(0.0, min(1.0, float(fit_score)))
+            except (TypeError, ValueError):
+                fit_f = 1.0
+            half_kelly_pct = half_kelly_pct * fit_f
         half_kelly_decimal = Decimal(str(round(half_kelly_pct, 6)))
 
         ceilings = [self._settings.max_single_name_pct]
         rationale_parts = [f"half_kelly={half_kelly_decimal:.4f}"]
+        if fit_on and fit_score is not None:
+            rationale_parts.append(f"fit_score={float(fit_score):.4f}")
 
         if ranked_result.sizing_hint_pct is not None:
             ceilings.append(float(ranked_result.sizing_hint_pct))

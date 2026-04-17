@@ -62,3 +62,8 @@ logs/
 # Node / dashboard (if added later)
 node_modules/
 npm-debug.log*
+
+# Secret photos / images that accidentally land in workspace
+Alapac Secret Key Photo.png
+*Secret Key Photo*
+*secret_key*.png

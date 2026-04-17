@@ -18,7 +18,7 @@ data:
   APIS_API_PORT: "8000"
 
   # ── Risk controls ─────────────────────────────────────────────────────────
-  APIS_MAX_POSITIONS: "10"
+  APIS_MAX_POSITIONS: "15"
   APIS_DAILY_LOSS_LIMIT_PCT: "0.02"
   APIS_WEEKLY_DRAWDOWN_LIMIT_PCT: "0.05"
   APIS_MAX_SINGLE_NAME_PCT: "0.20"

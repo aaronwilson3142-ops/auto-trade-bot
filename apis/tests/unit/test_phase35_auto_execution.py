@@ -35,7 +35,12 @@ from services.self_improvement.models import (
 # ---------------------------------------------------------------------------
 
 def _make_promoted_proposal(**kwargs) -> ImprovementProposal:
-    """Return a PROMOTED ImprovementProposal with sane defaults."""
+    """Return a PROMOTED ImprovementProposal with sane defaults.
+
+    Phase 58: confidence_score defaults to 0.80 so the 0.70 auto-execute
+    threshold is satisfied out of the box.  Pass confidence_score=... to
+    override for low-confidence test cases.
+    """
     p = ImprovementProposal(
         proposal_type=kwargs.get("proposal_type", ProposalType.RANKING_THRESHOLD),
         target_component=kwargs.get("target_component", "ranking_engine"),
@@ -47,13 +52,40 @@ def _make_promoted_proposal(**kwargs) -> ImprovementProposal:
         candidate_params=kwargs.get("candidate_params", {"min_score": 0.65}),
     )
     p.status = ProposalStatus.PROMOTED
+    p.confidence_score = kwargs.get("confidence_score", 0.80)
     return p
 
 
 def _make_app_state() -> ApiAppState:
+    """Return a fresh app_state seeded with enough signal-quality history
+    to satisfy the Phase 58 auto-execute observation floor.
+
+    Tests that want to exercise the insufficient-history gate should
+    explicitly reset ``app_state.latest_signal_quality`` after calling this.
+    """
     reset_app_state()
     from apps.api.state import get_app_state
-    return get_app_state()
+    from services.signal_engine.signal_quality import SignalQualityReport
+    state = get_app_state()
+    state.latest_signal_quality = SignalQualityReport(
+        computed_at=dt.datetime.now(dt.timezone.utc),
+        total_outcomes_recorded=50,  # well above the default floor of 10
+        strategies_with_data=["momentum"],
+        strategy_results=[],
+    )
+    return state
+
+
+def _make_enabled_settings():
+    """Return a Settings instance with auto-execute enabled, suitable for
+    exercising the happy path of run_auto_execute_proposals.
+    """
+    from config.settings import Settings
+    return Settings(
+        self_improvement_auto_execute_enabled=True,
+        self_improvement_min_auto_execute_confidence=0.70,
+        self_improvement_min_signal_quality_observations=10,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +185,7 @@ class TestExecutionRecord:
             config_delta={"min_score": 0.65},
             baseline_params={"min_score": 0.5},
             status="applied",
-            executed_at=dt.datetime.now(dt.UTC),
+            executed_at=dt.datetime.now(dt.timezone.utc),
         )
         assert rec.id == "exec-1"
         assert rec.status == "applied"
@@ -169,7 +201,7 @@ class TestExecutionRecord:
             config_delta={},
             baseline_params={},
             status="applied",
-            executed_at=dt.datetime.now(dt.UTC),
+            executed_at=dt.datetime.now(dt.timezone.utc),
         )
         assert rec.notes == ""
 
@@ -424,7 +456,7 @@ class TestAutoExecutionDBPersist:
             config_delta={},
             baseline_params={},
             status="applied",
-            executed_at=dt.datetime.now(dt.UTC),
+            executed_at=dt.datetime.now(dt.timezone.utc),
         )
         # Should not raise
         self.svc._persist_execution(record, bad_factory)
@@ -440,7 +472,7 @@ class TestAutoExecutionDBPersist:
             config_delta={},
             baseline_params={},
             status="applied",
-            executed_at=dt.datetime.now(dt.UTC),
+            executed_at=dt.datetime.now(dt.timezone.utc),
         )
         # Must not raise
         self.svc._persist_execution(record, None)
@@ -448,7 +480,7 @@ class TestAutoExecutionDBPersist:
     def test_persist_rollback_skips_when_no_session_factory(self):
         self.svc._persist_rollback(
             "some-id",
-            dt.datetime.now(dt.UTC),
+            dt.datetime.now(dt.timezone.utc),
             None,
         )  # must not raise
 
@@ -458,7 +490,7 @@ class TestAutoExecutionDBPersist:
 
         self.svc._persist_rollback(
             "some-id",
-            dt.datetime.now(dt.UTC),
+            dt.datetime.now(dt.timezone.utc),
             bad_factory,
         )  # must not raise
 
@@ -484,7 +516,7 @@ class TestSelfImprovementSchemas:
 
     def test_execution_record_schema_fields(self):
         from apps.api.schemas.self_improvement import ExecutionRecordSchema
-        now = dt.datetime.now(dt.UTC)
+        now = dt.datetime.now(dt.timezone.utc)
         schema = ExecutionRecordSchema(
             id="e1",
             proposal_id="p1",
@@ -530,7 +562,7 @@ class TestSelfImprovementSchemas:
             skipped_count=1,
             error_count=0,
             errors=[],
-            run_at=dt.datetime.now(dt.UTC),
+            run_at=dt.datetime.now(dt.timezone.utc),
         )
         assert resp.executed_count == 2
 
@@ -664,7 +696,9 @@ class TestAutoExecuteWorkerJob:
     def test_returns_ok_status_when_no_proposals(self):
         from apps.worker.jobs.self_improvement import run_auto_execute_proposals
         state = _make_app_state()
-        result = run_auto_execute_proposals(app_state=state)
+        result = run_auto_execute_proposals(
+            app_state=state, settings=_make_enabled_settings()
+        )
         assert result["status"] == "ok"
         assert result["executed_count"] == 0
 
@@ -672,7 +706,9 @@ class TestAutoExecuteWorkerJob:
         from apps.worker.jobs.self_improvement import run_auto_execute_proposals
         state = _make_app_state()
         state.improvement_proposals = [_make_promoted_proposal()]
-        result = run_auto_execute_proposals(app_state=state)
+        result = run_auto_execute_proposals(
+            app_state=state, settings=_make_enabled_settings()
+        )
         assert result["status"] == "ok"
         assert result["executed_count"] == 1
 
@@ -687,6 +723,7 @@ class TestAutoExecuteWorkerJob:
         state = _make_app_state()
         result = run_auto_execute_proposals(
             app_state=state,
+            settings=_make_enabled_settings(),
             auto_execution_service=bad_svc,
         )
         assert result["status"] == "error"
@@ -694,7 +731,9 @@ class TestAutoExecuteWorkerJob:
     def test_result_has_run_at_field(self):
         from apps.worker.jobs.self_improvement import run_auto_execute_proposals
         state = _make_app_state()
-        result = run_auto_execute_proposals(app_state=state)
+        result = run_auto_execute_proposals(
+            app_state=state, settings=_make_enabled_settings()
+        )
         assert "run_at" in result
 
     def test_accepts_session_factory_kwarg(self):
@@ -702,9 +741,101 @@ class TestAutoExecuteWorkerJob:
         state = _make_app_state()
         result = run_auto_execute_proposals(
             app_state=state,
+            settings=_make_enabled_settings(),
             session_factory=None,
         )
         assert result["status"] == "ok"
+
+    # ── Phase 58 — safety gates ─────────────────────────────────────────────
+
+    def test_phase58_disabled_by_default(self):
+        """With no settings passed the flag defaults to False and the job
+        is a no-op returning skipped_disabled."""
+        from apps.worker.jobs.self_improvement import run_auto_execute_proposals
+        from config.settings import Settings
+        state = _make_app_state()
+        state.improvement_proposals = [_make_promoted_proposal()]
+        # Defaults: flag False, so batch should be skipped entirely.
+        result = run_auto_execute_proposals(
+            app_state=state,
+            settings=Settings(),
+        )
+        assert result["status"] == "skipped_disabled"
+        assert result["executed_count"] == 0
+
+    def test_phase58_skipped_disabled_does_not_call_service(self):
+        from apps.worker.jobs.self_improvement import run_auto_execute_proposals
+        from config.settings import Settings
+        svc = MagicMock()
+        state = _make_app_state()
+        state.improvement_proposals = [_make_promoted_proposal()]
+        run_auto_execute_proposals(
+            app_state=state,
+            settings=Settings(),  # disabled
+            auto_execution_service=svc,
+        )
+        svc.auto_execute_promoted.assert_not_called()
+
+    def test_phase58_skipped_when_signal_quality_history_too_thin(self):
+        """With fewer than min_signal_quality_observations, the batch is
+        skipped even if the feature flag is enabled."""
+        from apps.worker.jobs.self_improvement import run_auto_execute_proposals
+        from services.signal_engine.signal_quality import SignalQualityReport
+        state = _make_app_state()
+        state.latest_signal_quality = SignalQualityReport(
+            computed_at=dt.datetime.now(dt.timezone.utc),
+            total_outcomes_recorded=3,  # below default floor of 10
+        )
+        state.improvement_proposals = [_make_promoted_proposal()]
+        result = run_auto_execute_proposals(
+            app_state=state,
+            settings=_make_enabled_settings(),
+        )
+        assert result["status"] == "skipped_insufficient_history"
+        assert result["executed_count"] == 0
+        assert result["total_outcomes"] == 3
+        assert result["min_required"] == 10
+
+    def test_phase58_skipped_when_no_signal_quality_report_at_all(self):
+        from apps.worker.jobs.self_improvement import run_auto_execute_proposals
+        state = _make_app_state()
+        state.latest_signal_quality = None
+        state.improvement_proposals = [_make_promoted_proposal()]
+        result = run_auto_execute_proposals(
+            app_state=state,
+            settings=_make_enabled_settings(),
+        )
+        assert result["status"] == "skipped_insufficient_history"
+
+    def test_phase58_confidence_threshold_is_passed_through(self):
+        """Low-confidence proposal should be skipped by the service's
+        min_confidence gate, not silently executed as before."""
+        from apps.worker.jobs.self_improvement import run_auto_execute_proposals
+        state = _make_app_state()
+        state.improvement_proposals = [
+            _make_promoted_proposal(confidence_score=0.50)  # below 0.70
+        ]
+        result = run_auto_execute_proposals(
+            app_state=state,
+            settings=_make_enabled_settings(),
+        )
+        assert result["status"] == "ok"
+        assert result["executed_count"] == 0
+        assert result["skipped_low_confidence"] == 1
+
+    def test_phase58_high_confidence_proposal_still_executes(self):
+        from apps.worker.jobs.self_improvement import run_auto_execute_proposals
+        state = _make_app_state()
+        state.improvement_proposals = [
+            _make_promoted_proposal(confidence_score=0.95)
+        ]
+        result = run_auto_execute_proposals(
+            app_state=state,
+            settings=_make_enabled_settings(),
+        )
+        assert result["status"] == "ok"
+        assert result["executed_count"] == 1
+        assert result["skipped_low_confidence"] == 0
 
 
 # ---------------------------------------------------------------------------

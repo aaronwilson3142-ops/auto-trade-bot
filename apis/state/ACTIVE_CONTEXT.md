@@ -1,36 +1,154 @@
 # APIS — Active Context
-Last Updated: 2026-03-30 (Ops — Infrastructure Health dashboard panel + worker pod fix)
+Last Updated: 2026-04-15 (Phase A Parts 1 + 2 — Norgate adapter + point-in-time universe behind feature flags)
+
+## 2026-04-15 Update — Phase A.2 — Point-in-Time Universe Source
+
+### What landed
+- ``apis/services/universe_management/pointintime_source.py`` — ``PointInTimeUniverseService.get_universe_as_of(date)`` returns the S&P 500 members on any historical date, backed by Norgate's ``S&P 500 Current & Past`` watchlist.
+- ``APIS_UNIVERSE_SOURCE`` feature flag in ``config/settings.py`` (``static`` default, ``pointintime`` switches).  Also ``APIS_POINTINTIME_INDEX_NAME`` and ``APIS_POINTINTIME_WATCHLIST_NAME`` for future Russell 1000 / NASDAQ 100 swaps.
+- 11 unit tests — all passing. Combined Phase A suite = 25/25.
+- DEC-025 logged.
+
+### Trial-tier behaviour verified
+Live run on 2026-04-15 against Norgate free trial: candidate pool = 541 names.  True survivorship safety requires Platinum (700+ expected).  Service runs correctly at trial tier, just with a smaller universe.
+
+### What this unlocks when Platinum is active
+Flipping both flags (``APIS_DATA_SOURCE=pointintime`` + ``APIS_UNIVERSE_SOURCE=pointintime``) makes every downstream consumer — backtest engine, signal generator, ranking, paper cycle — iterate a true survivorship-safe universe with no other code changes.  Phase B (walk-forward) can then proceed.
+
+---
+
+## 2026-04-15 Update — Phase A Part 1 — Survivorship-Free Data Adapter
+
+### What landed
+- New adapter `PointInTimeAdapter` (apis/services/data_ingestion/adapters/pointintime_adapter.py) wraps `norgatedata` with the same `fetch_bars` / `fetch_bulk` surface as `YFinanceAdapter`.
+- `APIS_DATA_SOURCE` feature flag in `config/settings.py` (enum: `yfinance` default, `pointintime`).  Flip in `.env` to switch.
+- Adapter factory in `data_ingestion/service.py` selects by setting; falls back to yfinance if `norgatedata` is unavailable.
+- 14 unit tests — all pass without NDU running (see test_pointintime_adapter.py).
+
+### What's blocked
+- Norgate 21-day trial caps history at ~2 years; real Phase B walk-forward needs paid subscription (recommended Platinum $630/yr).
+- Norgate support declined trial extension 2026-04-15.
+- Phases B, B.5, C, D, E, F from APIS_IMPLEMENTATION_PLAN_2026-04-14.md remain pending in sequence.
+
+### Default behaviour is unchanged
+`APIS_DATA_SOURCE` defaults to `yfinance`.  Production is untouched until the operator explicitly flips the flag.
+
+---
+
+## 2026-04-11 Update — Phase 60b Fixes + Autonomous Health Check Authority
+
+### Phase 60b — Three Follow-Up Fixes (deployed 14:40 UTC)
+1. **Negative cash_balance fixed:** Broker sync in `paper_trading.py` now adds new positions from broker to `portfolio_state.positions`. Previously only updated existing positions → cash debited but exposure=0 → negative equity → portfolio engine produced 0 opens.
+2. **Prometheus DNS fixed:** `prometheus.yml` scrape target corrected from `apis_api:8000` to `api:8000`. `APISScrapeDown` alert should clear.
+3. **`last_paper_cycle_at` restored on startup:** `_load_persisted_state()` now sets `last_paper_cycle_at` from latest portfolio snapshot timestamp (with timezone-awareness). Health check shows `paper_cycle: "ok"` instead of `"no_data"` after restarts.
+
+### Autonomous Fix Authority (granted by Aaron)
+The daily health check task (`apis-daily-health-check`, 5AM daily) and the Phase 60 monitor task (`phase60-rebalance-monitor`, Monday 09:35 ET one-shot) now have **standing permission to autonomously fix issues** using computer use MCP, Desktop Commander, Chrome MCP, and file tools. No operator approval needed for: container restarts, code edits, test runs, config updates, state file updates.
+
+**Prohibited even with authority:** financial trades, .env secret changes, data deletion, operating mode changes, K8s worker scale-up, auto-execute flag flip.
+
+### Monday 2026-04-14 Monitoring Plan
+The `phase60-rebalance-monitor` task fires at 09:35 ET to verify:
+- `executed_count > 0` (Phase 60 fix)
+- `portfolio_state.equity` stays positive (Phase 60b fix)
+- Prometheus `APISScrapeDown` alert cleared (Phase 60b fix)
+- `paper_cycle: "ok"` in health check (Phase 60b fix)
+
+---
+
+## 2026-04-11 Update — Learning Acceleration Reverted + Phase 57 Provider ToS Review
+
+### Learning Acceleration Revert
+All three learning-acceleration overrides from 2026-04-09 (DEC-021) have been reverted to production defaults in preparation for live-trading transition:
+
+- **Paper trading cycles reverted 12 → 7**: `apps/worker/main.py` schedule trimmed back to 7 cycles (09:35, 10:30, 11:30, 12:00, 13:30, 14:30, 15:30 ET). Reduces turnover and aligns with standard cadence.
+- **Ranking minimum composite score reverted 0.15 → 0.30**: `apis/.env` updated (`APIS_RANKING_MIN_COMPOSITE_SCORE=0.30`). Only high-confidence opportunities will now enter the paper trading candidate list.
+- **Max new positions/day reverted 8 → 3**: `apis/.env` updated (`APIS_MAX_NEW_POSITIONS_PER_DAY=3`).
+- **Max position age reverted 5 → 20 days**: `apis/.env` updated (`APIS_MAX_POSITION_AGE_DAYS=20`).
+- **Production impact**: After restarting Docker services, the worker will run 7 paper cycles/day with tighter filters. No behavioral changes to risk engine or signal generation.
+
+### Paper Trading Schedule (reverted)
+- 09:35, 10:30, 11:30, 12:00, 13:30, 14:30, 15:30 ET (7 cycles/day)
+- `APIS_MAX_NEW_POSITIONS_PER_DAY=3` (reverted from 8)
+- `APIS_MAX_POSITION_AGE_DAYS=20` (reverted from 5)
+- `APIS_RANKING_MIN_COMPOSITE_SCORE=0.15` (NEW — was effectively 0.30)
+
+---
+
+## 2026-04-09 Update — Phase 59 (state persistence & startup catch-up)
+Dashboard sections were blank after every restart because `ApiAppState` defaults all ~60 fields to None/[]/{}. Only 4 fields (kill_switch, paper_cycle_count, latest_rankings, snapshot_equity) were being restored from DB at startup. This phase fixes the problem with two changes. See `DECISION_LOG.md` DEC-020.
+
+- **`_load_persisted_state()` expanded** — now restores 6 additional data groups from existing DB tables:
+  1. `portfolio_state` (cash, HWM, SOD equity, open positions with tickers) from PortfolioSnapshot + Position + Security
+  2. `closed_trades` + `trade_grades` (last 200 closed positions, re-derived A/B/C/D/F grades) from Position
+  3. `active_weight_profile` (active WeightProfile with parsed weights/Sharpe metrics) from WeightProfile
+  4. `current_regime_result` + `regime_history` (last 30 regime snapshots) from RegimeSnapshot
+  5. `latest_readiness_report` (gates parsed into ReadinessGateRow objects) from ReadinessSnapshot
+  6. `promoted_versions` (all promoted versions, latest per component) from PromotedVersion
+- **`_run_startup_catchup()` added** — runs after `_load_persisted_state()` in the lifespan. On weekday mid-day starts, re-runs any morning pipeline jobs whose app_state fields are still empty: correlation, liquidity, VaR, regime, stress test, earnings, universe, rebalance, signal generation, ranking, weight optimization. Skips weekends entirely. Respects dependency ordering.
+- **Tests:** `tests/unit/test_phase59_state_persistence.py` — 36 tests across 7 classes (33 pass, 3 skip on Python <3.11 due to `dt.UTC`).
+- **Production impact:** Dashboard populates immediately after restart instead of waiting for next scheduled job. Startup takes ~30-60s longer on weekday mid-day restarts due to catch-up jobs.
+
+## 2026-04-08 Update — Phase 58 (self-improvement auto-execute safety gates)
+A second session on 2026-04-08 tightened the self-improvement loop after a live-money readiness review showed the auto-execute path had (a) no enabled/disabled flag, (b) no minimum observation count for the signal quality report it depends on, and (c) a latent bug where `run_auto_execute_proposals` never passed `min_confidence` to the service, making the documented 0.70 confidence gate dead code. See `DECISION_LOG.md` DEC-019 for full rationale.
+
+- **Changes:** `config/settings.py` gained three new fields — `self_improvement_auto_execute_enabled` (default **False**, explicit operator opt-in), `self_improvement_min_auto_execute_confidence` (default 0.70), `self_improvement_min_signal_quality_observations` (default 10). `apps/worker/jobs/self_improvement.run_auto_execute_proposals` now reads all three, short-circuits with `status="skipped_disabled"` or `status="skipped_insufficient_history"` as appropriate, and actually passes `min_confidence` through to `AutoExecutionService.auto_execute_promoted`.
+- **Tests:** `tests/unit/test_phase35_auto_execution.py` — `_make_app_state` now seeds a `SignalQualityReport` with 50 outcomes; `_make_promoted_proposal` defaults `confidence_score=0.80`; 5 existing `TestAutoExecuteWorkerJob` tests updated to pass an enabled `Settings`; 6 new Phase 58 tests cover: disabled-by-default, service-not-called-when-disabled, skip-on-thin-history, skip-on-missing-report, skip-on-low-confidence, execute-on-high-confidence. All 13 tests in `TestAutoExecuteWorkerJob` pass under Python 3.12.
+- **Production impact:** auto-execute is now OFF by default. The `auto_execute_proposals` scheduler job still runs at 18:15 ET every weekday but returns a no-op status until the operator sets `APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED=true`. Proposal generation and promotion are unchanged — those keep building evidence during the paper bake period.
+- **Operator action required:** do NOT flip the flag until after the PAPER → HUMAN_APPROVED gate has passed and `latest_signal_quality.total_outcomes_recorded >= 10`. When the flag is flipped, double-check the readiness report shows `signal_quality_win_rate` gate = PASS, not WARN.
+
+## 2026-04-08 Update — Phase 57 opened
+A new signal family is being added in response to a review of the Samin Yasar "Claude Just Changed the Stock Market Forever" tutorial (YouTube `lH5wrfNwL3k`). See `DECISION_LOG.md` DEC-018 and `NEXT_STEPS.md` Phase 57 for the full plan. This session shipped Part 1 only — scaffold, no wiring.
+
+- **In scope:** congressional / 13F / unusual-options flow as a 6th signal family feeding the existing composite ranking alongside momentum / theme / macro / sentiment / valuation.
+- **Explicitly out of scope:** options strategies of any kind (Master Spec §4.2), ladder-in averaging-down rules (Master Spec §9), wholesale copy-trading a single actor, replacing any existing strategy.
+- **Files added this session:** `services/signal_engine/strategies/insider_flow.py`, `services/data_ingestion/adapters/insider_flow_adapter.py`, `tests/unit/test_phase57_insider_flow.py` (24 tests, all passing).
+- **Files modified this session:** `services/feature_store/models.py` (+3 overlay fields on `FeatureSet`), `services/signal_engine/models.py` (+`SignalType.INSIDER_FLOW`), `services/signal_engine/strategies/__init__.py` (+export).
+- **Production impact:** zero. The new strategy is not wired into `SignalEngineService.score_from_features()`. Default adapter is `NullInsiderFlowAdapter` which always returns an empty event list, and the `FeatureSet` overlay fields default to neutral, so the strategy would emit a 0.5 signal with zero confidence even if it were wired.
+- **Next session entry point:** Phase 57 Part 2 — provider ToS review (QuiverQuant / Finnhub / SEC EDGAR), then concrete adapter + enrichment wiring + settings flag (`APIS_ENABLE_INSIDER_FLOW_STRATEGY=False` default) + walk-forward backtest via `BacktestEngine`. Log provider choice as DEC-019 **before** writing any code.
+
+---
+
+## Pre-2026-04-08 context (unchanged below)
+Last Updated before this amendment: 2026-03-31 (Ops — Securities table seed fix + worker volume mount)
 
 ## What APIS Is
 An Autonomous Portfolio Intelligence System for U.S. equities. A disciplined, modular, auditable portfolio operating system: ingests market/macro/news/politics/rumor signals, ranks equity ideas, manages a paper portfolio under strict risk rules, grades itself daily, and improves itself in a controlled way.
 
 ## Current Operational Status
-**System running in Kubernetes kind cluster "apis" (primary). All 4 pods running. Paper trading runs 7 intraday cycles per trading day.**
+**System running via Docker Compose (primary). All containers healthy. Paper trading runs 7 intraday cycles per trading day. Securities table seeded — signal generation should produce real signals starting 2026-04-01.**
 
 ### Paper Trading Schedule
-- 09:35, 10:30, 11:30, 12:00, 13:30, 14:30, 15:30 ET (7 cycles/day)
-- `APIS_MAX_NEW_POSITIONS_PER_DAY=8` (up from default 3)
-- `APIS_MAX_POSITION_AGE_DAYS=5` (down from default 20)
+- 09:35, 10:30, 11:30, 12:00, 13:30, 14:30, 15:30 ET (7 cycles/day — reverted from 12)
+- `APIS_MAX_NEW_POSITIONS_PER_DAY=3` (reverted from 8)
+- `APIS_MAX_POSITION_AGE_DAYS=20` (reverted from 5)
+- `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` (reverted from 0.15)
 
-### Runtime: Kubernetes kind cluster "apis" (primary)
-- `apis-api` pod — Running, NodePort 30800, image `apis:latest`
-- `apis-worker` pod — Running (scaled back to 1 on 2026-03-30; was 0 since 2026-03-22)
-- `postgres-0` — Running, 8 days uptime
-- `redis` — Running, 8 days uptime
-- Dashboard: `http://localhost:30800/dashboard/` (or port-forward `svc/apis-api-svc 8000:8000`)
+### Runtime: Docker Compose (primary)
+- `docker-api-1` — Up, healthy, port 8000
+- `docker-worker-1` — Up, healthy, recreated 2026-03-31 with source volume mount
+- `docker-postgres-1` — Up, healthy, port 5432 (8+ days uptime)
+- `docker-redis-1` — Up, healthy, port 6379 (8+ days uptime)
+- `docker-prometheus-1` — Up, port 9090
+- `docker-grafana-1` — Up, port 3000
+- `docker-alertmanager-1` — Up, port 9093
+- Dashboard: `http://localhost:8000/dashboard/`
 
-### Runtime: Docker Compose (not currently running)
-- Docker Compose was previously the primary stack but is not active at this time.
-- Monitoring stack (Prometheus, Grafana, Alertmanager) only available in Docker Compose.
+### Runtime: Kubernetes kind cluster "apis" (secondary)
+- API pod on NodePort 30800
+- Worker scaled to 0 (intentional — Docker Compose is primary)
+- Postgres + Redis running internally
 
 ### Config notes
 - `apis/.env`: `APIS_OPERATING_MODE=paper` ✅
-- Alpaca broker auth: currently returning "unauthorized" — API keys may need refresh
-- Local Windows Python commands (`uvicorn`, `apps.worker.main`) are NOT used
+- Alpaca broker auth: API keys present in `.env` — may need refresh if "unauthorized" persists
+- Worker now has source volume mount (`../../../apis:/app/apis:ro`) matching API service — code changes take effect on restart without rebuild
+- **IMPORTANT:** When running `docker compose up` from `apis/infra/docker/`, must pass `--env-file "../../.env"` for Grafana password interpolation
 
-### Key Issue Fixed This Session
-- **Worker pod was scaled to 0 for 8 days** (since 2026-03-22). Paper cycle count stuck at 1. All readiness gates stalled. Scaled back to 1 replica on 2026-03-30.
-- **Infrastructure Health dashboard panel added** to prevent this from going unnoticed again. Shows green/yellow/red status for: API Server, Database, Redis, Worker, Broker Connection, Kill Switch.
+### Key Issue Fixed This Session (2026-03-31)
+- **`securities` table was empty** — never seeded after DB schema creation. Signal generation skipped all 62 universe tickers ("No security_id found") → 0 signals → 0 rankings → all 7 paper trading cycles skipping with `skipped_no_rankings` every day since system went live.
+- **Fix:** Seeded 62 securities + 13 themes + 62 security_theme mappings into Postgres. Created `infra/db/seed_securities.py` (idempotent seed script). Hooked into worker startup via `_seed_reference_data()` in `main.py`. Added volume mount to worker service in `docker-compose.yml`.
+- **Expected result:** Tomorrow (2026-04-01) morning pipeline at 06:30 ET will generate real signals → rankings → paper trading cycles will execute for the first time at scale.
 
 ## Current Build Stage
 **Phase 56 — Readiness Report History — COMPLETE. 3626/3626 tests (100 skipped).**
@@ -741,3 +859,4 @@ Session 1 complete. Phase 1 (Foundation Scaffolding) is DONE. Gate A passed 44/4
 Python version in use: 3.14.3 (higher than our 3.11 minimum — verified compatible).
 Virtual environment: `apis/.venv/`
 Test command: `$env:PYTHONPATH = "."; .\.venv\Scripts\pytest.exe tests/unit/ --no-cov`
+                

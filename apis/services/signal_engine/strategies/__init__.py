@@ -1,4 +1,5 @@
 # signal_engine strategies package
+from services.signal_engine.strategies.insider_flow import InsiderFlowStrategy
 from services.signal_engine.strategies.macro_tailwind import MacroTailwindStrategy
 from services.signal_engine.strategies.momentum import MomentumStrategy
 from services.signal_engine.strategies.sentiment import SentimentStrategy
@@ -11,4 +12,5 @@ __all__ = [
     "MacroTailwindStrategy",
     "SentimentStrategy",
     "ValuationStrategy",
+    "InsiderFlowStrategy",
 ]

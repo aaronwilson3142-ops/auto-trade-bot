@@ -29,6 +29,9 @@ class PortfolioPosition:
     thesis_summary: str = ""
     strategy_key: str = ""
     security_id: object | None = None        # UUID when persisted
+    # Deep-Dive Plan Step 5 Rec 7: family key for ATR-aware exits.  When empty,
+    # exit_evaluator falls back to FAMILY_PARAMS["default"].
+    origin_strategy: str = ""
 
     @property
     def market_value(self) -> Decimal:

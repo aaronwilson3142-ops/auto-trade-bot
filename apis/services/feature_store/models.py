@@ -72,6 +72,14 @@ class FeatureSet:
     sentiment_score: float = 0.0                       # news sentiment: -1 (negative) to +1 (positive)
     sentiment_confidence: float = 0.0                  # news confidence in [0, 1]
 
+    # ── Phase 57 insider / smart-money flow overlay ─────────────────────────
+    # Populated by the congressional / 13F / unusual-options flow pipeline
+    # (InsiderFlowAdapter → enrichment).  All three fields decay over time so
+    # stale filings do not drive trades; see InsiderFlowStrategy for decay math.
+    insider_flow_score: float = 0.0                    # net bias: -1 (selling) to +1 (buying)
+    insider_flow_confidence: float = 0.0               # aggregate confidence in [0, 1]
+    insider_flow_age_days: float | None = None         # age in days of the most recent filing feeding this score
+
     # ── Fundamentals overlay fields (populated by FundamentalsService) ────────
     # All None by default so callers can detect "no data" vs a genuine 0 value.
     pe_ratio: float | None = None              # trailing 12-month P/E ratio

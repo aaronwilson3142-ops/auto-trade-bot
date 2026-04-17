@@ -33,6 +33,26 @@ from services.signal_engine.strategies.valuation import ValuationStrategy
 logger = logging.getLogger(__name__)
 
 
+def _build_default_strategies() -> list:
+    """Build the default strategy list, respecting feature gates."""
+    from config.settings import get_settings  # noqa: PLC0415
+
+    strategies: list = [
+        MomentumStrategy(),
+        ThemeAlignmentStrategy(),
+        MacroTailwindStrategy(),
+        SentimentStrategy(),
+        ValuationStrategy(),
+    ]
+    cfg = get_settings()
+    if getattr(cfg, "enable_insider_flow_strategy", False):
+        from services.signal_engine.strategies.insider_flow import (
+            InsiderFlowStrategy,
+        )
+        strategies.append(InsiderFlowStrategy())
+    return strategies
+
+
 class SignalEngineService:
     """Generates and persists signals for a list of tickers.
 
@@ -48,13 +68,7 @@ class SignalEngineService:
         enrichment_service: FeatureEnrichmentService | None = None,
     ) -> None:
         self._feature_store = feature_store or FeatureStoreService()
-        self._strategies: list = strategies if strategies is not None else [
-            MomentumStrategy(),
-            ThemeAlignmentStrategy(),
-            MacroTailwindStrategy(),
-            SentimentStrategy(),
-            ValuationStrategy(),
-        ]
+        self._strategies: list = strategies if strategies is not None else _build_default_strategies()
         self._enrichment_service = enrichment_service or FeatureEnrichmentService()
 
     # ------------------------------------------------------------------

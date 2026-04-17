@@ -35,7 +35,7 @@ scrape_configs:
     static_configs:
       # When running via docker-compose, use the service name.
       # Change to localhost:8000 for non-Docker local dev.
-      - targets: ["apis_api:8000"]
+      - targets: ["api:8000"]
         labels:
           component: "api"
 

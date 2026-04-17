@@ -185,21 +185,89 @@ def run_auto_execute_proposals(
     AutoExecutionService.auto_execute_promoted, and updates
     app_state.last_auto_execute_at.
 
+    Phase 58 safety gates (all evaluated BEFORE any proposal is applied):
+      1. ``settings.self_improvement_auto_execute_enabled`` — master kill
+         switch.  When False, the job is a no-op returning
+         ``status="skipped_disabled"``.  This is the default; the operator
+         must explicitly flip the flag once the system has accumulated
+         enough real trading history for confidence scoring to be meaningful.
+      2. Signal-quality observation floor — the latest SignalQualityReport
+         must contain at least
+         ``settings.self_improvement_min_signal_quality_observations``
+         total outcomes.  Below that floor the confidence_score on any
+         proposal is statistically noise, so the entire batch is skipped
+         with ``status="skipped_insufficient_history"``.
+      3. Per-proposal confidence gate —
+         ``settings.self_improvement_min_auto_execute_confidence`` is passed
+         through to ``AutoExecutionService.auto_execute_promoted`` so that
+         only proposals meeting the threshold are applied.  (Prior to
+         Phase 58 this argument was never passed, so the 0.70 default in
+         ``SelfImprovementConfig`` was dead code in production.)
+
     Args:
         app_state:               Shared ApiAppState (read + write).
-        settings:                Settings instance (unused; reserved for future use).
+        settings:                Settings instance.  Defaults to get_settings().
         session_factory:         SQLAlchemy session factory for DB persist.
         auto_execution_service:  AutoExecutionService for injection/testing.
 
     Returns:
-        dict with keys: status, executed_count, skipped_count, error_count, run_at.
+        dict with keys: status, executed_count, skipped_count,
+        skipped_low_confidence, error_count, run_at.  The ``status`` field
+        is one of ``ok``, ``skipped_disabled``, ``skipped_insufficient_history``,
+        or ``error``.
     """
     from services.self_improvement.execution import AutoExecutionService
 
     run_at = dt.datetime.now(dt.UTC)
     svc = auto_execution_service or AutoExecutionService()
+    cfg = settings or get_settings()
 
     logger.info("auto_execute_job_starting", run_at=run_at.isoformat())
+
+    # ── Gate 1: master kill switch ─────────────────────────────────────────
+    if not getattr(cfg, "self_improvement_auto_execute_enabled", False):
+        logger.info(
+            "auto_execute_job_skipped_disabled",
+            reason="self_improvement_auto_execute_enabled is False",
+        )
+        return {
+            "status": "skipped_disabled",
+            "executed_count": 0,
+            "skipped_count": 0,
+            "skipped_low_confidence": 0,
+            "error_count": 0,
+            "run_at": run_at.isoformat(),
+        }
+
+    # ── Gate 2: signal-quality observation floor ───────────────────────────
+    min_obs = int(
+        getattr(cfg, "self_improvement_min_signal_quality_observations", 10)
+    )
+    quality_report = getattr(app_state, "latest_signal_quality", None)
+    total_outcomes = int(
+        getattr(quality_report, "total_outcomes_recorded", 0) or 0
+    )
+    if total_outcomes < min_obs:
+        logger.info(
+            "auto_execute_job_skipped_insufficient_history",
+            total_outcomes=total_outcomes,
+            min_required=min_obs,
+        )
+        return {
+            "status": "skipped_insufficient_history",
+            "executed_count": 0,
+            "skipped_count": 0,
+            "skipped_low_confidence": 0,
+            "error_count": 0,
+            "total_outcomes": total_outcomes,
+            "min_required": min_obs,
+            "run_at": run_at.isoformat(),
+        }
+
+    # ── Gate 3: per-proposal confidence threshold (passed through) ─────────
+    min_conf = float(
+        getattr(cfg, "self_improvement_min_auto_execute_confidence", 0.70)
+    )
 
     try:
         proposals = getattr(app_state, "improvement_proposals", [])
@@ -207,18 +275,22 @@ def run_auto_execute_proposals(
             proposals,
             app_state,
             session_factory=session_factory,
+            min_confidence=min_conf,
         )
 
         logger.info(
             "auto_execute_job_complete",
             executed_count=result["executed_count"],
             skipped_count=result["skipped_count"],
+            skipped_low_confidence=result.get("skipped_low_confidence", 0),
             error_count=result["error_count"],
+            min_confidence=min_conf,
         )
         return {
             "status": "ok",
             "executed_count": result["executed_count"],
             "skipped_count": result["skipped_count"],
+            "skipped_low_confidence": result.get("skipped_low_confidence", 0),
             "error_count": result["error_count"],
             "run_at": run_at.isoformat(),
         }
@@ -229,6 +301,7 @@ def run_auto_execute_proposals(
             "status": "error",
             "executed_count": 0,
             "skipped_count": 0,
+            "skipped_low_confidence": 0,
             "error_count": 0,
             "run_at": run_at.isoformat(),
         }

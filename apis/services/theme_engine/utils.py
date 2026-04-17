@@ -10,7 +10,7 @@ from services.theme_engine.models import BeneficiaryOrder, ThemeMapping
 
 # ---------------------------------------------------------------------------
 # Static theme registry  — list[ThemeMapping] per ticker
-# Curated to the 50-ticker APIS universe (config/universe.py)
+# Curated to the 62-ticker APIS universe (config/universe.py)
 # ---------------------------------------------------------------------------
 
 TICKER_THEME_REGISTRY: dict[str, list[ThemeMapping]] = {
@@ -249,6 +249,90 @@ TICKER_THEME_REGISTRY: dict[str, list[ThemeMapping]] = {
     "HD": [],
     "NKE": [],
     "SBUX": [],
+    # ── AI networking ──────────────────────────────────────────────────────
+    "ANET": [
+        ThemeMapping("ANET", "networking", BeneficiaryOrder.DIRECT, 0.95,
+                     "Dominant high-performance Ethernet switching for AI GPU clusters"),
+        ThemeMapping("ANET", "ai_infrastructure", BeneficiaryOrder.DIRECT, 0.88,
+                     "400G/800G switches are standard in hyperscaler AI buildouts"),
+        ThemeMapping("ANET", "data_centres", BeneficiaryOrder.DIRECT, 0.80,
+                     "Core data-center networking fabric"),
+    ],
+    "CIEN": [
+        ThemeMapping("CIEN", "networking", BeneficiaryOrder.DIRECT, 0.90,
+                     "Global leader in high-speed optical/WAN connectivity between AI data centers"),
+        ThemeMapping("CIEN", "ai_infrastructure", BeneficiaryOrder.SECOND_ORDER, 0.70,
+                     "WaveLogic optical tech enables inter-DC bandwidth for distributed AI training"),
+    ],
+    # ── AI power & utilities ───────────────────────────────────────────────
+    "CEG": [
+        ThemeMapping("CEG", "power_infrastructure", BeneficiaryOrder.DIRECT, 0.92,
+                     "Largest US nuclear fleet — 24/7 carbon-free baseload for AI data centers"),
+        ThemeMapping("CEG", "clean_energy", BeneficiaryOrder.DIRECT, 0.80,
+                     "Nuclear provides carbon-free electricity; Microsoft TMI restart deal"),
+        ThemeMapping("CEG", "data_centres", BeneficiaryOrder.SECOND_ORDER, 0.65,
+                     "1,100+ MW committed to CyrusOne data centers in Texas"),
+    ],
+    "VST": [
+        ThemeMapping("VST", "power_infrastructure", BeneficiaryOrder.DIRECT, 0.85,
+                     "Nuclear + gas fleet; $4.7B Cogentrix acquisition adds 5,500 MW"),
+        ThemeMapping("VST", "clean_energy", BeneficiaryOrder.SECOND_ORDER, 0.60,
+                     "Nuclear fleet with long-term Meta power agreement"),
+    ],
+    "ETN": [
+        ThemeMapping("ETN", "power_infrastructure", BeneficiaryOrder.DIRECT, 0.85,
+                     "Electrical infrastructure (switchgear, PDUs, busways) for data centers"),
+        ThemeMapping("ETN", "data_centres", BeneficiaryOrder.DIRECT, 0.78,
+                     "Power distribution equipment inside AI data centers drawing 2-10x per rack"),
+    ],
+    "VRT": [
+        ThemeMapping("VRT", "power_infrastructure", BeneficiaryOrder.DIRECT, 0.92,
+                     "Complete power and thermal management for data centers — UPS, switchgear, CDUs"),
+        ThemeMapping("VRT", "data_centres", BeneficiaryOrder.DIRECT, 0.90,
+                     "Liquid cooling (CDUs) critical for Nvidia Blackwell/Rubin GPU racks"),
+        ThemeMapping("VRT", "ai_infrastructure", BeneficiaryOrder.DIRECT, 0.85,
+                     "Every new AI data center requires Vertiv cooling and power equipment"),
+    ],
+    # ── AI cybersecurity ───────────────────────────────────────────────────
+    "PANW": [
+        ThemeMapping("PANW", "cybersecurity", BeneficiaryOrder.DIRECT, 0.95,
+                     "Leading next-gen cybersecurity platform; Prisma AIRS secures AI assets"),
+        ThemeMapping("PANW", "ai_applications", BeneficiaryOrder.SECOND_ORDER, 0.70,
+                     "AI-powered threat detection; Nvidia partnership for industrial AI security"),
+    ],
+    "CRWD": [
+        ThemeMapping("CRWD", "cybersecurity", BeneficiaryOrder.DIRECT, 0.92,
+                     "Falcon platform secures AI stack from GPU foundations to applications"),
+        ThemeMapping("CRWD", "ai_applications", BeneficiaryOrder.SECOND_ORDER, 0.65,
+                     "AI-native endpoint detection; secures AI agents and workloads"),
+    ],
+    "FTNT": [
+        ThemeMapping("FTNT", "cybersecurity", BeneficiaryOrder.DIRECT, 0.85,
+                     "800K+ firewall customers; SASE convergence of networking and security"),
+        ThemeMapping("FTNT", "networking", BeneficiaryOrder.SECOND_ORDER, 0.60,
+                     "Network security refresh driven by AI infrastructure buildouts"),
+    ],
+    # ── Pure-play AI software ──────────────────────────────────────────────
+    "PLTR": [
+        ThemeMapping("PLTR", "ai_applications", BeneficiaryOrder.DIRECT, 0.92,
+                     "AIP platform drove 70% revenue growth; purest enterprise AI software play"),
+        ThemeMapping("PLTR", "ai_infrastructure", BeneficiaryOrder.SECOND_ORDER, 0.55,
+                     "Foundry/Gotham platforms deployed on AI infrastructure for government + commercial"),
+    ],
+    # ── Data center REITs ──────────────────────────────────────────────────
+    "EQIX": [
+        ThemeMapping("EQIX", "data_centres", BeneficiaryOrder.DIRECT, 0.90,
+                     "World's largest data center REIT — 260+ facilities globally"),
+        ThemeMapping("EQIX", "ai_infrastructure", BeneficiaryOrder.SECOND_ORDER, 0.60,
+                     "Premium colocation with power density for AI compute workloads"),
+    ],
+    # ── EDA / chip design tools ────────────────────────────────────────────
+    "CDNS": [
+        ThemeMapping("CDNS", "semiconductor", BeneficiaryOrder.DIRECT, 0.88,
+                     "EDA tools used to design every AI chip (NVDA, AMD, AVGO ASICs, custom TPUs)"),
+        ThemeMapping("CDNS", "ai_infrastructure", BeneficiaryOrder.SECOND_ORDER, 0.70,
+                     "Explosion of custom AI silicon (ASICs) directly drives EDA tool demand"),
+    ],
 }
 
 

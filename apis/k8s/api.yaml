@@ -27,7 +27,7 @@ spec:
             - name: APIS_LOG_LEVEL
               value: INFO
             - name: APIS_MAX_POSITIONS
-              value: "10"
+              value: "15"
             - name: APIS_REDIS_URL
               value: redis://redis-svc:6379/0
             - name: APIS_DB_URL

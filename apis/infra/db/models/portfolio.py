@@ -19,6 +19,13 @@ class PortfolioSnapshot(Base, TimestampMixin):
     """Periodic snapshot of full portfolio state (cash, exposure, equity)."""
 
     __tablename__ = "portfolio_snapshots"
+    __table_args__ = (
+        # Deep-Dive Step 2 (Rec 4): unique idempotency key per cycle.
+        sa.UniqueConstraint(
+            "idempotency_key",
+            name="uq_portfolio_snapshot_idempotency_key",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -31,6 +38,9 @@ class PortfolioSnapshot(Base, TimestampMixin):
     equity_value: Mapped[Decimal | None] = mapped_column(sa.Numeric(20, 4), nullable=True)
     drawdown_pct: Mapped[Decimal | None] = mapped_column(sa.Numeric(12, 6), nullable=True)
     notes: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    # Deep-Dive Step 2 Rec 4: idempotency key like "{cycle_id}:portfolio_snapshot".
+    # Nullable so historical rows don't block the migration.
+    idempotency_key: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
 
 
 class Position(Base, TimestampMixin):
@@ -61,6 +71,9 @@ class Position(Base, TimestampMixin):
         PG_UUID(as_uuid=True), sa.ForeignKey("strategies.id"), nullable=True
     )
     thesis_snapshot_json: Mapped[Any | None] = mapped_column(JSONB, nullable=True)
+    # Deep-Dive Plan Step 5 Rec 7: family-aware ATR exits. Nullable so positions
+    # opened before this column existed fall through to FAMILY_PARAMS["default"].
+    origin_strategy: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
 
 
 class Order(Base, TimestampMixin):
@@ -120,6 +133,10 @@ class PositionHistory(Base, TimestampMixin):
     __tablename__ = "position_history"
     __table_args__ = (
         sa.Index("ix_pos_hist_ticker_snapshot", "ticker", "snapshot_at"),
+        sa.UniqueConstraint(
+            "idempotency_key",
+            name="uq_position_history_idempotency_key",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -134,6 +151,8 @@ class PositionHistory(Base, TimestampMixin):
     cost_basis: Mapped[Decimal | None] = mapped_column(sa.Numeric(20, 4), nullable=True)
     unrealized_pnl: Mapped[Decimal | None] = mapped_column(sa.Numeric(20, 4), nullable=True)
     unrealized_pnl_pct: Mapped[Decimal | None] = mapped_column(sa.Numeric(12, 6), nullable=True)
+    # Deep-Dive Step 2 Rec 4: idempotency key "{cycle_id}:position_history:{ticker}".
+    idempotency_key: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
 
 
 class RiskEvent(Base, TimestampMixin):

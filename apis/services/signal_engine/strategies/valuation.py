@@ -157,8 +157,9 @@ class ValuationStrategy:
 
         # ── Risk / liquidity pass-through from OHLCV features ─────────────────
         vol = feature_set.get("volatility_20d")
+        # Higher volatility → higher risk.  Scale: 0% → 0.0, 40%+ → 1.0.
         risk_score = (
-            _clamp(1.0 - float(vol) * 5)
+            _clamp(float(vol) * 2.5)
             if vol is not None else 0.5
         )
 

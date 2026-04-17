@@ -215,7 +215,7 @@ class RankingEngineService:
         composite = _clamp(composite + cfg.risk_penalty_weight)  # re-centre after penalty
 
         portfolio_fit = self._compute_portfolio_fit(composite, liquidity, settings)
-        action = self._recommend_action(composite, anchor)
+        action = self._recommend_action(composite, anchor, settings)
         thesis = self._format_thesis(anchor, composite)
         disconf = self._format_disconfirming(anchor)
         sizing = self._compute_sizing(composite, settings)
@@ -263,11 +263,32 @@ class RankingEngineService:
         return _clamp(composite * 0.7 + liquidity * 0.3)
 
     @staticmethod
-    def _recommend_action(composite: float, anchor: SignalOutput) -> str:
-        """Map composite score to recommended action."""
-        if composite >= 0.65:
+    def _recommend_action(
+        composite: float,
+        anchor: SignalOutput,
+        settings: object | None = None,
+    ) -> str:
+        """Map composite score to recommended action.
+
+        Thresholds sourced from settings (Deep-Dive Plan Step 1):
+        - ``buy_threshold`` (default 0.65)
+        - ``watch_threshold`` (default 0.45)
+
+        Deep-Dive Plan Step 3 Rec 9: when
+        ``lower_buy_threshold_enabled`` is ON, the effective buy
+        threshold is pulled from ``lower_buy_threshold_value``
+        (default 0.55).  Flag is OFF by default so legacy behavior
+        is preserved.
+        """
+        if settings is None:
+            settings = get_settings()
+        buy_t = float(getattr(settings, "buy_threshold", 0.65))
+        if getattr(settings, "lower_buy_threshold_enabled", False):
+            buy_t = float(getattr(settings, "lower_buy_threshold_value", 0.55))
+        watch_t = float(getattr(settings, "watch_threshold", 0.45))
+        if composite >= buy_t:
             return "buy"
-        elif composite >= 0.45:
+        elif composite >= watch_t:
             return "watch"
         else:
             return "avoid"

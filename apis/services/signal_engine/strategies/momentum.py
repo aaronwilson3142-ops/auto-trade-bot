@@ -158,8 +158,8 @@ class MomentumStrategy:
         vol = fs.get("volatility_20d")
         if vol is None:
             return 0.5
-        # Normalise: 0–100% annualised vol → 0–1
-        return _clamp(float(vol) / 1.0)
+        # Normalise: 0% vol → 0.0, 40%+ vol → 1.0 (annualised decimal)
+        return _clamp(float(vol) * 2.5)
 
     @staticmethod
     def _compute_liquidity(fs: FeatureSet) -> float:

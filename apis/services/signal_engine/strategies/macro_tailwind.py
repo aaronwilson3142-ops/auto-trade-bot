@@ -160,11 +160,12 @@ class MacroTailwindStrategy:
 
     @staticmethod
     def _compute_risk(fs: FeatureSet) -> float:
-        """Derive risk score from volatility_20d."""
+        """Derive risk score from volatility_20d (0=low risk, 1=high risk)."""
         vol = fs.get("volatility_20d")
         if vol is None:
             return 0.5
-        return _clamp(float(vol) / 1.0)
+        # Normalise: 0% vol → 0.0, 40%+ vol → 1.0 (annualised decimal)
+        return _clamp(float(vol) * 2.5)
 
     @staticmethod
     def _compute_liquidity(fs: FeatureSet) -> float:

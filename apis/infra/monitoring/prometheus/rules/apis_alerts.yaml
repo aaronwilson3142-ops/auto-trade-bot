@@ -10,7 +10,7 @@
 #     - ./infra/monitoring/prometheus/rules:/etc/prometheus/rules:ro
 #
 # Metrics sourced from: GET /metrics  (see apps/api/routes/metrics.py)
-# Scrape target: apis_api service at port 8000.
+# Scrape target: api service at port 8000.
 #
 # Alert severity levels used:
 #   critical  — requires immediate operator intervention
@@ -175,8 +175,9 @@ groups:
             capital loss. Investigate immediately.
 
       - alert: PositionLimitExceeded
-        # Default max_positions is 10. Alert if we exceed 12 as an anomaly detector.
-        expr: apis_portfolio_positions > 12
+        # Configured max_positions is 15 (raised from 10 on 2026-04-15).
+        # Alert if we exceed 18 as an anomaly detector (20% headroom).
+        expr: apis_portfolio_positions > 18
         for: 5m
         labels:
           severity: warning
@@ -185,7 +186,7 @@ groups:
           summary: "Portfolio position count exceeds expected maximum ({{ $value }})"
           description: >
             apis_portfolio_positions is {{ $value }}. The configured maximum
-            is 10. A higher value may indicate a risk engine check failure
+            is 15. A higher value may indicate a risk engine check failure
             or state reconciliation issue.
 
   # ──────────────────────────────────────────────────────────────────────────

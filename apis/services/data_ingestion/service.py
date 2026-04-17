@@ -32,6 +32,36 @@ from services.data_ingestion.models import (
 logger = logging.getLogger(__name__)
 
 
+def _build_default_adapter() -> object:
+    """Pick the adapter implementation based on APIS_DATA_SOURCE.
+
+    Defaults to YFinanceAdapter if settings cannot be loaded (e.g. in minimal
+    test contexts) or if the chosen adapter fails to import — this keeps the
+    service usable when Norgate/NDU is not installed on a given host.
+    """
+    try:
+        from config.settings import DataSource, get_settings
+        source = get_settings().data_source
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("settings unavailable, falling back to yfinance: %s", exc)
+        return YFinanceAdapter()
+
+    if source == DataSource.POINTINTIME:
+        try:
+            from services.data_ingestion.adapters.pointintime_adapter import (
+                PointInTimeAdapter,
+            )
+            return PointInTimeAdapter()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "PointInTimeAdapter unavailable (%s) — falling back to yfinance",
+                exc,
+            )
+            return YFinanceAdapter()
+
+    return YFinanceAdapter()
+
+
 class DataIngestionService:
     """Orchestrates fetching and persisting daily market bars.
 
@@ -42,7 +72,7 @@ class DataIngestionService:
     """
 
     def __init__(self, adapter: object | None = None) -> None:
-        self._adapter: YFinanceAdapter = adapter or YFinanceAdapter()
+        self._adapter = adapter or _build_default_adapter()
 
     # ------------------------------------------------------------------
     # Public API
