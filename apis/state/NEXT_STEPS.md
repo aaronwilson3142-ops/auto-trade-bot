@@ -1,17 +1,103 @@
 # APIS — Next Steps
-Last Updated: 2026-03-21 (Session 56 — Phase 56 Readiness Report History COMPLETE — SYSTEM BUILD COMPLETE)
+Last Updated: 2026-04-17 (Steps 1–6 LANDED; Steps 7–8 pending operator decision on resume path)
 
-## **ALL PLANNED PHASES COMPLETE**
+## IN PROGRESS — Deep-Dive Execution Plan (2026-04-16)
 
-APIS system build is finished. 3626 tests passing (100 skipped). 30 scheduled jobs. 5 signal strategies.
+Autonomous scheduled-task run `apis-execution-plan-step-1` is executing the full 8-step plan back-to-back per operator's authorisation. Per-step workflow: grep → implement → test → migrate → update state files → advance. No pausing between steps except on test failure.
+
+### Step status
+- **Step 1** — Un-bury 6 hard-coded constants — **DONE 2026-04-16**. 24 tests added (23 pass, 1 skipped for sandbox Python 3.10 only). Pure refactor; defaults byte-for-byte preserved (DEC-032).
+- **Step 2** — Broker-adapter health invariant + action conflict detector + idempotency keys + observation floor 10→50 — **DONE 2026-04-17**. 32 tests added (21 pass + 11 skipped for sandbox Python 3.10). Alembic migration `k1l2m3n4o5p6_add_idempotency_keys` written; operator must run `alembic upgrade head` against prod PG before cycle_id-keyed writes take effect. 2 safety flags default ON per DEC-031.
+- **Step 3** — Lower buy threshold 0.65→0.55 (flag `APIS_LOWER_BUY_THRESHOLD_ENABLED`, OFF) + conditional ranking-min 0.30→0.20 for held-with-positive-history (flag `APIS_CONDITIONAL_RANKING_MIN_ENABLED`, OFF) — **DONE 2026-04-17**. 21 tests added, all pass. Cross-step sweep 65 pass + 12 skipped. Both flags default OFF → no behaviour change until operator opts in.
+- **Step 4** — New `services/rebalancing_engine/allocator.py` with equal / score / score_invvol modes + floor/cap guardrails. Settings `APIS_REBALANCE_WEIGHTING_METHOD="equal"` + master switch `APIS_SCORE_WEIGHTED_REBALANCE_ENABLED=False` (both required to activate). Worker `rebalancing.py` branches on flags. — **DONE 2026-04-17**. 23 tests added, all pass. Cross-step sweep 88 pass + 12 skipped. Flag default OFF → no behaviour change until operator opts in.
+- **Step 5** — ATR stops + `FAMILY_PARAMS` + `Position.origin_strategy` + migration `l2m3n4o5p6q7` + `portfolio_fit_score` into sizing. Settings `APIS_ATR_STOPS_ENABLED` + `APIS_PORTFOLIO_FIT_SIZING_ENABLED` both default OFF. — **DONE 2026-04-17**. 38 tests added, all pass. Cross-step sweep 126 pass + 12 skipped. origin_strategy wiring into paper_trading open-path deferred (crosses idempotency-sensitive code); safe to defer because default family is wider/longer than legacy. Operator must run `alembic upgrade head` before flipping ATR flag.
+- **Step 6** — `proposal_outcomes` table + migration `m3n4o5p6q7r8` + daily-assessment worker stub + per-type windows (DEC-035) + generator feedback loop + settings flags. Flag `APIS_PROPOSAL_OUTCOME_LEDGER_ENABLED` default OFF. — **DONE 2026-04-17** (Part A). 19 tests (16 pass + 3 Python-3.10 sandbox skip, following Step 5 precedent). Cross-step sweep 142 pass + 15 skipped. Two overnight-artifact bugs fixed during morning verification: (a) `get_session_factory` → `SessionLocal`, (b) 3 tests skipped for dt.UTC-on-3.10. Worker-job APScheduler wiring + real metric computation deferred to Step 6 **Part B**.
+- **Step 7** — `shadow_portfolios`/`shadow_positions`/`shadow_trades` tables + weekly job + parallel rebalance-weighting shadows (DEC-034). Flag `APIS_SHADOW_PORTFOLIO_ENABLED` OFF. — **NOT STARTED** (autonomous run checkpointed after Step 6 Part A). Awaiting operator decision on resume path (reschedule overnight / implement interactively / commit 1–6 first).
+- **Step 8** — `strategy_bandit_state` table + `StrategyBanditService` + closed-trade hook + clamps. Flag `APIS_STRATEGY_BANDIT_ENABLED` OFF. — **NOT STARTED**. Same resume decision as Step 7.
+
+### Operator action items after run completes
+- [ ] Review CHANGELOG entries for Steps 1–8.
+- [ ] Run paper-bake per step's acceptance criteria before flipping any behavioral flag.
+- [ ] Keep DEC-033 9 hard risk gates intact (unchanged by any step).
+
+---
+
+## Phase 59 — State Persistence & Startup Catch-Up (DONE 2026-04-09)
+
+## Phase 59 — State Persistence & Startup Catch-Up (DONE 2026-04-09)
+
+**Trigger:** Dashboard sections blank after every restart — `ApiAppState` only restored 4 of ~60 fields from DB. See DECISION_LOG DEC-020.
+
+- [x] `apps/api/main.py` — `_load_persisted_state()` expanded with 6 new restoration blocks (portfolio_state, closed_trades/trade_grades, active_weight_profile, regime_result/history, readiness_report, promoted_versions)
+- [x] `apps/api/main.py` — `_run_startup_catchup()` added to re-run missed morning pipeline jobs on weekday mid-day starts
+- [x] `tests/unit/test_phase59_state_persistence.py` — 36 tests across 7 classes, 33 pass / 3 skip (Python <3.11)
+- [x] `state/CHANGELOG.md`, `state/DECISION_LOG.md`, `state/ACTIVE_CONTEXT.md`, `state/NEXT_STEPS.md` updated
+
+---
+
+## Phase 58 — Self-Improvement Auto-Execute Safety Gates (DONE 2026-04-08)
+
+**Trigger:** Live-money readiness review on 2026-04-08. Two issues found: (a) `run_auto_execute_proposals` never passed `min_confidence` to the service, so the documented 0.70 confidence gate was dead code; (b) the job had no guard against running with a near-empty signal-quality history, which is exactly the bot's state after only ~5 trading days of real signals. See DECISION_LOG DEC-019.
+
+- [x] `config/settings.py` — 3 new fields: `self_improvement_auto_execute_enabled` (default **False**), `self_improvement_min_auto_execute_confidence` (default 0.70), `self_improvement_min_signal_quality_observations` (default 10)
+- [x] `apps/worker/jobs/self_improvement.run_auto_execute_proposals` rewritten with 3 gates (master switch, observation floor, per-proposal confidence pass-through)
+- [x] `tests/unit/test_phase35_auto_execution.py` — helpers updated, 5 existing tests modified, 6 new Phase 58 tests added. All 13 worker-job tests pass.
+
+### Follow-ups for the operator (when ready)
+- [ ] When the PAPER → HUMAN_APPROVED readiness gate is about to PASS, manually inspect the latest few PROMOTED proposals from `app_state.improvement_proposals` to sanity-check that their `confidence_score` values track something meaningful.
+- [ ] Confirm `latest_signal_quality.total_outcomes_recorded >= 10` via `GET /system/readiness-report`.
+- [ ] Flip `APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED=true` in `apis/.env` and restart the worker container. Do NOT do this before the readiness report is green.
+- [ ] After flipping, watch the 18:15 ET `auto_execute_proposals` job result for a week and confirm `skipped_low_confidence` and `executed_count` are both non-trivial — a zero-on-both run means the confidence distribution is bimodal at the edges and the threshold may need retuning.
+
+---
+
+## Phase 57 — Insider / Smart-Money Flow Signal (IN PROGRESS)
+
+**Trigger:** Review of Samin Yasar "Claude Just Changed the Stock Market Forever" tutorial (YouTube `lH5wrfNwL3k`). The tutorial's real contribution is the *data source* (congressional disclosures + 13F + unusual options flow), not its strategies. Options-wheel portion of the tutorial is **explicitly out of scope** per Master Spec §4.2. See `DECISION_LOG.md` DEC-018.
+
+### Part 1 — Scaffold (DONE 2026-04-08)
+- [x] `services/signal_engine/strategies/insider_flow.py` — `InsiderFlowStrategy` (stateless, exponential decay half-life=14d, hard cut at 60d, reliability tier capped at `secondary_verified`, `contains_rumor=False` always, horizon=POSITIONAL)
+- [x] `services/data_ingestion/adapters/insider_flow_adapter.py` — `InsiderFlowAdapter` ABC + `InsiderFlowEvent` dataclass + `InsiderFlowOverlay` dataclass + `NullInsiderFlowAdapter` default
+- [x] `services/feature_store/models.py` — add overlay fields `insider_flow_score`, `insider_flow_confidence`, `insider_flow_age_days`
+- [x] `services/signal_engine/models.py` — add `SignalType.INSIDER_FLOW` enum member
+- [x] `services/signal_engine/strategies/__init__.py` — register `InsiderFlowStrategy`
+- [x] `tests/unit/test_phase57_insider_flow.py` — 24 tests, all passing (scaffold defaults, decay math, aggregation, reliability, rumour-flag invariant)
+
+### Part 2 — Provider Selection & Wiring (IN PROGRESS)
+- [x] **Provider ToS review** — evaluated QuiverQuant, Finnhub, SEC EDGAR. **Selected QuiverQuant (primary, congressional) + SEC EDGAR Form 4/13F (supplementary, insider/institutional).** Finnhub rejected (unclear ToS, undocumented fields). Logged as DEC-023 on 2026-04-11.
+- [ ] **Concrete adapter** implementing `InsiderFlowAdapter.fetch_events()` with rate-limiting, backoff, and row-level parse-error swallowing
+- [ ] **Enrichment wiring** — extend the feature enrichment pipeline (Phase 22) to call `adapter.fetch_events()` + `adapter.aggregate()` per ticker and populate the three `FeatureSet.insider_flow_*` overlay fields
+- [ ] **SignalEngineService** — add `InsiderFlowStrategy` to the default strategies list in `SignalEngineService.score_from_features()` (behind a settings flag, default OFF)
+- [ ] **Settings flag** — `APIS_ENABLE_INSIDER_FLOW_STRATEGY: bool = False` in `config/settings.py`, default OFF, so even after Part 2 lands the strategy produces zero effect until explicitly enabled
+
+### Part 3 — Validation Gate (MUST PASS BEFORE ENABLING)
+- [ ] **Walk-forward backtest** via `BacktestEngine` (Phase 24) across ≥2 years of historical congressional disclosure + price data, with realistic transaction costs, slippage, and the existing risk-engine stack active. Document Sharpe, max drawdown, win rate, and turnover with and without the insider-flow signal blended in.
+- [ ] **Sensitivity analysis** — re-run the backtest with the insider-flow strategy weight at 0.00, 0.05, 0.10, 0.15 to find the Pareto-optimal weight under the existing Phase 37 auto-tuner framework.
+- [ ] **LiveModeGateService readiness report** must still PASS with the new signal weight in place — including the Phase 51 Sharpe / drawdown-state / signal-quality gates.
+- [ ] **Integration test** — extend `tests/integration/` with a fixture-driven enrichment → signal → rank → paper-trade loop exercising the new signal family.
+- [ ] **Only then** flip `APIS_ENABLE_INSIDER_FLOW_STRATEGY=True` in a controlled deployment and monitor via the existing dashboard + factor-tilt alert (Phase 54).
+
+### Out of Scope for Phase 57 (explicitly)
+- Options strategies of any kind (Master Spec §4.2)
+- "Ladder-in on drawdown" averaging-down rules (Master Spec §9)
+- Replacing or deprecating any existing signal strategy
+- Copy-trading a single politician's portfolio wholesale (the signal is *one input* among many, not a standalone trading bot)
+
+---
+
+## **ALL PRIOR PLANNED PHASES COMPLETE**
+
+APIS system build through Phase 56 is finished. 3626 → 3650 tests passing (100 skipped; +24 from Phase 57 scaffold). 35 scheduled jobs. 5 signal strategies wired + 1 new family scaffolded (InsiderFlowStrategy, not yet wired into SignalEngineService).
 
 The only remaining work is **operational**:
-- **Immediate:** Monitor dashboard on 2026-03-31 after 09:35 ET to confirm worker cycles firing (cycle count should increment from 1 → 2+)
-- **Immediate:** Investigate Alpaca broker auth "unauthorized" — API keys may need refresh or re-generation
-- **Optional:** Restart Docker Compose stack to restore Prometheus/Grafana/Alertmanager monitoring
+- **CRITICAL MONITOR (2026-04-01 06:30 ET):** Check worker logs — `signal_generation_job_complete` should show `"signals": >0` for the first time now that the `securities` table is populated. If still 0, investigate `FeatureStoreService.compute_and_persist()` and whether market data bars exist in the DB.
+- **CRITICAL MONITOR (2026-04-01 09:35 ET):** First paper trading cycle should NOT return `skipped_no_rankings`. Cycle count should finally start incrementing.
+- **Investigate if needed:** If signals are still 0 despite securities being seeded, the next bottleneck is likely market data — `run_market_data_ingestion` at 06:00 ET needs to have populated OHLCV bars in the `daily_bars` table for `FeatureStoreService` to compute features.
+- **Investigate Alpaca broker auth** — API keys may need refresh or re-generation (separate from signal generation issue)
 - Set up live broker credentials (Interactive Brokers or equivalent)
 - Toggle to live mode via `POST /api/v1/live-gate/promote` then set `APIS_OPERATING_MODE=human_approved` and restart
-- Monitor via dashboard at `GET /dashboard` — new Infrastructure Health panel shows component status
+- Monitor via dashboard at `GET /dashboard` — Infrastructure Health panel shows component status
+- **Note:** When running `docker compose` from `apis/infra/docker/`, always pass `--env-file "../../.env"` to avoid Grafana password interpolation error
 
 ## Phase 56 — COMPLETE
 
@@ -396,10 +482,4 @@ The only remaining work is **operational**:
 - [x] `apps/api/routes/portfolio.py` — `GET /portfolio/drawdown-state` endpoint
 - [x] `apps/worker/jobs/paper_trading.py` — Phase 47 block: evaluate state per cycle, apply size multiplier, block OPENs in recovery, fire webhook on transition
 - [x] `apps/dashboard/router.py` — `_render_drawdown_section`: color-coded state badge, drawdown %, HWM, thresholds
-- [x] `tests/unit/test_phase47_drawdown_recovery.py` — NEW: 55 tests (8 classes)
-- **Phase 47 COMPLETE — 3112/3112 tests passing (100 skipped: PyYAML + E2E absent)**
-
-## NEXT PHASE: Phase 48 (TBD)
-
-## NEXT PHASE: Phase 35 (TBD)
-- Candidates: real-time price streaming / WebSocket feed, alternative data integration, self-improvement proposal auto-execution
+- [x] `tests/unit/test_phase47_

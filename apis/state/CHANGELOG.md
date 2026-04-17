@@ -3,6 +3,784 @@ Format: [YYYY-MM-DD] | file/module | description
 
 ---
 
+## [2026-04-17 12:12 UTC] OPS — Migrations self-heal on api startup (entrypoint script)
+
+Followed up on this morning's migration-drift incident (see 10:15 UTC entry below) with a permanent hardening so the same root cause cannot recur.
+
+**What changed:**
+- NEW `apis/infra/docker/entrypoint-api.sh` — baked into the api image at `/usr/local/bin/entrypoint-api.sh`. Runs `alembic upgrade head` before exec-ing `uvicorn apps.api.main:app`. `set -e` ensures a failed migration hard-stops the container (container goes unhealthy → operator pages) instead of silently booting against a stale schema.
+- `apis/infra/docker/Dockerfile` api stage — swapped final `CMD [uvicorn …]` for `ENTRYPOINT ["/usr/local/bin/entrypoint-api.sh"]`. Worker stage unchanged (worker `depends_on: api: service_healthy`, so by the time worker boots the api has already applied migrations — no race, no need to duplicate the upgrade).
+- Script path is `/usr/local/bin/` (not `/app/apis/`) so it's **outside** the dev source bind-mount in `docker-compose.yml`; operators developing with source mount still get the entrypoint. Mode 0755 via `RUN chmod +x`.
+
+**Verification:**
+- `docker compose build api` succeeded. `docker compose up -d --no-deps --force-recreate api` booted the container, logs showed `[entrypoint-api] Running Alembic migrations (current -> head)...` → `INFO  [alembic.runtime.migration] Context impl PostgreSQLImpl.` → `Migrations complete. Starting uvicorn...`. `/health` returned all components `ok` once uvicorn finished startup.
+- Confirmed self-heal property with `docker restart docker-api-1` — logs show the entrypoint banner twice (initial boot + restart), migrations idempotent on already-head DB.
+
+**Operational impact:**
+Schema drift between committed migrations and live DB now self-heals on every api boot. Paper-mode only — if/when APIS goes live, consider gating on `APIS_OPERATING_MODE` and fail-fast on drift rather than auto-applying (rationale in the entrypoint header comment).
+
+See: entrypoint header comment for full rationale, and 10:15 UTC entry below for the incident that motivated this.
+
+---
+
+## [2026-04-17 10:15 UTC] OPS — Applied 3 pending Alembic migrations (j0k1l2m3n4o5 → m3n4o5p6q7r8)
+
+Daily health check discovered API startup at 03:31 UTC was failing `_load_persisted_state` because the ORM had three recent schema changes (Deep-Dive Plan Steps 2/5/6) whose Alembic migration files were committed but never applied to the live DB. Symptoms: `paper_cycle: no_data` on /health; `load_portfolio_snapshot_failed`, `portfolio_state_restore_failed`, `closed_trades_restore_failed` warnings on startup referencing missing columns `portfolio_snapshots.idempotency_key` and `positions.origin_strategy`.
+
+Ran `docker exec -w /app/apis docker-worker-1 alembic upgrade head` — all 3 migrations applied cleanly (only additive: nullable column adds + new `proposal_outcomes` table). Restarted docker-api-1 to re-run restore with new schema. Post-restart: all components `ok`; portfolio restored with 5 positions / $44,326.61 cash / $94,403.69 equity; 99 closed trades; 84 evaluation runs; 15 paper cycle count.
+
+Follow-up recommendation: wire `alembic upgrade head` into worker/api container entrypoint so migrations self-apply on deploy.
+
+See: `apis/state/HEALTH_LOG.md` entry 2026-04-17 10:11 UTC.
+
+---
+
+## [2026-04-17 13:00 UTC] Deep-Dive Plan — Step 6 LANDED (Proposal Outcome Ledger + daily assessment job, flag default OFF)
+
+### Summary
+Step 6 of the Deep-Dive Execution Plan complete — Rec 10 (DEC-035). New `proposal_outcomes` ledger table plus a `ProposalOutcomeLedgerService` that records every terminal decision (PROMOTED / REJECTED / EXECUTED / REVERTED) on an `ImprovementProposal` together with a baseline metric snapshot, then closes the window after `PROPOSAL_OUTCOME_WINDOWS[proposal_type]` days and fills in the realized snapshot, verdict, and confidence. The ledger drives a per-type **batting-average** feedback signal which the proposal generator uses (via `SelfImprovementService.apply_outcome_feedback`) to suppress under-performing proposal types. All new behaviour is gated behind `APIS_PROPOSAL_OUTCOME_LEDGER_ENABLED=False` (default), so byte-for-byte legacy behaviour is preserved until the operator opts in. Per DEC-031 this advances the "more self-improvement" lever without touching the 9 hard risk gates (DEC-033) or AI-tilt defaults (DEC-032).
+
+### New settings (`config/settings.py`)
+- `proposal_outcome_ledger_enabled: bool = False` — master switch. When OFF, the ledger silently collects decision rows (write-only) and `apply_outcome_feedback` is a no-op; the generator never consults batting averages. When ON, `generate_proposals` skips suppressed `(proposal_type, target_component)` combos per plan §6.6.
+- `proposal_outcome_min_observations: int = 10` (1..1000) — diversity floor: minimum assessed rows before the generator starts suppressing a combo. Prevents first-few-assessments noise from killing a type outright.
+- `proposal_outcome_diversity_floor_days: int = 31` (1..365) — minimum days between two suppressions of the same type. Per plan §6.6 prevents exploration collapse.
+
+### Per-type measurement windows (DEC-035)
+Defined in `services/self_improvement/outcome_ledger.py::PROPOSAL_OUTCOME_WINDOWS`. Tests in §`TestProposalOutcomeWindows` lock these to DEC-035:
+- `source_weight` → 45 days
+- `ranking_threshold` → 30 days
+- `holding_period_rule` → 14 days
+- `confidence_calibration` → 60 days
+- `prompt_template` → 30 days
+- `_DEFAULT` → 30 days (unknown / new types)
+`window_days_for(type_key)` lowercases + strips whitespace, defaults to `_DEFAULT` for unknown keys so a typo in proposal_type never crashes the writer.
+
+### Rec 10 — Ledger module
+- NEW `services/self_improvement/outcome_ledger.py` (288 lines)
+  - `PROPOSAL_OUTCOME_WINDOWS` table + `window_days_for(type_key)` lookup.
+  - `BattingAverage` dataclass — `proposal_type`, `n_total`, `n_improved`, `n_regressed`, `n_unchanged`, `n_inconclusive`, plus `improved_rate` / `regressed_rate` properties that guard against div-by-zero.
+  - `ProposalOutcomeLedgerService(session)`:
+    - `write_decision(proposal_id, decision, baseline_metric_snapshot, now=None)` — inserts a new row with `measurement_window_days` resolved from the proposal's type. Guards: decision ∈ {`PROMOTED`,`REJECTED`,`EXECUTED`,`REVERTED`}.
+    - `get_due_for_assessment(now=None)` — rows where `decision_at + measurement_window_days ≤ now` AND `realized_metric_snapshot IS NULL`. Ordered by oldest-first.
+    - `write_assessment(outcome_id, realized_metric_snapshot, outcome_verdict, outcome_confidence, measured_at)` — guards verdict ∈ {`improved`,`unchanged`,`regressed`,`inconclusive`}; confidence ∈ [0,1]. Idempotent on outcome_id.
+    - `batting_average(proposal_type, min_observations=10)` — aggregates closed rows into a `BattingAverage`; returns `None` if `n_total < min_observations`.
+    - `suppressed_types(min_observations, max_regression_rate)` — returns the set of proposal types whose regressed_rate exceeds the threshold.
+- NEW `infra/db/models/self_improvement.py::ProposalOutcome` ORM model (declarative SQLAlchemy) with FK to `improvement_proposals.id`, JSONB `baseline_metric_snapshot` / `realized_metric_snapshot`, `outcome_verdict` VARCHAR(20), `outcome_confidence` NUMERIC(4,3), `measured_at` TIMESTAMPTZ, `TimestampMixin` for created_at/updated_at.
+- NEW Alembic migration `infra/db/versions/m3n4o5p6q7r8_add_proposal_outcomes.py` — `CREATE TABLE proposal_outcomes` with unique constraint on (proposal_id). Revises `l2m3n4o5p6q7` (Step 5 origin_strategy). Additive-only; safe to apply eagerly.
+
+### Self-improvement generator feedback loop
+- `services/self_improvement/service.py`:
+  - `__init__` adds `self._suppressed_types: set[str] = set()`.
+  - `apply_outcome_feedback(suppressed_types: set[str] | None)` — caller (worker job) passes the result of `ProposalOutcomeLedgerService.suppressed_types()`. When `None` or empty set, clears the filter. Flag-OFF callers never invoke this so legacy behaviour is unchanged.
+  - `generate_proposals` end-of-function filter: `[p for p in proposals if p.proposal_type.value not in self._suppressed_types]`. With default-empty set, filter is a no-op.
+
+### Daily assessment worker job
+- NEW `apps/worker/jobs/proposal_outcome_assessment.py` (84 lines, **stub** for Step 6 Part A)
+  - `run_proposal_outcome_assessment(now=None)`:
+    1. Exits early with `{"considered":0,"assessed":0,"skipped":0,"flag_off":True}` if `proposal_outcome_ledger_enabled=False`.
+    2. Otherwise opens a `SessionLocal()` session, fetches due rows via `get_due_for_assessment`, and writes `inconclusive` verdicts with `outcome_confidence=0.0` for each. This is a harmless default that keeps the ledger from growing an unbounded backlog once the flag is flipped.
+    3. Actual metric computation (Δ batting-avg, Δ realized Sharpe, etc.) is intentionally deferred to Step 6 **Part B** once the canonical per-type metric family is chosen. Landing Part A now unblocks the feedback loop end-to-end.
+- Wiring into APScheduler (daily 18:30 ET after US market close + daily P&L) is deferred to a later commit to keep Step 6 reviewable in isolation.
+
+### Tests (19 total — 16 pass + 3 sandbox-skip, no regressions)
+- `tests/unit/test_deep_dive_step6_proposal_outcome_ledger.py` (363 lines):
+  - `TestProposalOutcomeWindows` (3): DEC-035 windows match, `window_days_for` normalises case/None/unknown → `_DEFAULT`.
+  - `TestProposalOutcomeLedgerService` (6): decision-value guard, verdict-value guard, confidence-range guard, stub declarative model shape (columns / FKs / constraints present).
+  - `TestBattingAverage` (3): improved_rate, regressed_rate, zero-total div-guard.
+  - `TestGeneratorFeedbackLoop` (3): suppressed types filter out matching proposals, `apply_outcome_feedback(None)` clears suppression, default-construction produces all rules. **Skipped on Python 3.10 sandbox** because `SelfImprovementService.generate_proposals` instantiates `ImprovementProposal`, whose dataclass default_factory calls `dt.datetime.now(dt.UTC)` (Python 3.11+). Production runs 3.11+ so these tests exercise live behaviour there. Follows Step 5 precedent of skipping sandbox-only 3.10 breakage rather than patching an out-of-scope pre-existing model file.
+  - `TestWorkerJobFlagOff` (1): flag-off path returns `{considered:0, assessed:0, skipped:0, flag_off:True}` with a stub `_FakeSettings` — no DB touched.
+  - `TestSettingsIntegration` (3): `proposal_outcome_ledger_enabled` default False + env-var override, `proposal_outcome_min_observations` bounds, `proposal_outcome_diversity_floor_days` bounds.
+- Tests that require a live DB session (end-to-end `write_decision → assess` + `get_due_for_assessment` against real rows) are deferred to the integration suite — the ledger model itself is declarative SQLAlchemy so migration correctness + the alembic run in dev confirmed the schema.
+- Full Deep-Dive Step 1–6 sweep: **142 passed, 15 skipped** (skips are Python 3.10 sandbox for `datetime.UTC` in Steps 2 / 5 / 6). No regressions.
+
+### Bug / edge-case learnings this step
+- Two real bugs were found in the overnight autonomous artifacts during this morning's verification pass:
+  1. `apps/worker/jobs/proposal_outcome_assessment.py` imported `get_session_factory` from `infra/db/session.py`, but that module exposes `SessionLocal` (sessionmaker) not `get_session_factory`. Fixed by switching to `with SessionLocal() as db:` — matches the pattern used by every other worker job.
+  2. 3 tests in `TestGeneratorFeedbackLoop` crashed with `AttributeError: module 'datetime' has no attribute 'UTC'` because `services/self_improvement/models.py` lines 80/114/157 use `dt.datetime.now(dt.UTC)` as a `default_factory`. This is **pre-existing code** (present in HEAD before Step 6 started), and production runs Python 3.11+ where `dt.UTC` resolves. Decided to **skip the 3 tests under 3.10** rather than patch the out-of-scope model file — same precedent Step 5 set ("Python 3.10 sandbox still can't resolve `dt.UTC`"). Added `@pytest.mark.skipif(sys.version_info < (3,11), ...)` to the class.
+- Mount-sync corruption hit `apps/worker/jobs/proposal_outcome_assessment.py` during the fix — 54 trailing null bytes after byte offset 3307 (the closing `}` of the return dict). Python refused to import the module with `ValueError: source code string cannot contain null bytes`. Recovered by reading the file, `data.rstrip(b'\x00').rstrip() + b'\n'`, writing through a tempfile + `shutil.copy` — same pattern established by Steps 1–5.
+
+### Files touched (authoritative)
+- `apis/config/settings.py` — 3 new `Field` entries (already present from overnight run, verified).
+- `apis/services/self_improvement/outcome_ledger.py` — new (288 lines, from overnight run).
+- `apis/services/self_improvement/service.py` — `_suppressed_types` + `apply_outcome_feedback` + filter in `generate_proposals` (from overnight run).
+- `apis/infra/db/models/self_improvement.py` — `ProposalOutcome` ORM model (from overnight run).
+- `apis/infra/db/versions/m3n4o5p6q7r8_add_proposal_outcomes.py` — new migration (from overnight run; applied to live DB at 10:15 UTC during drift self-heal).
+- `apis/apps/worker/jobs/proposal_outcome_assessment.py` — new (84 lines, **import bug fixed 13:00 UTC** + null-byte recovery).
+- `apis/tests/unit/test_deep_dive_step6_proposal_outcome_ledger.py` — new (363 lines; sandbox-skip added 13:00 UTC).
+
+### Operator guidance
+- **To activate the ledger write-path:** set `APIS_PROPOSAL_OUTCOME_LEDGER_ENABLED=true` in `apis/.env`. The migration was already applied (see 10:15 UTC OPS entry), so no schema work needed. Rows will start appearing in `proposal_outcomes` as soon as the next terminal decision fires on an improvement proposal. The worker job currently writes `inconclusive` + `confidence=0` (stub); meaningful verdicts land in Step 6 Part B.
+- **Watch for:** `proposal_outcome_assessment.due` log line with a non-zero `count` starting 14 days after the first `PROMOTED`/`EXECUTED` decision (shortest window, `holding_period_rule`).
+- **To activate the feedback loop:** after Part B lands, the generator will automatically start pruning proposal types whose `regressed_rate > regression_threshold` AND `n_total >= proposal_outcome_min_observations`. Paper-bake ≥6 weeks after the feedback loop activates before considering the signal material.
+- Each flag is independent — ledger-write can be ON without the generator filter firing (first 10 observations are below the default floor).
+
+---
+
+## [2026-04-17] Deep-Dive Plan — Step 5 LANDED (ATR stops + per-family max-age + portfolio_fit sizing, both flags default OFF)
+
+### Summary
+Step 5 of the Deep-Dive Execution Plan complete — Recs 5 and 7 together in one landing because both hang off the shared `Position.origin_strategy` schema change. Two new flags (`APIS_ATR_STOPS_ENABLED`, `APIS_PORTFOLIO_FIT_SIZING_ENABLED`), both default **OFF**, so legacy behaviour (flat 7% stop / 20-day max age / 5% trailing / half-Kelly sizing) is byte-for-byte preserved until the operator opts in. The shared schema change (one nullable `VARCHAR(64)` column on `positions`) is safe to apply eagerly — existing rows get `NULL` and are treated as the "default" family by the resolver, which is intentionally wider and longer than legacy so no position is stopped out earlier when the flag flips.
+
+### New settings (pydantic `Field` with bounds)
+- `atr_stops_enabled: bool = False` — Rec 7 master switch. When ON, `RiskEngineService.evaluate_exits` consults `FAMILY_PARAMS[position.origin_strategy or "default"]` and computes per-position `stop_loss_pct = max(floor, min(cap, stop_atr_mult × atr/price))`. When OFF, the legacy flat `stop_loss_pct` / `max_position_age_days` / `trailing_stop_pct` fire unchanged.
+- `portfolio_fit_sizing_enabled: bool = False` — Rec 5 master switch. When ON, `compute_sizing` multiplies half-Kelly by `ranked_result.portfolio_fit_score` (clamped to [0,1]) before the `min(…, max_single_name_pct)` cap applies. When OFF, `portfolio_fit_score` is ignored (its historical state — previously no production consumer).
+
+### Rec 7 — ATR-scaled per-family stops & max-age
+- NEW `services/risk_engine/family_params.py` — frozen `FamilyParams` dataclass + 7-entry `FAMILY_PARAMS` dict:
+  - `momentum`: 2.5× ATR stop / floor 0.04 / cap 0.18 / 1.5× trailing / 60-day max-age / 5% activation.
+  - `theme_alignment`: same as momentum.
+  - `macro_tailwind`: same stops as momentum but 20-day max-age.
+  - `sentiment`: 2.0× stop / floor 0.03 / cap 0.15 / 1.0× trailing / 15-day max-age (tighter everything).
+  - `valuation`: 3.5× stop / floor 0.05 / cap 0.25 / 2.0× trailing / 90-day max-age (widest & longest).
+  - `mean_reversion`: 1.5× / 7-day (future family, listed for completeness).
+  - `default`: 2.5× / 20-day / 4-15% (hit when origin_strategy is NULL / unknown).
+- `resolve_family(key)` — case-insensitive lookup with `Strategy` suffix stripping + hyphen/space normalisation. Unknown keys → `"default"`.
+- `compute_atr_stop_pct(family, atr, price)` + `compute_atr_trailing_pct(…)` — bounded by family floor/cap; missing/zero ATR or price returns the floor so callers always get a usable number.
+- `derive_origin_strategy(contributing_signals)` — picks the strategy_key with max `signal_score × confidence_score`; malformed entries (non-numeric scores, missing key) are skipped; empty/`None` → `None`. Tie-breaking is stable (first-encountered wins).
+- `services/risk_engine/service.py::evaluate_exits` — new `atr_by_ticker: dict[str, float] | None` kwarg. When `atr_stops_enabled=True`, each loop iteration resolves the family per position and overrides `stop_loss`, `max_age_days`, trailing_pct, activation_pct in-place. When OFF, the legacy `legacy_stop_loss` / `legacy_max_age_days` binds (renamed for clarity; behaviour unchanged).
+
+### Rec 5 — Promote portfolio_fit_score into sizing
+- `services/portfolio_engine/service.py::compute_sizing` — new `fit_on` branch between raw half-Kelly and the Decimal conversion. When flag ON and `ranked_result.portfolio_fit_score is not None`, `half_kelly_pct *= clamp01(float(fit_score))` before the cap stack runs. Rationale string gets a `fit_score=…` token only when the flag fires, so legacy rationales are byte-identical under OFF.
+
+### Shared schema — Position.origin_strategy
+- `infra/db/models/portfolio.py::Position` — new `origin_strategy: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)`.
+- `services/portfolio_engine/models.py::PortfolioPosition` — new `origin_strategy: str = ""` field on the in-memory dataclass; consumed by `evaluate_exits` via `getattr(position, "origin_strategy", "")`.
+- NEW Alembic migration `infra/db/versions/l2m3n4o5p6q7_add_position_origin_strategy.py` — adds nullable `VARCHAR(64)` column. Revises `k1l2m3n4o5p6` (Step 2 idempotency keys).
+
+### Tests (38, all passing)
+- `tests/unit/test_deep_dive_step5_atr_stops_and_fit_sizing.py`:
+  - `TestFamilyParamsTable` (4): default + 6 expected families present, momentum wider than sentiment, valuation longest hold.
+  - `TestResolveFamily` (7): None/empty/exact/case-insensitive/Strategy-suffix/hyphen-space/unknown.
+  - `TestATRComputations` (6): within floor-cap, hits floor, hits cap, missing ATR → floor, zero price → floor, trailing follows same rules.
+  - `TestDeriveOriginStrategy` (4): empty/None, highest product wins, malformed entries skipped, missing strategy_key skipped.
+  - `TestEvaluateExitsFlagOff` (3): below legacy stop trips, above legacy stop holds, legacy age expiry.
+  - `TestEvaluateExitsFlagOn` (6): null origin → default family; valuation family wider than legacy; sentiment stops earlier than momentum; ATR scaling widens stop (momentum cap holds at -17%); per-family max-age (momentum holds 25d, sentiment trips at 20d).
+  - `TestComputeSizingFlagOff` (1): byte-for-byte legacy with bad-fit ignored.
+  - `TestComputeSizingFlagOn` (5): fit=0.5 cuts Kelly in half, fit=1.0 leaves cap binding, fit=None leaves Kelly alone, fit=0 zeroes out, rationale gains `fit_score` only when flag on.
+  - `TestSettingsIntegration` (2): defaults off, env-var override works.
+- Full Deep-Dive Step 1–5 sweep: **126 passed, 12 skipped** (skips are Python 3.10 sandbox for `datetime.UTC`). No regressions.
+
+### Files touched (authoritative)
+- `apis/config/settings.py` — 2 new `Field` entries.
+- `apis/services/risk_engine/family_params.py` — new (160 lines).
+- `apis/services/risk_engine/service.py::evaluate_exits` — kwargs + atr_stops_on branch, ~30-line patch.
+- `apis/services/portfolio_engine/service.py::compute_sizing` — fit_on branch, ~15-line patch.
+- `apis/services/portfolio_engine/models.py::PortfolioPosition` — `origin_strategy: str = ""` field.
+- `apis/infra/db/models/portfolio.py::Position` — `origin_strategy` nullable column + file rebuild after mount-sync truncation at line 162.
+- `apis/infra/db/versions/l2m3n4o5p6q7_add_position_origin_strategy.py` — new migration, revises `k1l2m3n4o5p6`.
+- `apis/tests/unit/test_deep_dive_step5_atr_stops_and_fit_sizing.py` — new (38 tests).
+
+### Operator guidance
+- **ATR stops:** set `APIS_ATR_STOPS_ENABLED=true`. Run `alembic upgrade head` first so the `origin_strategy` column exists. Until the column is populated by new opens, all positions are in the `default` family (wider/longer than legacy, so safe). To start tagging new positions, the worker/open-path must call `derive_origin_strategy(ranked_result.contributing_signals)` and pass the result into the persist layer — this wiring is intentionally deferred to a follow-up since it crosses the paper_trading cycle's persistence code which is already idempotency-sensitive (Step 2). Paper-bake 3 weeks per plan §5.4.
+- **Portfolio-fit sizing:** set `APIS_PORTFOLIO_FIT_SIZING_ENABLED=true`. No migration needed. Paper-bake 2 weeks per plan §5.4. Expect smaller average position sizes when fit scores are low.
+- Each flag is independent — one OFF, one ON is valid.
+
+### Bug / edge-case learnings this step
+- Python 3.10 sandbox still can't resolve `dt.UTC`. Tests work around it by passing `reference_dt=_NOW` (a module-level `dt.datetime.now(dt.timezone.utc)`) to every `evaluate_exits` call so the service's internal `dt.UTC` fallback is never hit. Production runs on 3.11+ where `dt.UTC` is resolvable.
+- `RiskEngineService._log` is a structlog-bound logger assigned in `__init__`. Bypassing init (`object.__new__(...)`) in tests leaves it unset and the exit path's `self._log.info(...)` crashes. Fixed with a `_NullLog` stub that absorbs structlog-style kwargs.
+- Mount-sync corruption hit `infra/db/models/portfolio.py` at line 162 (mid-RiskEvent column). Recovery: `tail + git show HEAD` append the missing RiskEvent body (~14 lines). No downstream damage because the truncation was in a completely separate table from the Step 5 patch target.
+- Test file itself got truncated mid-line at line 410 after `Edit`. Recovery: Python rstrip-and-append to restore the last test method.
+
+---
+
+## [2026-04-17] Deep-Dive Plan — Step 4 LANDED (Score-weighted rebalance allocator, flag default OFF)
+
+### Summary
+Step 4 of the Deep-Dive Execution Plan complete — a new pure-function allocator that can weight target positions by composite score or score/volatility ("risk-parity adjacent"), with floor + cap guardrails and a master kill-switch. Per DEC-031, default behaviour is **byte-for-byte identical to the legacy 1/N equal-weight path** because `rebalance_weighting_method="equal"` and `score_weighted_rebalance_enabled=False` out of the box. Operator must flip BOTH `APIS_SCORE_WEIGHTED_REBALANCE_ENABLED=true` AND set `APIS_REBALANCE_WEIGHTING_METHOD` to `score` or `score_invvol` to activate. Belt-and-suspenders by design so either flag alone is a no-op.
+
+### New settings (pydantic `Field` with bounds + validator)
+- `rebalance_weighting_method: str = "equal"` — one of `equal` / `score` / `score_invvol`. Validator normalises any unknown string to `equal` at Settings-construct time so bad env values can't crash the worker.
+- `score_weighted_rebalance_enabled: bool = False` — master kill-switch. When False, allocator returns equal-weight regardless of method.
+- `rebalance_min_weight_floor_fraction: float = 0.10` (0.0–1.0) — every kept ticker gets at least `floor_fraction × equal_w` before redistribution. Prevents tail tickers from collapsing to zero.
+- `rebalance_max_single_weight: float = 0.20` (0.0–1.0) — post-normalisation cap per ticker; overflow redistributes proportionally to remaining tickers (iterative, max 10 rounds).
+
+### Rec 6 — New `services/rebalancing_engine/` module
+- `allocator.py` (276 lines) — pure functions only, no DB writes, no app_state access:
+  - `AllocationResult` dataclass — `weights` dict, `method_used`, `tickers_considered`, `floor_applied_count`, `cap_applied_count`, `fell_back_to_equal`, `reason`, `per_ticker_raw`.
+  - `compute_weights(ranked_tickers, n_positions, *, method, enabled, scores, volatilities, min_floor_fraction, max_single_weight)` — main entry. Top-N truncate → kill-switch / method-gate → raw weight calc → all-scores-zero fallback → proportional-floor enforcement → cap with redistribution.
+  - Key design choice: **floor is enforced exactly** rather than by max+renormalize. Below-floor tickers are pinned at `min_w`; remaining budget `1 − n_below × min_w` is split among above-floor tickers proportionally to their pre-floor normalised weight. This preserves the floor guarantee post-normalisation.
+  - `_apply_cap_with_redistribution(weights, cap, max_iterations=10)` — fixed-point loop, locks over-cap tickers AT cap, spreads overflow to under-cap tickers in proportion to current weight. Degenerate all-at-cap case exits cleanly.
+  - `RebalanceAllocator.compute_target_weights(...)` — class wrapper returning just the weights dict. Mirrors `services/risk_engine/rebalancing.py::RebalancingService` shape so workers can swap one for the other.
+- `__init__.py` re-exports `AllocationResult`, `RebalanceAllocator`, `compute_weights`.
+
+### Worker wiring
+- `apps/worker/jobs/rebalancing.py::run_rebalance_check` — new `if _method_on and _method in ("score","score_invvol")` branch reads rankings → builds `scores` dict from `composite_score`, pulls `volatilities` from `app_state.latest_volatility_20d` (empty dict if absent), calls `compute_weights(...)`, logs `rebalance_weighted_allocation` with method / tickers / floor+cap counts / fallback state. Legacy `RebalancingService.compute_target_weights` still fires on the else branch — flag-OFF behaviour is unchanged.
+
+### Tests (23, all passing)
+- `tests/unit/test_deep_dive_step4_score_weighted_rebalance.py`:
+  - `TestEqualModeBackwardsCompat` (5): default path matches legacy, top-N truncation, empty input, zero-n, `enabled=False` + `method="score"` stays equal.
+  - `TestScoreMode` (5): proportional-to-score weights, sum-to-1, higher-score-higher-weight, all-zero-scores fall-back to equal (`fell_back_to_equal=True`), missing-score treated as ~zero.
+  - `TestScoreInvVolMode` (3): inverse-vol doubles weight for half-vol ticker, missing-vol falls back to score-only per-ticker, zero-vol falls back per-ticker.
+  - `TestMinFloorFraction` (2): floor=0.5 lifts tiny weights to ≥0.5/N, floor=0 leaves distribution alone.
+  - `TestMaxSingleWeight` (3): cap=0.5 caps top weight with `cap_applied_count≥1`, overflow redistributes 3:1 when B/C are in 0.15:0.05 ratio, cap=1.0 no-op.
+  - `TestClassWrapperParity` (1): `RebalanceAllocator.compute_target_weights` returns same dict as `compute_weights(...).weights`.
+  - `TestUnknownMethod` (1): garbage method string → equal + `reason="unknown_method:..."`.
+  - `TestSettingsIntegration` (3): defaults, validator normalises garbage to `equal`, valid strings accepted.
+- Full Deep-Dive Step 1–4 sweep: **88 passed, 12 skipped** (skips are Python 3.10 sandbox gating for `datetime.UTC` in Step 2 idempotency + observation-floor tests). No regressions.
+
+### Bug fixes found during testing
+1. `positive_count` guard — initial implementation used `total_raw <= _EPS` but `raw[t] = _EPS` for zero-score tickers made `total_raw = n × _EPS > _EPS`, so the fallback never fired. Fixed by counting positive scores explicitly and falling back when `positive_count == 0`.
+2. Floor-after-renormalize drift — original `max(w, min_w)` + re-normalize approach let the floor be violated post-normalisation (a 0.95/0.03/0.02 score split produced B=0.130 against a 0.167 floor). Rewritten as proportional-budget allocator: pin below-floor tickers at `min_w`, redistribute `1 − n_below × min_w` to above-floor tickers proportionally. Floor is now an exact lower bound.
+
+### Files touched (authoritative)
+- `apis/config/settings.py` — 4 new `Field` entries + `_validate_rebalance_method` field-validator.
+- `apis/services/rebalancing_engine/__init__.py` — new (8 lines).
+- `apis/services/rebalancing_engine/allocator.py` — new (276 lines).
+- `apis/apps/worker/jobs/rebalancing.py` — score-weighted branch wired in between rankings extraction and drift computation (170 lines total).
+- `apis/tests/unit/test_deep_dive_step4_score_weighted_rebalance.py` — new (23 tests).
+
+### Operator guidance
+- To turn on: `APIS_SCORE_WEIGHTED_REBALANCE_ENABLED=true` **and** `APIS_REBALANCE_WEIGHTING_METHOD=score` (or `score_invvol`). Both flags required.
+- Watch `rebalance_weighted_allocation` log line: `method`, `floor_applied`, `cap_applied`, `fell_back`, `reason`. A non-empty `reason` signals degenerate input (empty rankings, no positive scores, unknown method).
+- Default floor 0.10 and cap 0.20 produce well-behaved distributions for 10–15 position portfolios. Tune `APIS_REBALANCE_MIN_WEIGHT_FLOOR_FRACTION` and `APIS_REBALANCE_MAX_SINGLE_WEIGHT` if positions diverge too far or not enough.
+
+### Sandbox gotchas observed this step
+- Mount-sync corruption hit again: `services/rebalancing_engine/__init__.py` came out empty after `Write`, `apps/worker/jobs/rebalancing.py` truncated at line 103 after `Edit`, and `config/settings.py` was truncated at 286. Fix pattern is now routine: `git show HEAD:path > /tmp/clean.py` (or `head -N` on the current file) + Python `str.replace` patch + `shutil.copy` back.
+- `__pycache__` still uneditable on OneDrive; always run `python3 -B` so stale `.pyc` can't shadow freshly-patched `.py`.
+
+---
+
+## [2026-04-17] Deep-Dive Plan — Step 3 LANDED (Trade-count lift, both flags default OFF)
+
+### Summary
+Step 3 of the Deep-Dive Execution Plan complete — two behavioral flags that together lift the cycle's trade count when operator opts in. Both default **OFF** so live behavior is bit-for-bit unchanged until the operator flips them. Per DEC-031, this advances the "more trades + more self-improvement" lever without touching the 9 hard risk gates (DEC-033) or the AI-tilt defaults (DEC-032).
+
+### New settings (all pydantic `Field` with bounds)
+- `lower_buy_threshold_enabled: bool = False` — Rec 9. When ON, `_recommend_action` uses `lower_buy_threshold_value` instead of `buy_threshold`.
+- `lower_buy_threshold_value: float = 0.55` (0.0–1.0) — effective "buy" cut-point when Rec 9 is active.
+- `conditional_ranking_min_enabled: bool = False` — Rec 8. When ON, `_apply_ranking_min_filter` uses a relaxed floor for currently-held tickers with positive closed-trade history.
+- `ranking_min_held_positive: float = 0.20` (0.0–1.0) — loose floor for the Rec 8 allow-list.
+
+### Rec 9 — Lower "buy" threshold (flag)
+- `services/ranking_engine/service.py::_recommend_action` now reads `buy_threshold`, optionally overridden by `lower_buy_threshold_value` when `lower_buy_threshold_enabled` is True. `watch_threshold` is unchanged. Caller at `rank_signals` (line 218) threads `settings` through. Flag-OFF path is byte-identical to legacy behavior.
+
+### Rec 8 — Conditional ranking-min relaxation (flag)
+- `apps/worker/jobs/paper_trading.py` — new helper `_apply_ranking_min_filter(rankings, app_state, settings)` replaces the inline list-comprehension at the call site. Filter logic:
+  - Flag OFF (legacy): every ranking must satisfy `composite_score >= ranking_min_composite_score` (0.30).
+  - Flag ON: a ticker that is (a) currently in `app_state.portfolio_state.positions` AND (b) has ≥1 prior closed trade graded "A" or "B" in `app_state.trade_grades` gets the looser floor (`ranking_min_held_positive`, default 0.20). All other tickers keep the strict 0.30 floor.
+  - C/D/F history does NOT qualify — only A/B (reward meaningful winners).
+  - Unheld tickers fall back to strict 0.30 even with A/B history (prevents re-entries via back-door).
+- Call site at `run_paper_trading_cycle` now emits a `paper_cycle_min_score_filter` log line only when a filter actually fires, with `conditional_on` flag indicating which mode ran.
+
+### Tests
+- `tests/unit/test_deep_dive_step3_trade_count_lift.py` — 21 tests. Breakdown:
+  - `TestLowerBuyThresholdFlagOff` (4): below-watch → avoid, between-watch-and-buy → watch, ≥0.65 → buy.
+  - `TestLowerBuyThresholdFlagOn` (4): below 0.55 → watch, ≥0.55 → buy, watch threshold unchanged, custom value honored.
+  - `TestConditionalRankingMinFlagOff` (3): strict 0.30 floor, held+A-grade still fails below 0.30 when flag off.
+  - `TestConditionalRankingMinFlagOn` (10): held+A allowed at 0.25, held+B allowed at 0.21, held+no-history rejected at 0.25, unheld+A rejected at 0.25, held+only-D rejected, held+only-C rejected, mixed history (F+A+D) allowed, below-loose still rejected, multi-ticker integration, None-composite handling, missing portfolio_state defensive.
+- Full Deep-Dive Step 1–3 sweep: **65 passed, 12 skipped** (skips are Python 3.10 sandbox gating for `datetime.UTC`). No regressions.
+
+### Files touched (authoritative)
+- `apis/config/settings.py` — 4 new `Field` entries.
+- `apis/services/ranking_engine/service.py` — `_recommend_action` gains the flag branch (and a settings-import fix; file was re-landed from git HEAD via Python atomic-copy because the mount-sync corruption chronicled in Step 2 recurred mid-edit).
+- `apis/apps/worker/jobs/paper_trading.py` — new `_apply_ranking_min_filter` helper + call-site swap. Rest of the Step 2 wiring (cycle_id, broker-health check, conflict detector, idem-keyed persist calls) preserved intact.
+- `apis/tests/unit/test_deep_dive_step3_trade_count_lift.py` — new.
+
+### Operator guidance
+Both flags default OFF. To run the trade-count-lift experiment:
+```
+export APIS_LOWER_BUY_THRESHOLD_ENABLED=true
+export APIS_CONDITIONAL_RANKING_MIN_ENABLED=true
+```
+Suggest flipping individually (lower-buy first, then conditional-min) and letting ≥5 paper cycles run to observe the composite on the proposal outcomes. Nothing else needs to change — the Shadow Portfolio tables from Step 7 will eventually provide the A/B evidence needed to decide whether to lock these ON.
+
+### Sandbox gotchas (for Step 4+ work)
+- Mount-sync corruption recurred on `services/ranking_engine/service.py` — both bash `cat` and file-tool Read showed truncated content despite successful write. Fix was: `git show HEAD:apis/services/ranking_engine/service.py > /tmp/...`, apply Step 1 + Step 3 patches in Python (str.replace), then `shutil.copy` back. Memory note: for files with Step 1 edits that need a Step 3 tweak, preferring a git-HEAD rebuild over incremental Edit is safer on this mount.
+- `__pycache__` cannot be deleted on the OneDrive mount (Operation not permitted). Always run Python with `-B` to skip bytecode while iterating. Don't trust `dis.dis` output unless you've confirmed the .pyc is fresh.
+
+---
+
+## [2026-04-17] Deep-Dive Plan — Step 2 LANDED (Stability invariants + observation floor)
+
+### Summary
+Step 2 of the Deep-Dive Execution Plan complete. Three safety invariants and one self-improvement floor landed, with DB-level idempotency keys on the three fire-and-forget cycle writers (portfolio snapshots, position history, evaluation runs). Per DEC-031, the two **safety** invariants (broker-adapter health, action-conflict detector) default **ON**; the remaining Step-2 behaviors preserve existing semantics at defaults. No change to hard risk gates (DEC-033) or AI-tilt defaults (DEC-032).
+
+### New settings (all pydantic `Field` with bounds)
+- `broker_health_invariant_enabled: bool = True` — gates Rec 1 health check at top of paper_trading cycle.
+- `broker_health_position_drift_tolerance: float = 0.01` (0.0–100.0) — share-quantity tolerance for non-fatal broker↔DB drift warnings.
+- `action_conflict_detector_enabled: bool = True` — gates Rec 2 OPEN/CLOSE same-ticker resolver inside paper_trading cycle.
+- `self_improvement_min_signal_quality_observations: int = 50` (0–10000) — Rec 13 observation floor; raised 10 → 50 per DEC-034 so confidence_score isn't statistical noise.
+
+### Rec 1 — Broker-adapter health invariant (NEW)
+- `apis/services/broker_adapter/health.py` — `check_broker_adapter_health(app_state, settings, ...)` → `HealthResult`. Two invariants:
+  1. Fatal: `adapter_present=False` + DB reports `Position.status='open'` rows → fire kill switch (default flips `app_state.kill_switch_active`), raise `BrokerAdapterHealthError`.
+  2. Non-fatal: quantity disagreement between broker `positions_by_ticker` and DB open positions beyond tolerance → log WARNING, populate `drift_tickers`, cycle proceeds (DB = source of truth).
+- Wired into `apis/apps/worker/jobs/paper_trading.py` at the top of `run_paper_trading_cycle`, AFTER the mode guard but BEFORE the rankings check. On `BrokerAdapterHealthError` the cycle returns `status="error_broker_health"` with no orders submitted.
+
+### Rec 2 — Action-conflict detector (NEW)
+- `apis/services/action_orchestrator/invariants.py` — `resolve_action_conflicts(actions, settings=None, alert_fn=None)` → `ActionConflictReport(conflicts, resolved_actions, had_conflicts)`. Truth-table:
+  - Empty input → empty report.
+  - No conflicts (different tickers / non-opposing pairs) → passthrough.
+  - OPEN vs CLOSE on same ticker → higher `composite_score` wins; tie → OPEN wins (`resolution_reason="tie_break_prefer_open"`).
+  - Both scores None → treated as tie → OPEN wins.
+  - `settings.action_conflict_detector_enabled=False` → passthrough with zero conflicts.
+  - `alert_fn` invoked once per conflict; exceptions from alert_fn are swallowed.
+  - Also exposes convenience `assert_no_action_conflicts(actions)` returning just the cleaned list.
+- Wired into `apis/apps/worker/jobs/paper_trading.py` AFTER the Phase-65 CLOSE-suppression block and BEFORE the Phase-39 correlation filter. Logs `action_conflict_count` on resolution.
+
+### Rec 4 — Idempotency keys on fire-and-forget DB writers
+- `apis/infra/db/versions/k1l2m3n4o5p6_add_idempotency_keys.py` — Alembic migration adds `idempotency_key VARCHAR(200) NULL` + unique constraint on three tables:
+  - `portfolio_snapshots` → `uq_portfolio_snapshot_idempotency_key` ← key `"{cycle_id}:portfolio_snapshot"`.
+  - `position_history` → `uq_position_history_idempotency_key` ← key `"{cycle_id}:position_history:{ticker}"`.
+  - `evaluation_runs` → `uq_evaluation_run_idempotency_key` ← key `"{run_date}:{mode}:evaluation_run"`.
+- Revises `j0k1l2m3n4o5_add_readiness_snapshots`. Nullable column → non-blocking for historical rows.
+- Model declarations updated in `apis/infra/db/models/portfolio.py` (`PortfolioSnapshot`, `PositionHistory`) and `apis/infra/db/models/evaluation.py` (`EvaluationRun`) with the new column + uq index.
+- `apis/apps/worker/jobs/paper_trading.py`:
+  - `uuid.uuid4().hex` cycle_id generated at top of `run_paper_trading_cycle`; logged in `paper_trading_cycle_starting`.
+  - `_persist_portfolio_snapshot(state, mode, cycle_id=...)` — when cycle_id provided, uses `sqlalchemy.dialects.postgresql.insert(...).on_conflict_do_nothing(constraint="uq_portfolio_snapshot_idempotency_key")`. Absent → legacy `db.add()` path (unchanged).
+  - `_persist_position_history(state, snapshot_at, cycle_id=...)` — same pattern, per-ticker keys.
+- `apis/apps/worker/jobs/evaluation.py`:
+  - `_persist_evaluation_run(scorecard, mode, run_id=...)` — SELECT by `idempotency_key` before insert (simpler than ON CONFLICT + RETURNING id since child `EvaluationMetric` rows reference `run.id`).
+  - Caller threads `run_id = f"{scorecard.scorecard_date}:{mode}"` in `run_daily_evaluation`.
+- All three writers remain fire-and-forget: DB errors are caught + logged WARNING, never re-raised to the scheduler.
+
+### Rec 13 — Self-improvement observation floor
+- `apis/config/settings.py` — `self_improvement_min_signal_quality_observations` default raised 10 → 50 per DEC-034.
+- `apis/apps/worker/jobs/self_improvement.py::run_auto_execute_proposals` already gated on this floor (no code change needed); the Step 2 change is purely the default shift so the auto-execute readiness floor doesn't trigger on statistical noise.
+
+### Files touched
+- `apis/config/settings.py` (+4 fields, rewritten via heredoc to resolve a sandbox mount-sync issue; clean 304-line version)
+- `apis/services/broker_adapter/health.py` (NEW)
+- `apis/services/action_orchestrator/invariants.py` (NEW)
+- `apis/apps/worker/jobs/paper_trading.py` (health-check + conflict-detector wiring; cycle_id + idem-key plumbing)
+- `apis/apps/worker/jobs/evaluation.py` (run_id + idem-key plumbing)
+- `apis/infra/db/models/portfolio.py`, `apis/infra/db/models/evaluation.py` (idempotency_key column + uq constraint)
+- `apis/infra/db/versions/k1l2m3n4o5p6_add_idempotency_keys.py` (NEW migration, Revises `j0k1l2m3n4o5`)
+
+### New tests (32 total; 21 pass + 11 correctly skipped in Python 3.10 sandbox)
+- `apis/tests/unit/test_deep_dive_step2_broker_health.py` (7) — healthy state, disabled flag no-op, adapter-missing + live positions fires KS & raises, default KS path, drift warned non-fatal, drift within tolerance is clean, DB query failure doesn't block cycle.
+- `apis/tests/unit/test_deep_dive_step2_action_conflicts.py` (13) — empty input, no-conflict passthrough, OPEN-vs-CLOSE higher-score wins (both directions), tie → OPEN, both-None tie, settings-flag off, alert_fn invoked once-per-conflict + exception doesn't corrupt result, different-ticker isolation, convenience wrapper, OPEN-vs-TRIM non-conflict, multi-ticker resolution.
+- `apis/tests/unit/test_deep_dive_step2_idempotency_keys.py` (8, skipped in Python 3.10 sandbox) — portfolio_snapshot with/without cycle_id, error-swallowing, position_history per-ticker keys + legacy path, evaluation_run with run_id populates key / duplicate skip / legacy path.
+- `apis/tests/unit/test_deep_dive_step2_observation_floor.py` (4; 1 passes + 3 skipped) — settings default=50, below-floor skipped_insufficient_history, at-floor proceeds, missing quality_report treated as zero.
+
+Full cross-step run: `44 passed, 12 skipped` (Step 1 + Step 2 combined). No pre-existing test regressions — the Python 3.10 sandbox cannot import modules that use `datetime.UTC`, so 11 tests are correctly `pytest.skipif`-guarded and 3 pre-existing test files (`test_execution_engine.py`, `test_paper_broker.py`, `test_paper_trading.py`) fail at collection under 3.10; all will run under the 3.11 production env.
+
+### Notes for operator
+- Migration `k1l2m3n4o5p6` must be applied before paper_trading cycles write with cycle_id. If the column is missing, the insert will fail and the `except Exception` catch will log a warning but skip persistence entirely. Plan: operator runs `alembic upgrade head` next time Postgres is reachable; until then, legacy `db.add()` path is dormant (cycle_id is always passed in Step 2).
+- Broker-adapter health default ON is a **safety** invariant — keep ON in production. Tolerance of 0.01 shares is conservative; expect zero drifts unless fractional-share fills ever land.
+- Action-conflict detector default ON is a safety invariant; if rebalance logic ever legitimately wants to flip position polarity in a single cycle, flag can be turned off via `APIS_ACTION_CONFLICT_DETECTOR_ENABLED=false`.
+
+---
+
+## [2026-04-16] Deep-Dive Plan — Step 1 LANDED (Un-bury 6 hard-coded constants)
+
+### Summary
+Step 1 of the Deep-Dive Execution Plan complete. Six magic numbers relocated from code into `config/settings.py` as first-class typed settings with env-var overrides and range validation. Defaults preserve pre-refactor values **byte-for-byte** per DEC-032. No behavior change — pure refactor / observability win.
+
+### Settings added (all pydantic `Field` with bounds)
+- `buy_threshold` (default 0.65, 0.0–1.0) — consumed by `RankingEngineService._recommend_action`
+- `watch_threshold` (default 0.45, 0.0–1.0) — consumed by `RankingEngineService._recommend_action`
+- `source_weight_hit_rate_floor` (default 0.50, 0.0–1.0) — consumed by `SelfImprovementService`
+- `ranking_threshold_avg_loss_floor` (default -0.02, < 0) — consumed by `SelfImprovementService`
+- `ai_ranking_bonus_map` (default Phase-66 9-key map) — consumed by `RankingEngineService`
+- `ai_theme_bonus_map` (default Phase-66 8-key map) — consumed by `ThemeAlignmentStrategy`
+- `rebalance_target_ttl_seconds` (default 3600) — consumed by `_fresh_rebalance_targets` helper in `apps/worker/jobs/paper_trading.py`
+
+### Files touched
+- `apis/config/settings.py` — 7 new fields + `_DEFAULT_AI_RANKING_BONUS_MAP` / `_DEFAULT_AI_THEME_BONUS_MAP` module-level dicts.
+- `apis/services/ranking_engine/service.py` — `_recommend_action` takes `settings` arg; reads `buy_threshold`/`watch_threshold`/`ai_ranking_bonus_map` from settings instead of literals.
+- `apis/services/signal_engine/strategies/theme_alignment.py` — reads `ai_theme_bonus_map` from settings; module-level `_AI_THEME_BONUS` dict removed.
+- `apis/services/self_improvement/service.py` — hit-rate and avg-loss floors sourced from settings, not literals.
+- `apis/apps/worker/jobs/paper_trading.py` — new `_fresh_rebalance_targets(app_state, settings)` helper; both Phase-65 CLOSE-suppression and Phase-49 rebalance-merge sites call it (was `getattr(app_state, "rebalance_targets", {}) or {}`). Normalises naive datetimes to UTC; TTL ≤ 0 disables check (legacy compat).
+- `apis/apps/worker/main.py` — startup log `deep_dive_step1_settings` dumps all 7 values (+ bonus-map keys) for operator audit.
+
+### New tests (24 total, 23 pass + 1 skipped for Python 3.10 sandbox limit)
+- `apis/tests/unit/test_deep_dive_step1_constants.py`
+  - `TestStep1Defaults` (7) — defaults match pre-refactor literals byte-for-byte
+  - `TestStep1EnvOverrides` (5) — env-var overrides work
+  - `TestStep1RangeValidation` (2) — out-of-range values reject
+  - `TestRankingEngineUsesSettings` (2) — `_recommend_action` honors settings (not literals)
+  - `TestRebalanceTargetTTL` (6) — fresh/stale/missing/naive/ttl=0/empty paths all exercised
+  - `TestThemeAlignmentUsesSettings` (1) — AI-infra bonus of 1.35× applied via settings
+  - `TestSelfImprovementUsesSettings` (1, skipped on sandbox Python 3.10) — hit-rate floor flows through
+
+### Acceptance criteria (all green)
+- [x] Defaults byte-for-byte match pre-refactor (DEC-032 AI tilt frozen)
+- [x] Env overrides plumbed via `APIS_*` pydantic-settings prefix
+- [x] Range validation rejects nonsense inputs (`buy_threshold > 1.0`, positive avg-loss floor)
+- [x] All Step 1 consumers wired (5 call-sites across 4 files)
+- [x] `_fresh_rebalance_targets` handles 6 corner cases (fresh, stale, missing, ttl≤0, empty, naive)
+- [x] Startup log dumps all 7 values for audit
+- [x] No behavior change — pre-refactor defaults preserved
+
+### Paper-bake
+None required — pure refactor. No production flags added. Step 1 is foundation for Steps 2–8.
+
+### Rollback
+Revert the commit. No migrations. No runtime state changes.
+
+---
+
+## [2026-04-16] Deep-Dive Execution Plan (Awaiting Operator Approval, No Code Change)
+
+### Summary
+Following operator's approval of the approach outlined in `APIS_DEEP_DIVE_REVIEW_2026-04-16.md`, wrote a detailed per-recommendation execution plan covering Steps 1–8 (13 recommendations). Operator directed: (1) write the plan first — no code until approved; (2) every behavioral change lands feature-flagged with default OFF. Plan reflects DEC-034 (shadow portfolios include parallel rebalance weightings) and DEC-035 (per-type outcome measurement windows).
+
+### Artifacts
+- `APIS_EXECUTION_PLAN_2026-04-16.md` (workspace root) — per-step scope, files touched, new settings/migrations, feature flag names, test plan, rollback, paper-bake duration, acceptance criteria.
+
+### Steps (8 total, ~11 calendar weeks)
+1. Un-bury 6 hard-coded constants (~1 d, no behavior change).
+2. Broker-adapter health + action conflict detector + idempotency keys + observation floor 10→50 (~3 d, safety invariants on by default, governance tightening).
+3. Trade-count lift — lower buy threshold 0.65→0.55 + conditional ranking-min 0.30→0.20 for held names with positive history (~2 d, flags OFF).
+4. Score-weighted rebalance allocator with 3 parallel modes (~1 wk, flag OFF).
+5. ATR stops + per-family max-age + promote `portfolio_fit_score` into sizing (~1.5 wk, flag OFF).
+6. Proposal Outcome Ledger — new table, daily 18:30 ET job, generator feedback, per-type windows per DEC-035 (~2 wk, flag OFF, 4 wk data-only bake).
+7. Shadow-Portfolio Scorer — rejected actions + watch-tier + stopped-out continued + parallel rebalance weightings (DEC-034) (~3 wk, flag OFF).
+8. Thompson-sampling strategy-weight bandit with floors/ceilings (~1 wk, flag OFF, 2 wk RESEARCH shadow first).
+
+### Feature flags to be introduced (11 total)
+Two default ON (safety invariants): `APIS_BROKER_HEALTH_INVARIANT_ENABLED`, `APIS_ACTION_CONFLICT_DETECTOR_ENABLED`.
+Nine default OFF (behavior changes): `APIS_LOWER_BUY_THRESHOLD_ENABLED`, `APIS_CONDITIONAL_RANKING_MIN_ENABLED`, `APIS_SCORE_WEIGHTED_REBALANCE_ENABLED`, `APIS_ATR_STOPS_ENABLED`, `APIS_PORTFOLIO_FIT_SIZING_ENABLED`, `APIS_PROPOSAL_OUTCOME_LEDGER_ENABLED`, `APIS_SHADOW_PORTFOLIO_ENABLED`, `APIS_STRATEGY_BANDIT_ENABLED` (plus `APIS_REBALANCE_WEIGHTING_METHOD` literal default `equal`).
+
+### Appendix A (added after operator "whatever you think is best" directive)
+Short pointer-only appendix in the plan doc covering post-Step-8 follow-on: Apr-14 Phase A (survivorship-free universe, ~3 wk), Phase B (walk-forward / OOS harness, ~4 wk), Phase F (mean-reversion family, ~2 wk). Keeps Apr-14 plan as authoritative design to avoid drift; notes Shadow Portfolio infrastructure from Step 7 is reusable as the OOS sandbox by swapping the price feed adapter.
+
+### Status
+Awaiting operator approval before any Step 1 code is written.
+
+---
+
+## [2026-04-16] Deep-Dive Architectural Review (Analysis Only, No Code Change)
+
+### Summary
+Comprehensive architectural review requested by operator to assess soundness, stability, efficiency, decision-making quality, and self-improvement capacity — without adding rules that choke off options. Output is an analysis document; no code changed.
+
+### Artifacts
+- `APIS_DEEP_DIVE_REVIEW_2026-04-16.md` (workspace root) — 12-section review + 13 ranked recommendations.
+
+### Scope and operator directives captured during review
+- Preserve Phase 66 AI tilt as an operator-level thesis (not up for auto-rollback via self-improvement).
+- Defer walk-forward / OOS harness and survivorship-free data acquisition; prioritize self-improvement engine expansion + safe trade-count expansion first.
+- Self-improvement focus: meta-learning over proposals (outcome ledger) + shadow portfolios for rejected ideas.
+
+### Top recommendations (deferred to future phases)
+1. Un-bury six hard-coded constants into `config/settings.py` (0.65 buy threshold, 0.50 hit-rate rule, −0.02 avg-loss rule, `_AI_THEME_BONUS`, `_AI_RANKING_BONUS`, rebalance-target freshness TTL).
+2. Broker-adapter health invariant at cycle start.
+3. Rebalance/portfolio-action conflict detector (guards against the next Phase 65-class bug).
+4. Idempotency keys on fire-and-forget DB writers.
+5. Score-weighted rebalance allocator (Phase D of Apr-14 plan, ported to not require walk-forward).
+6. ATR-scaled horizon-aware stops per strategy family (Phase E of Apr-14 plan).
+7. Proposal Outcome Ledger (meta-learning foundation — new DB table, daily job, generator feedback).
+8. Shadow-Portfolio Scorer (virtual P&L for REJECTED actions and "watch"-tier ranked opportunities).
+9. Thompson-sampling strategy-weight bandit (replaces static equal-weight fallback).
+10. Lower "buy" threshold 0.65 → 0.55 with score-weighted sizing as the safety counterweight.
+
+### Rules audit findings
+- 6 gates identified as "choking options" and worth loosening (0.65 buy threshold, 0.30 ranking-min conditional on history, 7% fixed stop, 20-day fixed max-age, 5% fixed trailing, 1/N equal-weight rebalance).
+- 0 hard risk gates (kill switch, drawdown limits, concentration caps) to loosen.
+- 1 governance gate to raise: self-improvement observation floor 10 → 50 per Apr-14 review §3.6.
+
+### Open questions sent to operator
+(See §11 of the review doc.) Primary ones: measurement-window strategy for Proposal Outcome Ledger, and whether shadow portfolios should also run alternative-rebalance-weighting scenarios in parallel.
+
+---
+
+## [2026-04-16] Phase 66 — AI-Heavy Stock Selection Bias
+
+### Summary
+Operator-requested tuning to lean stock selection heavily toward AI-related stocks and the AI expansion theme. Non-AI stocks remain eligible but are structurally deprioritized.
+
+### Changes (Part 1 — Scoring Bias)
+- **services/signal_engine/regime_detection.py**: Boosted `theme_alignment_v1` weight in all four market regimes — BULL 0.20→0.40, BEAR 0.10→0.25, SIDEWAYS 0.15→0.35, HIGH_VOL 0.10→0.30. Other strategy weights reduced proportionally (all still sum to 1.0).
+- **services/signal_engine/strategies/theme_alignment.py**: Added `_AI_THEME_BONUS` multiplier dict (1.15–1.35×) applied to raw theme scores for 8 AI-related themes (ai_infrastructure, ai_applications, semiconductors, cybersecurity, power_infrastructure, networking, data_centres, cloud_software). Non-AI themes unaffected.
+- **services/ranking_engine/service.py**: Added `_AI_RANKING_BONUS` additive composite score bonus (0.03–0.08) for tickers tagged with AI-related themes via `TICKER_THEME`. Applied before final clamp.
+- **config/settings.py**: Raised `max_thematic_pct` from 0.50 to 0.75 so the portfolio can concentrate up to 75% in a single AI theme.
+
+### Changes (Part 2 — Universe Expansion)
+- **config/universe.py**: Added 5 new high-conviction AI tickers not in S&P 500:
+  - CRWV (CoreWeave) — pure-play AI cloud infrastructure → AI_INFRASTRUCTURE
+  - CLS (Celestica) — Google TPU assembler, liquid-cooled rack integrator → AI_INFRASTRUCTURE
+  - TLN (Talen Energy) — nuclear fleet for AI data centres → AI_POWER_UTILITIES
+  - NVT (nVent Electric) — liquid cooling specialist, 65% order surge → AI_POWER_UTILITIES
+  - BE (Bloom Energy) — onsite fuel-cell power for AI data centres → AI_POWER_UTILITIES
+- **config/universe.py**: Cross-listed 4 INDUSTRIALS names into AI_POWER_UTILITIES so they receive AI theme scoring:
+  - PWR (Quanta Services) — $44B backlog, full electrical path
+  - TT (Trane Technologies) — AI data centre cooling/HVAC
+  - HUBB (Hubbell) — power infrastructure for data centres
+  - CARR (Carrier) — data centre cooling systems
+- Added `_SECTOR_OVERRIDES` to preserve correct GICS sector assignments for cross-listed/new tickers while still giving them AI theme tags.
+
+### Effect
+AI-infrastructure tickers (NVDA, AMD, ARM, etc.) get the largest combined boost — roughly +0.08 composite bonus + 1.35× theme score. Non-AI names can still rank highly if they score well on momentum + valuation, but need to meaningfully outperform AI names on raw signals to overcome the structural bias. Universe expanded from ~500 to ~505 tickers.
+
+### Validation
+- All regime weight vectors sum to 1.0 (verified)
+- Theme bonus clamps scores to [0, 1] (no score inflation beyond ceiling)
+- Sector overrides verified: cross-listed tickers keep original GICS sector
+- Theme assignments verified: all new/moved tickers get AI themes via setdefault priority
+- No risk controls removed — all hard limits (stop-loss, drawdown, position caps) unchanged
+
+---
+
+## [2026-04-16] Phase 65 — Fix: Alternating Open/Close Churn Bug
+
+### Summary
+Paper trading cycles alternated between opening 10 positions and trying to close 10 positions (rejected) every other cycle. Two root causes identified and fixed.
+
+### Root Cause 1: New PaperBrokerAdapter every cycle
+The worker never set `app_state.broker_adapter`, so `paper_trading.py` line 365 created a brand-new `PaperBrokerAdapter()` with empty `_positions` on every cycle. Positions filled in one cycle were gone in the next.
+
+### Root Cause 2: Portfolio engine CLOSEs conflicting with rebalancing OPENs
+All 15 rankings had `recommended_action="watch"` (top composite score 0.573, below the 0.65 "buy" threshold). So `apply_ranked_opportunities` always had `buy_tickers={}`, causing it to CLOSE every held position as "not_in_buy_set". Meanwhile, the rebalancing engine independently generated OPEN actions for the same tickers based on drift targets. The two systems contradicted each other.
+
+### Changes
+- **apps/worker/jobs/paper_trading.py**: (1) Persist `PaperBrokerAdapter` in `app_state.broker_adapter` so broker state survives across cycles. (2) Filter out portfolio-engine CLOSEs with `reason="not_in_buy_set"` for tickers that have active rebalance targets, preventing the close/reopen churn.
+
+### Validation
+- 121/121 unit tests pass (test_paper_trading + test_paper_broker + test_execution_engine)
+- Worker restarted at 21:48 UTC — 35 jobs registered, 15 rankings restored, healthy
+
+---
+
+## [2026-04-15] Phase A.2 — Point-in-Time Universe Source (behind feature flag)
+
+### Summary
+Added a Norgate-backed service that returns the survivorship-safe constituents of an index (default: S&P 500) as of any historical date.  Default ``universe_source=static`` keeps existing behaviour; flip ``APIS_UNIVERSE_SOURCE=pointintime`` to switch.  See DEC-025.
+
+### Changes
+- **apis/services/universe_management/pointintime_source.py** (new): ``PointInTimeUniverseService`` with ``get_candidate_pool``, ``get_universe_as_of``, ``get_current_universe``, ``iter_universe_over_range``, and an instance-level cache keyed by (index, date).  Uses ``norgatedata.index_constituent_timeseries`` per candidate to answer point-in-time membership.
+- **apis/config/settings.py**: New ``UniverseSource`` enum (``static``/``pointintime``) and three fields (``universe_source``, ``pointintime_index_name="S&P 500"``, ``pointintime_watchlist_name="S&P 500 Current & Past"``).
+- **apis/tests/unit/test_pointintime_universe.py** (new): 11 tests covering candidate-pool caching, as-of filtering, per-date cache isolation, empty-DataFrame handling, Norgate-exception swallowing, range iteration (daily + monthly step), and cache invalidation.
+
+### Validation
+- ``pytest tests/unit/test_pointintime_universe.py tests/unit/test_pointintime_adapter.py`` — **25 passed** (combined Phase A Part 1 + A.2 suite).
+- Live smoke via ``norgate_vs_yfinance_compare.py`` on 2026-04-15 confirmed trial-tier watchlist returns 541 names.  Service works correctly against the trial; accuracy depth requires Platinum.
+
+### Default behaviour unchanged
+``universe_source`` defaults to ``static`` — the hand-curated 62-stock list.  No runtime change until operator flips the env var.
+
+---
+
+## [2026-04-15] Phase A (Part 1) — Survivorship-Free Data Adapter (behind feature flag)
+
+### Summary
+Landed the Norgate Data adapter (`PointInTimeAdapter`) as the second DataIngestionService backend.  Default behaviour is unchanged (yfinance remains the default).  Flipping `APIS_DATA_SOURCE=pointintime` in `.env` switches to Norgate, provided NDU is running locally.  See DEC-024 for rationale.
+
+### Changes
+- **apis/services/data_ingestion/adapters/pointintime_adapter.py** (new): Wraps `norgatedata.price_timeseries` with the same `fetch_bars` / `fetch_bulk` surface as `YFinanceAdapter`.  Maps Norgate's `Close` (adjusted) + `Unadjusted Close` (raw) columns to `BarRecord.adjusted_close` / `BarRecord.close`.  Exposes helpers `list_delisted_symbols`, `list_current_symbols`, `watchlist_symbols` for Phase A.2 universe construction.
+- **apis/config/settings.py**: Added `DataSource` enum (`yfinance`, `pointintime`) and `data_source: DataSource = DataSource.YFINANCE` field.  Override via `APIS_DATA_SOURCE` env var.
+- **apis/services/data_ingestion/service.py**: New `_build_default_adapter()` factory picks the adapter by setting; falls back to yfinance if `norgatedata` is not installed or NDU is unreachable.
+- **apis/tests/unit/test_pointintime_adapter.py** (new): 14 tests covering source-tier tags, missing-package handling, Norgate exceptions, empty-DataFrame handling, unadjusted-vs-adjusted close mapping, fallback when Unadjusted Close is absent, happy-path fetch, period→date translation, bulk fanout, and factory selection by setting.
+
+### Validation
+- `pytest tests/unit/test_pointintime_adapter.py` — **14 passed** (run in workspace sandbox without `norgatedata` installed, proving the adapter is import-safe and unit-testable without NDU).
+
+### Known limits
+Norgate 21-day free trial caps history at ~2 years.  Adapter is wiring-complete but a real Phase B walk-forward is blocked until a paid Norgate subscription (recommended: Platinum, $630/yr).
+
+---
+
+## [2026-04-13] Phase 62 — Fix: Worker Rankings Restoration on Startup
+
+### Summary
+Worker restarts mid-day left `app_state.latest_rankings` empty, causing all subsequent paper trading cycles to skip with `skipped_no_rankings`. The API container had this restoration logic, but the worker did not.
+
+### Root Cause
+When the worker restarted at 13:39 UTC (09:39 ET) after the Phase 61 deployment, its `app_state.latest_rankings` list started empty. Unlike `apps/api/main.py` which restores rankings from the `ranked_opportunities` DB table on startup, the worker had no such restoration step. Since signal_generation (06:30 ET) and ranking_generation (06:45 ET) had already passed, rankings were never repopulated — causing the 10:30, 11:30, 12:00, and 13:30 ET cycles to all skip.
+
+### Changes
+- **apps/worker/main.py**: Added `_restore_rankings_from_db()` function mirroring the API's ranking restoration logic. Called in `main()` after `_seed_reference_data()` and before scheduler start. Restores latest `RankingRun` → `RankedOpportunity` rows into `app_state.latest_rankings`.
+
+### Validation
+- Worker restarted at 16:34 UTC — logs confirm: `latest_rankings_restored_from_db count=10 run_id=3da05572-b54f-486e-b5be-6a1f6fe84f38`
+- Remaining afternoon cycles (13:30, 14:30, 15:30 ET) should now have rankings and can trade
+
+### Production Impact
+Any future worker restart mid-day will now properly restore rankings from DB, preventing the `skipped_no_rankings` cascade. Also serves as a safety net for tomorrow's Phase 61 price injection validation at 09:35 ET.
+
+---
+
+## [2026-04-13] Phase 61 — Fix: Paper Broker Price Injection
+
+### Summary
+Paper broker rejected all orders because `ExecutionEngineService` never called `set_price()` before `place_order()`. Latent bug unmasked by Phase 60 fixes.
+
+### Root Cause
+`PaperBrokerAdapter.place_order()` requires prices to be pre-loaded via `set_price()`. The paper trading job correctly fetched prices and passed them in `ExecutionRequest.current_price`, but the execution engine never injected them into the broker. Previously masked because Phase 60's `target_notional=0` bug meant no orders ever reached the broker.
+
+### Changes
+- **services/execution_engine/service.py**: Added `hasattr`-guarded `broker.set_price(ticker, price)` call in `execute_action()` before action dispatch. Broker-agnostic — only fires for adapters with `set_price()`.
+
+### Validation
+- 55/55 unit tests pass (test_execution_engine + test_paper_broker)
+- Worker restarted at 13:39 UTC
+- Awaiting live validation: 2026-04-14 09:35 ET cycle
+
+### Production Impact
+All paper trading executions were failing silently (rejected, not errored). Fix enables orders to fill in paper mode. No impact on live broker adapters.
+
+---
+
+## [2026-04-11] Learning Acceleration Revert + Phase 57 Provider ToS Review
+
+### Summary
+Reverted all learning-acceleration overrides (DEC-021) to production defaults. Completed Phase 57 Part 2 provider ToS review — selected QuiverQuant + SEC EDGAR (DEC-023).
+
+### Changes
+- **apis/.env**: `APIS_RANKING_MIN_COMPOSITE_SCORE` 0.15→0.30, `APIS_MAX_NEW_POSITIONS_PER_DAY` 8→3, `APIS_MAX_POSITION_AGE_DAYS` 5→20
+- **apis/apps/worker/main.py**: Paper trading cycle schedule reverted from 12 cycles to 7 (09:35, 10:30, 11:30, 12:00, 13:30, 14:30, 15:30 ET)
+- **state/DECISION_LOG.md**: Added DEC-022 (learning revert) and DEC-023 (provider selection)
+- **state/ACTIVE_CONTEXT.md**: Updated to reflect reverted settings and Phase 57 ToS review completion
+
+### Production Impact
+Docker services must be restarted for .env and worker schedule changes to take effect. No code-level changes to risk engine, signal generation, or evaluation pipeline.
+
+---
+
+## [2026-04-11] Phase 60b — Fix: Negative Cash, Prometheus DNS, Cycle Timestamp Persistence
+
+### Summary
+Three follow-up fixes addressing secondary issues discovered during the Phase 60 investigation.
+
+### Changes
+- **apps/worker/jobs/paper_trading.py**: Broker sync now adds new positions from the broker to `portfolio_state.positions` (previously only updated existing ones). Without this, cash was debited after buys but `gross_exposure` stayed 0, producing negative equity and blocking future OPEN actions from the portfolio engine.
+- **infra/monitoring/prometheus/prometheus.yml**: Corrected scrape target from `apis_api:8000` to `api:8000` (matching docker-compose service name). Updated matching comment in `apis_alerts.yaml`.
+- **apps/api/main.py**: `_load_persisted_state()` now restores `last_paper_cycle_at` from the latest portfolio snapshot timestamp on startup. Ensures the timestamp is timezone-aware. Previously, the health check always showed `paper_cycle: "no_data"` after every restart until the first cycle completed.
+
+### Tests
+- Paper cycle simulation: 43/43 pass
+- Execution engine: 23/23 pass
+- Risk engine: 55/55 pass
+- Signal + ranking: 58/58 pass
+
+---
+
+## [2026-04-11] Phase 60 — Fix: Rebalance OPEN Actions Missing target_notional (Zero-Trade Bug)
+
+### Summary
+Fixed the root cause of zero executed trades. The rebalancing service created OPEN actions with `target_quantity` (shares) but left `target_notional` at default `Decimal("0")`. The execution engine only read `target_notional`, so every order computed 0 shares and was rejected.
+
+### Changes
+- **services/risk_engine/rebalancing.py**: Added `target_notional=Decimal(str(round(target_usd, 2)))` to the OPEN action constructor in `generate_rebalance_actions()`. The dollar amount was already computed from drift but never passed to the PortfolioAction dataclass.
+- **services/execution_engine/service.py**: Added `target_quantity` fallback in `_execute_open()`. If `target_notional` is 0 but `target_quantity` is set, uses it directly. Logs fallback usage as `execution_using_target_quantity_fallback`. Also improved the rejection log to include `target_quantity`.
+
+### Tests
+- Rebalancing: 61/67 pass (6 pre-existing failures: auth, stale job count)
+- Execution engine: 23/23 pass
+- Paper cycle simulation: 43/43 pass
+
+---
+
+## [2026-04-09] Learning Acceleration — Paper Cycle + Ranking Threshold + Backtest Sweep
+
+### Summary
+Three changes to accelerate the bot's learning during paper-bake: more frequent trading cycles, a lower ranking score threshold to admit marginal signals, and a backtest sweep script to generate historical training data across market regimes.
+
+### Changes
+- **apps/worker/main.py**: Paper trading cycles increased from 7 to 12 (09:35–15:30 ET at ~30-min intervals). Uses a compact loop instead of 7 individual job registrations. Docstring updated.
+- **config/settings.py**: Added `ranking_min_composite_score` field (default 0.30, env: `APIS_RANKING_MIN_COMPOSITE_SCORE`). Configurable minimum composite score filter for the paper trading cycle.
+- **apps/worker/jobs/paper_trading.py**: Added min composite score filter after loading rankings, controlled by `ranking_min_composite_score` setting. Logs pre/post filter counts.
+- **apis/.env**: Set `APIS_RANKING_MIN_COMPOSITE_SCORE=0.15` for learning acceleration.
+- **scripts/run_backtest_sweep.py**: NEW script. Runs BacktestComparisonService across 6 market-regime windows (bull 2024 Q1, bear 2022 H1, sideways 2023 Q2-Q3, volatile 2022 Q3-Q4, recovery 2023 Q1, recent 6 months). Persists results to DB for weight optimizer. CLI with --regimes, --tickers, --min-score, --dry-run options.
+
+---
+
+## [2026-04-09] Phase 60 — Critical Bug Fix Sprint
+
+### Summary
+Deep codebase audit identified and fixed 11 bugs across signal generation, ranking, execution, and risk gating. Several were critical: the ranking engine's risk penalty was mathematically negated, 5 of 6 strategy risk normalizations were broken, the VaR refresh job crashed on every run due to wrong DB column names, and executed trades were never cleared from proposed_actions.
+
+### Changes
+- **ranking_engine/service.py**: Removed erroneous re-centering that negated the risk penalty in composite score calculation
+- **strategies/{momentum,sentiment,theme_alignment,macro_tailwind,insider_flow,valuation}.py**: Fixed risk normalization across all 6 strategies — valuation had inverted formula (`1.0 - vol*5`), others divided by 1.0 (no-op). All now use `vol * 2.5` mapping 0–40% vol to 0.0–1.0 risk
+- **worker/jobs/var_refresh.py**: Fixed `DailyMarketBar.bar_date`→`trade_date`, `close_price`→`close`, added Security join (DailyMarketBar has no `ticker` column)
+- **worker/jobs/fill_quality_attribution.py**: Fixed `SecurityBar` (non-existent model) → `DailyMarketBar`, same column name fixes
+- **worker/jobs/paper_trading.py**: (a) Clear executed actions from `proposed_actions` after execution; (b) Fail-safe on filter exceptions — drop OPEN actions when sector/liquidity/VaR/stress filter crashes; (c) Fixed drawdown alert severity (INFO for NORMAL recovery, WARNING for deterioration); (d) Removed redundant drawdown state assignment
+- **execution_engine/service.py**: Added logging for silently rejected zero-quantity orders
+- **signal_engine/service.py**: Gated InsiderFlowStrategy behind `enable_insider_flow_strategy` setting (default False) — no longer pollutes pipeline with dead 0-confidence signals
+- **config/settings.py**: Added `enable_insider_flow_strategy: bool = False` field
+
+---
+
+## [2026-04-09] Phase 59 — Dashboard State Persistence & Worker Resilience
+
+### Summary
+Dashboard sections were blank after every process restart because `ApiAppState` fields defaulted to None/empty and only a handful (kill_switch, paper_cycle_count, latest_rankings, snapshot_equity) were restored from the database at startup. This phase adds two complementary mechanisms to solve the problem: (1) expanded DB-backed state restoration in `_load_persisted_state()` for six additional field groups, and (2) a startup catch-up mechanism that re-runs missed morning pipeline jobs so ephemeral computed state (correlation matrix, VaR, stress test, etc.) is populated within minutes of any mid-day restart.
+
+### Modified Files
+- **`apps/api/main.py`** — `_load_persisted_state()` gained 6 new restoration blocks: portfolio_state (from PortfolioSnapshot + open Position rows), closed_trades + trade_grades (from closed Position rows with re-derived grades), active_weight_profile (from WeightProfile where is_active=True), current_regime_result + regime_history (from RegimeSnapshot, last 30 rows), latest_readiness_report (from ReadinessSnapshot), promoted_versions (from PromotedVersion table). New `_run_startup_catchup()` function checks current ET time on weekdays and fires any morning pipeline jobs whose scheduled time has passed but whose app_state field is still at its empty default — covers correlation, liquidity, VaR, regime, stress test, earnings, universe, rebalance, signal generation, ranking, and weight optimization. Called from `lifespan()` immediately after `_load_persisted_state()`.
+
+### New Files
+- **`tests/unit/test_phase59_state_persistence.py`** — 36 tests across 7 test classes: TestRestorePortfolioState (6), TestRestoreClosedTrades (5), TestRestoreWeightProfile (4), TestRestoreRegimeResult (5, 3 skipped on Python <3.11), TestRestoreReadinessReport (4), TestRestorePromotedVersions (4), TestStartupCatchup (8). All passing under Python 3.12.
+
+### Behaviour Change
+On process restart, the dashboard now shows the last known portfolio state, closed trade history, weight profile, market regime, readiness report, and promoted versions immediately (from DB). Ephemeral computed sections (correlation matrix, VaR, stress test, sector exposure, liquidity, earnings calendar, universe, rebalance targets) populate via catch-up jobs within ~2 minutes of a weekday restart instead of waiting until the next scheduled time slot. Weekend restarts skip catch-up (no market data to recompute). Docker Compose already had `restart: unless-stopped` on all services — no changes needed there.
+
+---
+
+## [2026-04-08] Phase 58 — Self-Improvement Auto-Execute Safety Gates
+
+### Summary
+Hardened the self-improvement auto-execute path in response to a live-money readiness review. Prior state: `run_auto_execute_proposals` called `AutoExecutionService.auto_execute_promoted` **without** passing `min_confidence`, so the 0.70 threshold documented in `SelfImprovementConfig` was dead code in production — any PROMOTED proposal would be applied regardless of confidence. Also, nothing prevented the job from running against a near-empty signal-quality history, which is exactly the situation the bot is in with only ~5 trading days of real data (securities table seeded 2026-03-31). Rationale: DECISION_LOG DEC-019.
+
+### Modified Files
+- **`config/settings.py`** — 3 new fields: `self_improvement_auto_execute_enabled: bool = False` (master kill switch, default OFF — operator must explicitly opt in via `APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED=true`), `self_improvement_min_auto_execute_confidence: float = 0.70` (per-proposal confidence floor passed through to the service), `self_improvement_min_signal_quality_observations: int = 10` (minimum `SignalQualityReport.total_outcomes_recorded` before the batch is allowed to run at all).
+- **`apps/worker/jobs/self_improvement.py`** — `run_auto_execute_proposals` rewritten to evaluate three gates in order: (1) master switch → returns `status="skipped_disabled"` as a no-op; (2) observation floor → returns `status="skipped_insufficient_history"` with `total_outcomes` / `min_required` for observability; (3) per-proposal confidence threshold now actually passed through as `min_confidence=cfg.self_improvement_min_auto_execute_confidence`. Result dict gained a `skipped_low_confidence` field. Existing error path unchanged.
+- **`tests/unit/test_phase35_auto_execution.py`** — Helper updates: `_make_app_state()` now seeds `latest_signal_quality` with a 50-outcome `SignalQualityReport`; `_make_promoted_proposal()` defaults `confidence_score=0.80` with an override kwarg. 5 existing `TestAutoExecuteWorkerJob` tests updated to pass an enabled `Settings`. 6 new Phase 58 tests: `test_phase58_disabled_by_default`, `test_phase58_skipped_disabled_does_not_call_service`, `test_phase58_skipped_when_signal_quality_history_too_thin`, `test_phase58_skipped_when_no_signal_quality_report_at_all`, `test_phase58_confidence_threshold_is_passed_through`, `test_phase58_high_confidence_proposal_still_executes`. All 13 worker-job tests pass (Python 3.12, `pytest --no-cov`).
+
+### Behaviour Change
+The `auto_execute_proposals` scheduler job continues to fire at 18:15 ET on weekdays, but returns a no-op until the operator explicitly enables the feature AND the signal quality report has ≥10 closed-trade outcomes. Proposal *generation* and *promotion* (17:30 / 18:00 jobs) are unchanged, so the self-improvement feedback loop keeps accumulating evidence during the paper-trading bake period — only the apply-to-runtime step is gated.
+
+---
+
+## [2026-04-08] Phase 57 Part 1 — InsiderFlowStrategy scaffold
+
+### Summary
+Opened Phase 57: a new `InsiderFlowStrategy` signal family backed by congressional / 13F / unusual-options flow data. This session ships only the scaffold — abstract adapter, `NullInsiderFlowAdapter` default, overlay fields, and the strategy itself. No network calls, no wiring into `SignalEngineService`, no effect on live paper trading. Rationale and guardrails recorded in DECISION_LOG DEC-018. Trigger: review of Samin Yasar "Claude Just Changed the Stock Market Forever" tutorial (YouTube `lH5wrfNwL3k`); tutorial's trailing-stop and options-wheel strategies explicitly rejected under Master Spec §4.2 and §9 anti-drift rules.
+
+### New Files
+- **`services/signal_engine/strategies/insider_flow.py`** — `InsiderFlowStrategy` class. Stateless. Reads `FeatureSet.insider_flow_score`, `insider_flow_confidence`, `insider_flow_age_days` overlay fields. Exponential decay (half-life 14 days, hard cut at 60 days). Reliability tier always at most `secondary_verified`. `contains_rumor=False` always (SEC filings are public record). Horizon POSITIONAL. Emits neutral 0.5 signal with zero confidence when overlay absent.
+- **`services/data_ingestion/adapters/insider_flow_adapter.py`** — `InsiderFlowAdapter` ABC, `InsiderFlowEvent` dataclass (ticker, actor_type, actor_name, side, notional_usd, trade_date, filing_date, source_key, confidence, raw), `InsiderFlowOverlay` dataclass, shared `aggregate()` method (dollar-weighted net flow in [-1, +1] + aggregate confidence + newest-filing age), and `NullInsiderFlowAdapter` that always returns an empty event list.
+- **`tests/unit/test_phase57_insider_flow.py`** — 24 tests across 6 classes: `TestFeatureSetOverlayDefaults`, `TestInsiderFlowStrategyNoData`, `TestInsiderFlowDecay`, `TestInsiderFlowDirection`, `TestInsiderFlowAdapter`, `TestDecayMathExpectations`. All 24 passing locally (pytest --no-cov).
+
+### Modified Files
+- **`services/feature_store/models.py`** — Added 3 overlay fields to `FeatureSet`: `insider_flow_score: float = 0.0`, `insider_flow_confidence: float = 0.0`, `insider_flow_age_days: float | None = None`.
+- **`services/signal_engine/models.py`** — Added `SignalType.INSIDER_FLOW = "insider_flow"` enum member.
+- **`services/signal_engine/strategies/__init__.py`** — Registered `InsiderFlowStrategy` in package exports (6 strategies exported; still only 5 wired into `SignalEngineService` by default).
+
+### Intentionally NOT Changed
+- `services/signal_engine/service.py` — `SignalEngineService.score_from_features()` is unchanged. The new strategy is not in the default list yet. Adding it is Phase 57 Part 2 and must be gated behind a settings flag defaulting to OFF.
+- `services/feature_store/` enrichment pipeline — no call sites populating the new overlay fields yet.
+- `config/settings.py` — no new flags yet (will add `APIS_ENABLE_INSIDER_FLOW_STRATEGY` in Part 2).
+- No ORM / migration / API route / dashboard changes this session.
+- No options-related code anywhere. Options-wheel strategy from the source tutorial is explicitly rejected under Master Spec §4.2.
+
+### Test Counts
+- Phase 57 scaffold: 24 new tests, all passing.
+- Expected project total: 3626 → 3650 tests passing (100 skipped). Full suite not re-run in this session because the Linux sandbox does not have the full runtime environment (Windows venv, Postgres, Redis); Part 2 will require a Docker-based full-suite run before wiring.
+
+---
+
+## [2026-03-31] Securities Table Seed + Worker Volume Mount
+
+### Summary
+Diagnosed and fixed the root cause of paper trading cycles never executing: the `securities` table in Postgres was empty, so signal generation skipped every ticker in the universe, producing zero signals and zero rankings. All 7 daily paper trading cycles had been returning `skipped_no_rankings` since the system went live.
+
+### Root Cause
+- `SignalEngineService.run()` calls `_load_security_ids(session, tickers)` which queries the `securities` table.
+- The table was never seeded — there was no seed script, no init-db insert, and no migration data.
+- Every ticker returned `"No security_id found for X; skipping."` → 0 signals → 0 rankings → all paper cycles skip.
+
+### New Files
+- **`infra/db/seed_securities.py`** — Idempotent seed module with `seed_securities()`, `seed_themes()`, `seed_security_themes()`, and `run_all_seeds()`. Populates from `config/universe.py` ticker lists, sector mappings, and theme mappings. Uses `ON CONFLICT DO NOTHING` semantics. Can run standalone via `python -m infra.db.seed_securities`.
+
+### Modified Files
+- **`apps/worker/main.py`** — Added `_seed_reference_data()` function called at worker startup before alert service init and scheduler start. Idempotent — logs `seed_reference_data_already_up_to_date` when nothing to insert. Fire-and-forget on failure.
+- **`infra/docker/docker-compose.yml`** — Added source volume mount to worker service (`../../../apis:/app/apis:ro`) matching the existing API service mount. Worker now picks up code changes on restart without needing a full image rebuild.
+
+### Database Changes (Direct SQL)
+- Inserted 62 rows into `securities` table (all universe tickers from `config/universe.py`)
+- Inserted 13 rows into `themes` table (via seed script at worker startup)
+- Inserted 62 rows into `security_themes` table (via seed script at worker startup)
+
+### Verification
+- Worker logs confirm: `{"securities": 0, "themes": 13, "security_themes": 62, "event": "seed_reference_data_complete"}`
+- DB query confirms: `SELECT count(*) FROM securities` → 62
+- Worker healthy and all 35 jobs registered with next runs scheduled
+
+---
+
 ## [2026-03-30] Infrastructure Health Dashboard Panel + Worker Pod Fix
 
 ### Summary
@@ -1155,31 +1933,4 @@ No new ORM, no new migration, no new REST endpoints, no new scheduled jobs (27 t
 - `apis/alembic.ini` — Alembic config; `script_location = infra/db`; `prepend_sys_path = .`
 - `apis/infra/__init__.py` — Python package init
 - `apis/infra/db/__init__.py` — Python package init
-- `apis/infra/db/env.py` — migration env; reads DB URL from `get_settings()`; imports Base
-- `apis/infra/db/script.py.mako` — standard Alembic migration file template
-
-### ORM Models (infra/db/models/)
-- `base.py` — `Base` (DeclarativeBase) + `TimestampMixin` (created_at, updated_at)
-- `reference.py` — `Security`, `Theme`, `SecurityTheme`
-- `source.py` — `Source`, `SourceEvent`, `SecurityEventLink`
-- `market_data.py` — `DailyMarketBar`, `SecurityLiquidityMetric`
-- `analytics.py` — `Feature`, `SecurityFeatureValue`
-- `signal.py` — `Strategy`, `SignalRun`, `SecuritySignal`, `RankingRun`, `RankedOpportunity`
-- `portfolio.py` — `PortfolioSnapshot`, `Position`, `Order`, `Fill`, `RiskEvent`
-- `evaluation.py` — `EvaluationRun`, `EvaluationMetric`, `PerformanceAttribution`
-- `self_improvement.py` — `ImprovementProposal`, `ImprovementEvaluation`, `PromotedVersion`
-- `audit.py` — `DecisionAudit`, `SessionCheckpoint`
-- `__init__.py` — re-exports all 28 model classes + Base
-
-### Database Utilities
-- `apis/infra/db/session.py` — `engine`, `SessionLocal`, `get_db()` (FastAPI dep), `db_session()` (context mgr)
-
-### Migration
-- `apis/infra/db/versions/9ed5639351bb_initial_schema.py` — autogenerated; creates all 28 tables + 15 indexes
-- Applied to `apis` (29 rows in pg_tables incl. `alembic_version`)
-- Applied to `apis_test` (29 rows)
-- `alembic check` → "No new upgrade operations detected"
-
-### Gate Status
-- Gate A unit tests: **44/44 PASSED** (no regressions)
-- Gate A DB check: **PASSED** (`alembic upgrade head` clean on both databases)
+- `
