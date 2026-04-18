@@ -192,6 +192,12 @@ def _persist_positions(
                 mv = (cur * qty).quantize(_Decimal("0.0001"))
                 upl = (mv - cost).quantize(_Decimal("0.0001"))
 
+                # Deep-Dive Step 5 Rec 7 deferred finisher (2026-04-18):
+                # persist origin_strategy when the in-memory PortfolioPosition
+                # carries one.  Empty string → NULL so resolve_family() still
+                # lands on FAMILY_PARAMS["default"] for legacy rows.
+                _os = getattr(pos, "origin_strategy", None) or None
+
                 if existing is None:
                     db.add(_DBPosition(
                         security_id=sec_id,
@@ -202,6 +208,7 @@ def _persist_positions(
                         cost_basis=cost,
                         market_value=mv,
                         unrealized_pnl=upl,
+                        origin_strategy=_os,
                     ))
                 else:
                     existing.quantity = qty
@@ -209,6 +216,11 @@ def _persist_positions(
                     existing.cost_basis = cost
                     existing.market_value = mv
                     existing.unrealized_pnl = upl
+                    # Only backfill origin_strategy; never overwrite a value that
+                    # was set at open-time with a fresh cycle's ranking (the
+                    # ranking's dominant signal may have shifted).
+                    if existing.origin_strategy in (None, "") and _os:
+                        existing.origin_strategy = _os
 
             # ── Close DB positions that are no longer in portfolio_state ─────
             open_db_rows = db.execute(
@@ -628,6 +640,24 @@ def run_paper_trading_cycle(
                 getattr(cfg, "conditional_ranking_min_enabled", False)
             ),
         )
+
+    # ── Deep-Dive Step 5 Rec 7 (deferred finisher 2026-04-18) ─────────────
+    # Build ticker -> origin_strategy map from the ranking's contributing_signals
+    # so new opens get the right strategy family key bound on their
+    # PortfolioPosition + Position rows.  Empty when rankings carry no signals
+    # (unit-test fixtures, cold starts) — PortfolioPosition.origin_strategy
+    # then defaults to "" and resolve_family() returns FAMILY_PARAMS["default"].
+    _origin_strategy_by_ticker: dict[str, str] = {}
+    try:
+        from services.risk_engine.family_params import derive_origin_strategy
+        for _r in rankings:
+            _origin = derive_origin_strategy(
+                getattr(_r, "contributing_signals", None)
+            )
+            if _origin:
+                _origin_strategy_by_ticker[_r.ticker] = _origin
+    except Exception as _os_exc:  # noqa: BLE001
+        logger.warning("derive_origin_strategy_failed", error=str(_os_exc))
 
     errors: list[str] = []
 
@@ -1570,6 +1600,11 @@ def run_paper_trading_cycle(
                         thesis_summary="",
                         strategy_key="",
                         security_id=None,
+                        # Deep-Dive Step 5 Rec 7 deferred finisher (2026-04-18):
+                        # bind the origin strategy family on first observation
+                        # so the ATR exit evaluator and per-family max-age can
+                        # key off it once APIS_ATR_STOPS_ENABLED flips ON.
+                        origin_strategy=_origin_strategy_by_ticker.get(bp.ticker, ""),
                     )
             # Remove positions that broker no longer holds
             broker_tickers = {bp.ticker for bp in broker_positions}
