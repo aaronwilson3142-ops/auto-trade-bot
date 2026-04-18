@@ -31,6 +31,10 @@ class EvaluationRun(Base, TimestampMixin):
     mode: Mapped[str] = mapped_column(sa.String, nullable=False)
     status: Mapped[str] = mapped_column(sa.String, nullable=False)
     benchmark_set: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    # Deep-Dive Step 2 Rec 4 — idempotency key for fire-and-forget writers
+    # (column + unique constraint added in alembic migration k1l2m3n4o5p6).
+    # Format: "{run_date}:{mode}:evaluation_run".
+    idempotency_key: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
 
 
 class EvaluationMetric(Base, TimestampMixin):

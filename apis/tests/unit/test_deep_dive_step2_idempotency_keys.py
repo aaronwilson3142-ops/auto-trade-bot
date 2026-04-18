@@ -257,7 +257,7 @@ class _FakeEvalDb:
                 self._existing = _existing
 
             def scalar_one_or_none(self_inner):
-                return self._existing
+                return self_inner._existing
 
         return _Result(self.existing_run)
 
