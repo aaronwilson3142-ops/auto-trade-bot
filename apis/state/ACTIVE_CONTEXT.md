@@ -1,5 +1,27 @@
 # APIS — Active Context
-Last Updated: 2026-04-18 (phantom broker ledger reset + docx state-docs committed 1fa4b31 + pushed; Docker + worker healthy; next paper cycle Mon 2026-04-20 09:35 ET)
+Last Updated: 2026-04-18 (Deep-Dive Step 5 origin_strategy wiring landed `d08875d` + pushed to origin/main; 236/236 cross-step sweep passes; next paper cycle Mon 2026-04-20 09:35 ET)
+
+## 2026-04-18 Update — Deep-Dive Step 5 `origin_strategy` Wiring (Deferred Finisher)
+
+Weekend prep ahead of Monday's 09:35 ET baseline paper cycle. Hard rule: **no behavioural-flag flips before the baseline cycle runs.** Today's work is zero-behaviour-change metadata wiring so Step 6 and Step 8 have the attribution they need when the operator eventually flips their flags.
+
+**What landed** (`d08875d feat(deep-dive): wire Step 5 origin_strategy into paper_trading open-path`):
+- `apps/worker/jobs/paper_trading.py`: builds a `ticker → origin_strategy` map from `RankedResult.contributing_signals` via `derive_origin_strategy` (max `signal_score × confidence_score`), threads it into `PortfolioPosition` on open, and persists it onto the DB `Position` row in `_persist_positions`.
+- Semantics: **backfill-but-never-overwrite.** New rows land with the family; existing NULLs get filled; existing values are never rewritten even if a later ranking prefers a different family. Families don't flip mid-life, so open-time stamp is immutable.
+- `apis/tests/unit/test_deep_dive_step5_origin_strategy_wiring.py`: 16 new unit tests covering builder, field, persistence, immutability, end-to-end cycle.
+
+**Verification:**
+- Alembic at `o5p6q7r8s9t0` (head). `positions.origin_strategy` column confirmed present. All Step-2/5/6/7/8 tables (`idempotency_keys`, `shadow_portfolios`, `proposal_outcomes`, `strategy_bandit_state`, `portfolio_snapshots.idempotency_key`) confirmed present.
+- Cross-step sweep: **236 passed, 2 warnings in 3.59s** across Steps 1–8 test files + `test_phase64_position_persistence.py` regression guard. Two warnings are pre-existing (`PydanticDeprecatedSince20`, `datetime.utcnow()`).
+- Pushed: `fca9610..d08875d main -> main` on `origin`.
+
+**Behavioural neutrality:** No new flag; populates metadata column that is only consumed when Step 6 / Step 8 flags (default OFF) are flipped. Production behaviour unchanged.
+
+**Still open / for operator:**
+- Monday 2026-04-20 09:35 ET: first post-cleanup paper cycle. Expected behaviour — open trades against clean $100k cash; new `positions` rows should now carry non-NULL `origin_strategy`.
+- Step 8 bandit + Step 6 ledger flags remain OFF pending baseline comparison.
+
+---
 
 ## 2026-04-18 Update — Phantom Broker Cleanup + Pre-Existing Tree Edits Resolved
 

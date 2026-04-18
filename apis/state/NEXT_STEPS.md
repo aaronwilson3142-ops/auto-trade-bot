@@ -1,5 +1,23 @@
 # APIS — Next Steps
-Last Updated: 2026-04-18 (phantom cleanup done — docx state-docs committed 1fa4b31 + pushed; DB positions 13 open → 0; clean $100k snapshot written; worker healthy; next paper cycle Mon 2026-04-20 09:35 ET)
+Last Updated: 2026-04-18 (Deep-Dive Step 5 origin_strategy wiring landed `d08875d` + pushed; 236/236 cross-step sweep; next paper cycle Mon 2026-04-20 09:35 ET)
+
+## PRIORITY — Monday 2026-04-20 09:35 ET Baseline Paper Cycle (unchanged)
+
+**Hard rule:** Do NOT flip any Deep-Dive behavioural flag before the Monday baseline cycle runs. Today's `d08875d` is metadata-only — all 11 Deep-Dive flags remain default-OFF.
+
+**Watch-list for the 09:35 ET cycle:**
+- Cycle completes without `broker_adapter_missing_with_live_positions` or `_fire_ks()` errors.
+- Trades open against clean $100k cash (no phantom broker ledger restoration).
+- New `positions` rows carry non-NULL `origin_strategy` — spot-check with `SELECT ticker, origin_strategy, opened_at FROM positions WHERE status='open' ORDER BY opened_at DESC LIMIT 10;`.
+- A new `portfolio_snapshots` row is written by the cycle itself (not by our manual 2026-04-18 cleanup insert).
+
+If all four hold, operator can begin flipping Step 6 / Step 8 flags one at a time with post-flip monitoring per the Deep-Dive execution plan.
+
+## COMPLETE — Deep-Dive Step 5 `origin_strategy` Wiring (Deferred Finisher, 2026-04-18)
+
+The only deferred item from the 2026-04-16 Deep-Dive review has landed on `main` at `d08875d` and been pushed to `origin/main`. The Step 5 column (`positions.origin_strategy`) was already on the live DB from the 2026-04-17 migration, but the paper-trading open-path wasn't writing to it — so the Step 6 Proposal Outcome Ledger and Step 8 Thompson Strategy Bandit had no way to attribute realised P&L. That gap is now closed.
+
+See CHANGELOG entry dated 2026-04-18 for full diff, test coverage (16 new + 236 sweep passes), and semantics (backfill-but-never-overwrite).
 
 ## COMPLETE — Deep-Dive Execution Plan (2026-04-16 → 2026-04-18) + Crash-Triad Drift + Repo Hygiene (2026-04-18)
 

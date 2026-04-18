@@ -3,6 +3,32 @@ Format: [YYYY-MM-DD] | file/module | description
 
 ---
 
+## [2026-04-18] Deep-Dive Step 5 `origin_strategy` Wiring — Deferred Finisher (d08875d)
+
+Completes the Step 5 deferred work identified in the 2026-04-16 Deep-Dive review: wiring the strategy family (`origin_strategy`) through the paper-trading open-path so every new `Position` row is stamped with the family that opened it. Without this stamp, the Step 6 Proposal Outcome Ledger and Step 8 Thompson Strategy Bandit have no way to attribute realised P&L back to the strategy that opened the position.
+
+**Commit `d08875d feat(deep-dive): wire Step 5 origin_strategy into paper_trading open-path`** — 2 files, +425/+0:
+- `apis/apps/worker/jobs/paper_trading.py` (+35 lines)
+  - New map-builder after the ranking-min filter: for each ranked symbol, call `derive_origin_strategy(contributing_signals)` and stash the result in a `ticker → origin_strategy` dict alongside the existing rankings map.
+  - Broker-sync open path: when a new `PortfolioPosition` is created, pass the `origin_strategy` derived from the ranking that opened the trade.
+  - `_persist_positions`: persist `origin_strategy` onto the DB `Position` row. **Semantics are backfill-but-never-overwrite** — if the DB row has no value yet, write it; if it already has one, leave it alone. Families don't flip mid-life, so the open-time stamp is immutable for the life of the position.
+- `apis/tests/unit/test_deep_dive_step5_origin_strategy_wiring.py` (new, 16 tests, +390 lines)
+  - `TestBuildOriginStrategyMap` (8 tests) — `derive_origin_strategy` picks the contributor with max `signal_score × confidence_score`; handles empty lists, missing keys, ties, zero confidence, zero signal.
+  - `TestPortfolioPositionOriginStrategyField` (2 tests) — the dataclass field exists and round-trips.
+  - `TestPersistPositionsWritesOriginStrategy` (2 tests) — new rows land with the correct family; unknown-family tickers land with NULL.
+  - `TestPersistPositionsBackfillAndImmutability` (3 tests) — NULL gets backfilled; an existing value is never overwritten even if a later ranking prefers a different family; mixed-state batches write each row correctly.
+  - `TestRankingScanWiredIntoCycle` (1 test) — end-to-end: an open cycle using scanned rankings produces a Position row with origin_strategy matching the top contributor.
+
+**Cross-step test sweep** (ran to verify no regressions across Steps 1–8 + Phase 64): **236 passed, 2 warnings in 3.59s.** Sweep covered `test_deep_dive_step1_constants.py`, all four `step2_*` files, `step3_trade_count_lift.py`, `step4_score_weighted_rebalance.py`, `step5_atr_stops_and_fit_sizing.py`, the new `step5_origin_strategy_wiring.py`, `step6_proposal_outcome_ledger.py`, `step7_shadow_portfolios.py`, `step8_strategy_bandit.py`, and `test_phase64_position_persistence.py`. The two warnings are pre-existing (`PydanticDeprecatedSince20` in `RegimeSnapshotSchema` + `datetime.utcnow()` in a Step 1 test) and not introduced by this change.
+
+**Behavioural neutrality:** No new feature flag; the origin_strategy column is metadata that only matters when downstream readers (Step 6 ledger, Step 8 bandit) are actually turned on. All 11 Deep-Dive behavioural flags remain default-OFF, so production behaviour is byte-for-byte identical until the operator opts in.
+
+**Pushed** — `d08875d` went up to `origin/main` (`fca9610..d08875d main -> main`). Repo is now fully synced.
+
+**DB state unchanged** — Alembic still at head `o5p6q7r8s9t0`; the `positions.origin_strategy` column already exists from the 2026-04-17 Step 5 migration. This commit only changes the write-path that populates it.
+
+---
+
 ## [2026-04-18] Phantom Broker Ledger Reset + Docx State Doc Commit + Pushed to GitHub
 
 Post-triad cleanup of three outstanding operator items. All executed autonomously per standing fix authority.
