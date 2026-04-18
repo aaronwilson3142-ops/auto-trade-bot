@@ -1,18 +1,29 @@
 # APIS — Next Steps
-Last Updated: 2026-04-18 (ALL 8 STEPS OF DEEP-DIVE PLAN NOW ON MAIN at d3d2bfe)
+Last Updated: 2026-04-18 (post-overnight crash-triad drift committed at 63fa33e; all 8 Deep-Dive steps + drift fix now on main)
 
-## COMPLETE — Deep-Dive Execution Plan (2026-04-16 → 2026-04-18)
+## COMPLETE — Deep-Dive Execution Plan (2026-04-16 → 2026-04-18) + Crash-Triad Drift (2026-04-18)
 
-All 8 steps of the 2026-04-16 Deep-Dive Execution Plan are merged to `main`. Every flag introduced by the plan defaults OFF, so production behaviour is byte-for-byte unchanged until the operator opts in.
+All 8 steps of the 2026-04-16 Deep-Dive Execution Plan are merged to `main`. Every flag introduced by the plan defaults OFF, so production behaviour is byte-for-byte unchanged until the operator opts in. The 2026-04-18 morning crash-triad drift (`EvaluationRun.idempotency_key` ORM attr + idempotency test closure fix + HEALTH_LOG health-check entry) was committed as `63fa33e` on 2026-04-18 post-overnight, closing the final gap between the documented state and the tree.
 
-### Final git state (2026-04-18 post-merge)
-`main` fast-forwarded from e6b2a3a → **d3d2bfe**. Steps 7 + 8 commits:
-- 7009538 feat(deep-dive): Step 7 — Shadow Portfolio Scorer (DEC-034) [+23 tests]
-- d3d2bfe feat(deep-dive): Step 8 — Thompson Strategy Bandit (Rec 12) [+25 tests]
+### Final git state (2026-04-18 post-drift)
+`main` = **63fa33e** (`fix(crash-triad): persist 2026-04-18 morning drift fixes`, 3 files, +91/-1) → fb9ecff → d3d2bfe → 7009538 → e6b2a3a → … .
+
+- `fb9ecff` docs(deep-dive): update state files after Steps 7-8 merge to main
+- `d3d2bfe` feat(deep-dive): Step 8 — Thompson Strategy Bandit (Rec 12) [+25 tests]
+- `7009538` feat(deep-dive): Step 7 — Shadow Portfolio Scorer (DEC-034) [+23 tests]
 
 Combined Step 7+8 delta: 14 files, +2902 / −3. Both Alembic migrations verified reversible against live docker-postgres-1 (`upgrade head → downgrade -1 → upgrade head`).
 
 `feat/deep-dive-plan-steps-7-8` still exists at d3d2bfe. Push remains deferred (no `origin` remote).
+
+### Repo hygiene (2026-04-18 post-drift)
+89 scratch artifacts in the repo root (the `_alembic_*.txt` / `_git_*.txt` / `_step8_pytest*` / `_commit_*.txt` / `_docker_ps.txt*` / `_run_step8_validation.ps1` patterns flagged in the prior handoff) were swept. Other scratch files (`_tmp_*`, `_gs_*`, `_pytest_*`, `_g1.txt`..`_g4e.txt`, `_overnight_steps_7_8_report.txt`, `_run_step7_validation.ps1`, `_git_status.ps1`, `_run_phase64_validate*.bat`, `norgate_*.py`, `restart_*.bat`) were *not* swept — they were outside the operator's explicit sweep list and left for a future review.
+
+### Pre-existing uncommitted edits still in tree
+Left untouched (not part of the triad drift task):
+- `APIS Daily Operations Guide.docx`
+- `APIS_Data_Dictionary.docx`
+- `apis/infra/db/versions/k1l2m3n4o5p6_add_idempotency_keys.py`
 
 ## IN PROGRESS — Deep-Dive Execution Plan (2026-04-16) [HISTORICAL]
 

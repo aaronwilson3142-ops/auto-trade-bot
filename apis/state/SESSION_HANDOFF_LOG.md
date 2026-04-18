@@ -3,6 +3,28 @@ Append one entry per mandatory checkpoint. Never overwrite existing entries.
 
 ---
 
+### [2026-04-18 post-overnight] Crash-triad drift committed + scratch sweep
+
+- **Capacity Trigger:** Operator pointed out that three triad files flagged in the 2026-04-18 morning session still had uncommitted edits even though the CHANGELOG already documented them as landed; also asked for the repo-root scratch artifacts to be cleaned up.
+- **Actions:**
+  1. Ran `git add` + `git commit -F _commit_triad_msg.txt` against `apis/infra/db/models/evaluation.py`, `apis/tests/unit/test_deep_dive_step2_idempotency_keys.py`, `apis/state/HEALTH_LOG.md`. Resulting commit on `main`: `63fa33e fix(crash-triad): persist 2026-04-18 morning drift fixes`, 3 files, +91/-1.
+  2. Deleted 89 scratch artifacts in the repo root matching the explicit patterns `_alembic_*.txt`, `_git_*.txt`, `_step8_pytest*`, `_commit_*.txt`, `_docker_ps.txt*`, `_run_step8_validation.ps1`, plus the `_dc_*` / `_dcv_*` shims this session briefly used. Other `_tmp_*`, `_gs_*`, `_pytest_*`, `_g1..4*`, `_overnight_*`, `_run_phase64_validate*.bat`, `norgate_*.py`, `restart_*.bat`, `_run_step7_validation.ps1`, `_git_status.ps1` were *not* in the explicit sweep list and were intentionally left.
+  3. Verified with `git log --oneline -3` that `main` is now at `63fa33e` and `git show --stat HEAD` confirms the 3 files + 91/-1 delta.
+- **Sandbox workaround worth recording:** the Cowork Linux sandbox's bindfs mount was showing several files as *truncated* relative to the Windows-side reality, which made `git status` inside the sandbox misleading (hundreds of apparent modifications) and would have risked committing partial file hashes. All git operations for this session were therefore run on Windows via `mcp__Desktop_Commander__start_process` → `Start-Process -FilePath "C:\Program Files\Git\cmd\git.exe" -WorkingDirectory $repo -RedirectStandardOutput ... -Wait -PassThru`. Also had to rewrite `.git/HEAD` to clear null-byte padding (`printf 'ref: refs/heads/main\n'`) so git could resolve HEAD again.
+- **Post-merge branch state:** `main` at `63fa33e`. `feat/deep-dive-plan-steps-7-8` and `feat/deep-dive-plan-steps-1-6` untouched.
+- **Commit list added this session (on main):** `63fa33e` fix(crash-triad): persist 2026-04-18 morning drift fixes.
+- **Push status:** Still no `origin` remote. Not fixed.
+- **Open Items carried forward:**
+  - Negative-cash / 13-phantom-position restore state from 2026-04-18 morning is *still* pending operator action.
+  - 3 pre-existing uncommitted edits in the tree (`APIS Daily Operations Guide.docx`, `APIS_Data_Dictionary.docx`, `apis/infra/db/versions/k1l2m3n4o5p6_add_idempotency_keys.py`) were not touched — out of scope for the triad commit.
+  - Remaining `_tmp_*` / `_gs_*` / `_pytest_*` / `_overnight_*` / etc. scratch files in repo root were left for operator review.
+  - Bandit posterior still warms up unconditionally from Monday 2026-04-20's paper cycle; flag `APIS_STRATEGY_BANDIT_ENABLED` still OFF.
+- **Blockers:** None.
+- **Risks:** Very low — the commit only added an ORM attribute (matching an already-applied migration), a nested-scope rename in a test fixture, and an append-only health-log entry. No runtime behaviour changed.
+- **Confidence:** High. `git show --stat HEAD` matches the diff-stat produced before the commit; no line-ending churn in the delta.
+
+---
+
 ### [2026-04-18] Deep-Dive — Steps 7 + 8 landed, merged to main
 
 - **Capacity Trigger:** Scheduled task `deep-dive-steps-7-8` fired at 2026-04-17 23:00 CT and ran autonomously through completion on 2026-04-18.

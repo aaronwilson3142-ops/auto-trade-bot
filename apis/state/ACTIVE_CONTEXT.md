@@ -1,5 +1,17 @@
 # APIS — Active Context
-Last Updated: 2026-04-18 (Deep-Dive Steps 7 + 8 MERGED TO MAIN at d3d2bfe; paper-cycle crash-triad previously fixed; negative-cash state still flagged for operator)
+Last Updated: 2026-04-18 (post-overnight handoff: crash-triad drift persisted to main at 63fa33e, 89 scratch files swept, negative-cash state still flagged for operator)
+
+## 2026-04-18 Update — Crash-Triad Drift Committed (63fa33e) + Scratch Sweep
+
+Follow-up pass after the overnight Steps 7+8 run. The three code edits that the earlier 2026-04-18 morning entry (below) described as "fixed" had remained as uncommitted local edits; committed them now so `main` matches the documented state.
+
+**Commit:** `63fa33e fix(crash-triad): persist 2026-04-18 morning drift fixes` — 3 files (evaluation ORM attr, idempotency test self_inner rename, HEALTH_LOG entry), +91/-1.
+
+**Repo-root scratch sweep:** 89 files matching the operator's explicit patterns deleted. Remaining `_tmp_*`, `_gs_*`, `_pytest_*`, `_overnight_*` etc. left intact for operator's own review.
+
+**Still flagged, no change:** Broker restore state `cash=-$80,274.62` with 13 positions from the 2026-04-18 morning session remains unresolved; requires operator ledger decision before Monday 2026-04-20 09:30 ET open.
+
+---
 
 ## 2026-04-18 Update — Deep-Dive Steps 7 + 8 LANDED on main
 

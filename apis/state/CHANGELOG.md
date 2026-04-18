@@ -3,6 +3,27 @@ Format: [YYYY-MM-DD] | file/module | description
 
 ---
 
+## [2026-04-18] Crash-Triad Drift Persisted (63fa33e) + Scratch Sweep
+
+Follow-up handoff from the 2026-04-18 morning crash-triad investigation. The code fixes already described below (in the 10:24 UTC entry) had remained as uncommitted local edits because the overnight Steps 7+8 run was scoped to its own branch. Committing them now so `main` reflects the documented state.
+
+**Commit `63fa33e fix(crash-triad): persist 2026-04-18 morning drift fixes`** — 3 files, +91/-1:
+- `apis/infra/db/models/evaluation.py` — add the missing `idempotency_key: Mapped[str | None]` column on `EvaluationRun` (matches Alembic migration `k1l2m3n4o5p6` already on main).
+- `apis/tests/unit/test_deep_dive_step2_idempotency_keys.py` — rename `self → self_inner` inside `_FakeEvalDb._Result.scalar_one_or_none` to fix a pre-existing nested-closure ambiguity.
+- `apis/state/HEALTH_LOG.md` — append the 2026-04-18 health-check entry documenting the crash-triad investigation.
+
+The kill-switch signature fix and broker lazy-init block in `apps/worker/jobs/paper_trading.py` were already on `main` via the 2026-04-18 Steps 7+8 merge (`7009538` + `d3d2bfe`); only the three files above still needed to be persisted.
+
+**Repo tidy-up:** swept 89 scratch artifacts in the repo root matching the patterns the operator flagged as safe to delete (`_alembic_*.txt`, `_git_*.txt`, `_step8_pytest*`, `_commit_*.txt`, `_docker_ps.txt*`, `_run_step8_validation.ps1`) plus the temporary `_dc_*` / `_dcv_*` shims used during this session. Other scratch files (`_tmp_*`, `_gs_*`, `_pytest_*`, `_g1.txt`..`_g4e.txt`, `_overnight_steps_7_8_report.txt`, `_run_step7_validation.ps1`, `_git_status.ps1`, `_run_phase64_validate*.bat`, `norgate_*.py`, `restart_*.bat`, etc.) were intentionally left for the operator's own review — they were not in the explicit sweep list.
+
+**Git state after this commit:** `main` = `63fa33e` → `fb9ecff` → `d3d2bfe` → `7009538` → `e6b2a3a` → …. `feat/deep-dive-plan-steps-7-8` and `feat/deep-dive-plan-steps-1-6` still exist at their original heads. No `origin` remote; push remains deferred.
+
+**Unresolved / out of scope for this handoff:**
+- Broker restore state still shows `cash = -$80,274.62` with 13 positions — flagged twice (2026-04-18 morning + this session) and still awaiting operator ledger cleanup before Monday 2026-04-20 09:30 ET open.
+- 3 pre-existing uncommitted edits remain in the tree (`APIS Daily Operations Guide.docx`, `APIS_Data_Dictionary.docx`, `apis/infra/db/versions/k1l2m3n4o5p6_add_idempotency_keys.py`) — unrelated to the triad drift, left for operator review.
+
+---
+
 ## [2026-04-18] Deep-Dive Plan Steps 7 + 8 — MERGED TO MAIN (d3d2bfe)
 
 Overnight scheduled task `deep-dive-steps-7-8` completed the final two steps of the 2026-04-16 Deep-Dive Execution Plan on branch `feat/deep-dive-plan-steps-7-8`; fast-forward-merged to `main` 2026-04-18.
