@@ -27,6 +27,7 @@ from .shadow_portfolio import (
     ShadowTrade,
 )
 from .signal import RankedOpportunity, RankingRun, SecuritySignal, SignalRun, Strategy
+from .strategy_bandit import StrategyBanditState
 from .signal_quality import SignalOutcome
 from .source import SecurityEventLink, Source, SourceEvent
 from .system_state import SystemStateEntry
@@ -75,6 +76,8 @@ __all__ = [
     "ShadowPortfolio",
     "ShadowPosition",
     "ShadowTrade",
+    # Thompson strategy bandit state (Deep-Dive Step 8, Rec 12)
+    "StrategyBanditState",
     # audit
     "DecisionAudit",
     "SessionCheckpoint",

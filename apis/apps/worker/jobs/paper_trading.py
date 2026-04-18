@@ -1496,7 +1496,57 @@ def run_paper_trading_cycle(
                 logger.info("closed_trades_graded", count=len(_newly_closed))
         except Exception as _grade_exc:  # noqa: BLE001
             logger.warning("closed_trade_grading_failed", error=str(_grade_exc))
-            errors.append(f"trade_grading: {_grade_exc}")        # ── Sync portfolio state from broker ───────────────────────────────────
+            errors.append(f"trade_grading: {_grade_exc}")
+
+        # ── Deep-Dive Step 8 (Rec 12): Thompson bandit posterior update ─────
+        # Per plan §8.6 this runs UNCONDITIONALLY — even when the flag is OFF
+        # — so posteriors accumulate 2–4 weeks of live outcome data and the
+        # operator gets a warm start when they eventually flip the flag ON.
+        # Strategy-family is resolved via the security_id → strategy_key map
+        # captured at OPEN time; if we can't resolve it we skip that trade.
+        try:
+            from services.strategy_bandit import StrategyBanditService  # type: ignore
+            _newly_closed_for_bandit = getattr(app_state, "closed_trades", [])[_pre_record_count:]
+            if _newly_closed_for_bandit:
+                try:
+                    from infra.db.session import SessionLocal as _SL_bandit
+                except Exception:  # noqa: BLE001
+                    _SL_bandit = None  # type: ignore
+                if _SL_bandit is not None:
+                    _strat_key_by_ticker = getattr(app_state, "strategy_key_by_ticker", {}) or {}
+                    with _SL_bandit() as _db_bandit:
+                        _bandit = StrategyBanditService(
+                            _db_bandit,
+                            smoothing_lambda=cfg.strategy_bandit_smoothing_lambda,
+                            min_weight=cfg.strategy_bandit_min_weight,
+                            max_weight=cfg.strategy_bandit_max_weight,
+                            resample_every_n_cycles=cfg.strategy_bandit_resample_every_n_cycles,
+                        )
+                        for _ct in _newly_closed_for_bandit:
+                            _family = (
+                                getattr(_ct, "strategy_family", None)
+                                or _strat_key_by_ticker.get(getattr(_ct, "ticker", ""))
+                                or getattr(_ct, "strategy_key", None)
+                            )
+                            if not _family:
+                                continue
+                            try:
+                                _bandit.update_from_trade(
+                                    strategy_family=_family,
+                                    realized_pnl=float(getattr(_ct, "realized_pnl", 0) or 0),
+                                )
+                            except Exception as _bu_exc:  # noqa: BLE001
+                                logger.warning(
+                                    "strategy_bandit_update_failed",
+                                    family=_family,
+                                    error=str(_bu_exc),
+                                )
+                        _db_bandit.commit()
+        except Exception as _bandit_exc:  # noqa: BLE001
+            # Never let the bandit break the paper cycle.
+            logger.warning("strategy_bandit_hook_failed", error=str(_bandit_exc))
+
+        # ── Sync portfolio state from broker ───────────────────────────────────
         try:
             acct = _broker.get_account_state()
             portfolio_state.cash = acct.cash_balance

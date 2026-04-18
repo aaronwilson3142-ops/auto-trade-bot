@@ -279,6 +279,25 @@ class Settings(BaseSettings):
     # held before being force-closed by the weekly job (plan §7.5.2).
     shadow_stopped_out_max_age_days: int = Field(default=30, ge=1, le=365)
 
+    # -- Deep-Dive Plan Step 8 (2026-04-17) Thompson Strategy Bandit -----
+    # Rec 12.  Per plan §8.6, ``(alpha, beta)`` priors accumulate from live
+    # closed trades *even when the flag is OFF* — only the weight
+    # *application* in ranking is gated.  Operator flips the flag to ON
+    # only after 2-4 weeks of accumulated state.
+    strategy_bandit_enabled: bool = Field(default=False)
+    # How strongly the sampled Thompson weights pull away from the equal-
+    # weight baseline.  1.0 == pure bandit, 0.0 == pure baseline.
+    strategy_bandit_smoothing_lambda: float = Field(default=0.3, ge=0.0, le=1.0)
+    # Per-strategy floor/ceiling applied AFTER smoothing (before renormalise)
+    # so diversity is preserved even if one strategy dominates.
+    strategy_bandit_min_weight: float = Field(default=0.05, ge=0.0, le=1.0)
+    strategy_bandit_max_weight: float = Field(default=0.40, ge=0.0, le=1.0)
+    # Sample new weights only every N ranking cycles; reuse the cached
+    # weights in between.  Prevents per-cycle jitter from Thompson noise.
+    strategy_bandit_resample_every_n_cycles: int = Field(
+        default=10, ge=1, le=1000
+    )
+
     # -- Ranking Minimum Composite Score ----------------------------------
     ranking_min_composite_score: float = Field(default=0.30, ge=0.0, le=1.0)
 
