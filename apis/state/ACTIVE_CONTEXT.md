@@ -1,5 +1,60 @@
 # APIS — Active Context
-Last Updated: 2026-04-15 (Phase A Parts 1 + 2 — Norgate adapter + point-in-time universe behind feature flags)
+Last Updated: 2026-04-18 (Deep-Dive Steps 7 + 8 MERGED TO MAIN at d3d2bfe; paper-cycle crash-triad previously fixed; negative-cash state still flagged for operator)
+
+## 2026-04-18 Update — Deep-Dive Steps 7 + 8 LANDED on main
+
+Overnight scheduled task `deep-dive-steps-7-8` completed cleanly. Both remaining steps of the 2026-04-16 Deep-Dive Execution Plan are now merged to `main`; all 8 feature flags default OFF so production behaviour is unchanged.
+
+### What landed
+- **Step 7 (7009538)** — Shadow Portfolio Scorer + 3 tables + weekly assessment job + 23 tests (DEC-034).
+- **Step 8 (d3d2bfe)** — Thompson Strategy Bandit + `strategy_bandit_state` table + closed-trade posterior update hook + 25 tests.
+- **Plan A8.6 invariant** — Step 8 posterior updates run **unconditionally** (even when `strategy_bandit_enabled=False`) so the operator gets a warm start when they eventually flip the flag ON.
+
+### Validation
+- Step 7 suite: 23/23 passing.
+- Step 8 suite: 25/25 passing (99% line coverage on `services/strategy_bandit/service.py`).
+- Alembic upgrade head / downgrade -1 / upgrade head against live docker-postgres-1 — both new migrations reversible.
+
+### Merge state
+- `main` = `d3d2bfe` (fast-forward from e6b2a3a, 14 files, +2902/-3).
+- `feat/deep-dive-plan-steps-7-8` = same commit; can be deleted or kept as checkpoint.
+- Push is still deferred — no `origin` remote configured.
+
+### Operator action items
+- None required for the flags to stay OFF (behaviour-neutral).
+- To begin accumulating bandit priors for real: no action — the closed-trade hook runs on every paper cycle by design. Inspect `strategy_bandit_state` rows after 2 weeks to confirm alpha+beta have grown.
+- To enable bandit-weighted ranking later: flip `APIS_STRATEGY_BANDIT_ENABLED=true` after priors are warm AND paper-bake validates the sampled weights.
+- To enable shadow parallel rebalancing: flip `APIS_SHADOW_PORTFOLIO_ENABLED=true`; it persists parallel portfolios but does not place real trades.
+
+---
+
+## 2026-04-18 Update — Paper Cycle Crash-Triad FIX
+
+Yesterday's worker logs (2026-04-17) revealed every paper cycle was crashing before completing. Autonomous health check traced it to three compounding bugs; all fixed today.
+
+### Three fixes applied
+1. **`apps/worker/jobs/paper_trading.py`** — `_fire_ks()` signature widened to accept `reason: str` (was 0-arg; `services/broker_adapter/health.py` passes a reason string). Every invariant breach had been crashing with `TypeError`.
+2. **`apps/worker/jobs/paper_trading.py`** — added broker-adapter lazy-init block BEFORE the Deep-Dive Step 2 Rec 2 health-invariant check so fresh worker boots with DB-restored positions (Phase 64) don't falsely trip "adapter missing with live positions".
+3. **`infra/db/models/evaluation.py`** — added missing `idempotency_key: Mapped[str | None]` on `EvaluationRun` (column was created by Alembic k1l2m3n4o5p6 but ORM wasn't updated; caused `AttributeError` in `_persist_evaluation_run`).
+
+### Bonus
+- `tests/unit/test_deep_dive_step2_idempotency_keys.py` — fixed pre-existing mock closure bug (`self._existing` → `self_inner._existing` in `_FakeEvalDb._Result.scalar_one_or_none`).
+
+### Verified
+- worker + api restarted healthy; `/health` all `ok`; scheduler registered 35 jobs; next cycle Mon 2026-04-20 09:30 ET (market closed Saturday).
+- AST parse + import + `hasattr(EvaluationRun, 'idempotency_key')` all pass.
+- Pytest re-run deferred to next interactive session (no docker access from autonomous sandbox).
+
+### ⚠️ Flagged for operator (NOT auto-fixed)
+`_load_persisted_state` restored cash=**-$80,274.62** with **13 open positions**. Phase 63 phantom-cash guard requires positions==0, so it doesn't intervene. Operator must decide cleanup path before Monday's open:
+- (a) reset paper_portfolio.cash to $100k + delete 13 Position rows;
+- (b) wait for Monday cycle to overwrite;
+- (c) audit the 13 rows and decide per-position.
+See `HEALTH_LOG.md` 2026-04-18 entry and memory `project_paper_cycle_crashtriad_2026-04-18.md` for full context.
+
+---
+
+## 2026-04-15 Update — Phase A Parts 1 + 2 — Norgate adapter + point-in-time universe behind feature flags
 
 ## 2026-04-15 Update — Phase A.2 — Point-in-Time Universe Source
 

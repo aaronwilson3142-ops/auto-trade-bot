@@ -3,6 +3,61 @@ Append one entry per mandatory checkpoint. Never overwrite existing entries.
 
 ---
 
+### [2026-04-18] Deep-Dive — Steps 7 + 8 landed, merged to main
+
+- **Capacity Trigger:** Scheduled task `deep-dive-steps-7-8` fired at 2026-04-17 23:00 CT and ran autonomously through completion on 2026-04-18.
+- **Actions:**
+  1. Branched `feat/deep-dive-plan-steps-7-8` off `main` at e6b2a3a.
+  2. Step 7 (committed 7009538): new tables `shadow_portfolios`/`shadow_positions`/`shadow_trades` + `services/shadow_portfolio/service.py` + `apps/worker/jobs/shadow_performance_assessment.py` + 23 unit tests. Flag `APIS_SHADOW_PORTFOLIO_ENABLED=False`. DEC-034.
+  3. Step 8 (committed d3d2bfe): new `strategy_bandit_state` table + `services/strategy_bandit/service.py` + closed-trade posterior update in `apps/worker/jobs/paper_trading.py` + 5 new settings + 25 unit tests. Flag `APIS_STRATEGY_BANDIT_ENABLED=False` but posterior updates unconditionally (plan A8.6 warm-start).
+  4. Diagnosed and fixed 4 Step 8 test failures during session:
+     - `test_empty_families_returns_empty` — empty-list falsiness bug → explicit `if families is None` check.
+     - `test_resamples_after_window_expires` — off-by-one in counter → `>= N - 1`.
+     - `test_cached_draw_reused_between_resample_windows` — 6-decimal float truncation caused round-trip drift → persist at 16 decimals + bump `Numeric(8, 6)` → `Numeric(18, 16)` on both the model and the migration.
+     - `test_weights_respect_floor` — mathematically wrong assertion (post-renormalise weights can legitimately dip below `min_weight`); replaced with correct bound `min_w / (min_w + max_w * (n-1))`.
+  5. Alembic smoke test against live docker-postgres-1: `upgrade head` (applied n4o5p6q7r8s9 + o5p6q7r8s9t0) → `downgrade -1` (cleanly reverted Step 8) → `upgrade head` (cleanly re-applied). Both migrations reversible.
+  6. `git checkout main` → `git merge --ff-only feat/deep-dive-plan-steps-7-8` → e6b2a3a..d3d2bfe, 14 files, +2902/−3.
+- **Post-merge branch state:**
+  - `main` at `d3d2bfe`
+  - `feat/deep-dive-plan-steps-7-8` at `d3d2bfe` (same commit — can be deleted or kept)
+- **Commit list on main (this run):**
+  `7009538` feat(deep-dive): Step 7 — Shadow Portfolio Scorer (DEC-034)
+  `d3d2bfe` feat(deep-dive): Step 8 — Thompson Strategy Bandit (Rec 12)
+- **Push status:** Still no `origin` remote. Not fixed.
+- **Open Items:**
+  - Bandit priors will warm up from real closed-trade outcomes starting Monday 2026-04-20's paper cycle (flag-independent per plan A8.6).
+  - Negative-cash restore state flagged 2026-04-18 morning is **still pending operator action** — not resolved by this overnight run (out of scope).
+  - Scratch artifacts (`_alembic_*.txt`, `_git_*.txt`, `_step8_pytest.txt`, `_commit_step8_msg.txt`, `_docker_ps.txt`) left in repo root for audit; safe to delete.
+- **Blockers:** None.
+- **Risks:** Low. Every Step 7 + Step 8 behaviour is flag-gated OFF; the single flag-independent path (Step 8 posterior update) is wrapped in nested try/except so it can never break a paper cycle.
+- **Confidence:** High. 25/25 Step 8 tests + 23/23 Step 7 tests + alembic round-trip all green.
+
+---
+
+### [2026-04-17 13:24 UTC] Deep-Dive — fast-forward main + schedule Steps 7-8 overnight
+
+- **Capacity Trigger:** Operator chose "Merge 1-6 to main first then schedule overnight again for 7-8" after seeing the 7-commit feat branch landed cleanly.
+- **Actions:**
+  1. Authored `_merge_to_main.ps1` v2 using the same Start-Process + BOM-less-UTF-8 + relative-paths pattern proven out this morning.
+  2. Pre-flight hit a blocker: `git checkout main` refused because apis/state/NEXT_STEPS.md and SESSION_HANDOFF_LOG.md had uncommitted edits from the morning commit phase. Committed them to feat first as commit `e6b2a3a` ("docs(deep-dive): update state files after commit phase", 2 files, +102/-66).
+  3. `git checkout main` → `git merge --ff-only feat/deep-dive-plan-steps-1-6` → fast-forward 7b0c376..e6b2a3a across 90 files (+15957 / -3505).
+  4. Authored `_cleanup_deep_dive_scratch.ps1` — self-deleting helper that removes all 10-ish scratch artifacts (_cd_lists/, _cd_*.txt, _commit_deep_dive*, _push_branch*, _verify_commits*, _merge_to_main*, _gittest.txt). Operator runs it manually.
+  5. Scheduled task `deep-dive-steps-7-8` created: fires 2026-04-17 23:00 CT (fireAt one-shot). Prompt is self-contained (9 file reads including this log), branches off main at e6b2a3a, 2 commits on feat/deep-dive-plan-steps-7-8, alembic smoke-test per migration, ff-merge to main, writes _overnight_steps_7_8_report.txt. Blocker path uses wip/ branch without merging.
+- **Post-merge branch state:**
+  - `main` at `e6b2a3a`
+  - `feat/deep-dive-plan-steps-1-6` at `e6b2a3a` (same commit — can be deleted or kept as checkpoint)
+- **Full commit list on main (new since 7b0c376):**
+  `9f37a47` → `f8c6889` → `2d83cc3` → `e9cd8b5` → `614ed1e` → `1b4995d` → `bbe6855` → `e6b2a3a`
+- **Push status:** Still no `origin` remote. Not fixed.
+- **Open Items:**
+  - Steps 7+8 will execute at 23:00 CT; operator will see the completion notification and `_overnight_steps_7_8_report.txt` on the desktop in the morning.
+  - Scratch cleanup awaits operator manually running `_cleanup_deep_dive_scratch.ps1`.
+  - 15 tests skipped under Python 3.10 sandbox (pre-existing dt.UTC incompatibility) — same precedent flagged for overnight agent to follow.
+- **Blockers:** None.
+- **Risks:** Low. Merge is fast-forward (no conflict), all 8 feature flags default OFF. Overnight agent is explicitly instructed not to touch live-trading flags, DEC-032 AI-tilt weights, or DEC-033 hard risk gates.
+
+---
+
 ### [2026-04-17 13:09 UTC] Deep-Dive — commit Steps 1–6 onto feat branch
 
 - **Capacity Trigger:** Operator chose "Commit Steps 1–6 first, then decide" + "One commit per step on a feature branch" after the overnight autonomous run landed Steps 1–6 uncommitted.

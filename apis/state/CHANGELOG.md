@@ -3,6 +3,86 @@ Format: [YYYY-MM-DD] | file/module | description
 
 ---
 
+## [2026-04-18] Deep-Dive Plan Steps 7 + 8 — MERGED TO MAIN (d3d2bfe)
+
+Overnight scheduled task `deep-dive-steps-7-8` completed the final two steps of the 2026-04-16 Deep-Dive Execution Plan on branch `feat/deep-dive-plan-steps-7-8`; fast-forward-merged to `main` 2026-04-18.
+
+**Step 7 — Shadow Portfolio Scorer (Rec 11 + DEC-034)** — committed at `7009538`.
+- New tables `shadow_portfolios`, `shadow_positions`, `shadow_trades` (migration `n4o5p6q7r8s9_add_shadow_portfolios.py`).
+- `services/shadow_portfolio/service.py` (464 lines) + `apps/worker/jobs/shadow_performance_assessment.py` (101 lines) — weekly parallel rebalance-weighting shadows.
+- `config/settings.py` — `strategy_bandit_enabled=False` + friends; `APIS_SHADOW_PORTFOLIO_ENABLED=False`; `shadow_stopped_out_max_age_days=30`.
+- 23 unit tests in `tests/unit/test_deep_dive_step7_shadow_portfolios.py` — all passing.
+- DEC-034 logged (parallel shadow portfolios for rebalance-weighting comparison).
+
+**Step 8 — Thompson Strategy Bandit (Rec 12)** — committed at `d3d2bfe`.
+- New table `strategy_bandit_state` (migration `o5p6q7r8s9t0_add_strategy_bandit_state.py`). One row per strategy_family holds Beta(alpha, beta) posterior + counters + last_sampled_weight `Numeric(18, 16)`.
+- `services/strategy_bandit/service.py` (290 lines) — `StrategyBanditService.update_from_trade(...)`, `sample_weights(...)`; Thompson draw → lambda smoothing → floor/ceiling clamp → renormalise.
+- `apps/worker/jobs/paper_trading.py` — closed-trade hook that runs **unconditionally** (plan A8.6) so the posterior accumulates 2–4 weeks of warm-start priors even while the runtime flag is OFF.
+- `config/settings.py` — 5 new settings:
+  - `strategy_bandit_enabled = False`
+  - `strategy_bandit_smoothing_lambda = 0.3`
+  - `strategy_bandit_min_weight = 0.05`
+  - `strategy_bandit_max_weight = 0.40`
+  - `strategy_bandit_resample_every_n_cycles = 10`
+- 25 unit tests in `tests/unit/test_deep_dive_step8_strategy_bandit.py` — all passing (settings defaults, constructor validation, update semantics, sampling, plan-§8.6 invariant, read helpers).
+
+**Alembic smoke test (against live docker-postgres-1):**
+`m3n4o5p6q7r8 → n4o5p6q7r8s9 → o5p6q7r8s9t0` (upgrade head) → `downgrade -1` (back to `n4o5p6q7r8s9`) → `upgrade head` (back to `o5p6q7r8s9t0`). Both migrations reversible.
+
+**Behavioural impact:** zero. Every Step 7 + Step 8 behaviour is gated on a flag that defaults OFF. The *only* path that runs regardless is the Step 8 closed-trade posterior update (plan A8.6 warm-start requirement).
+
+**Merge summary:** `e6b2a3a..d3d2bfe` fast-forward, 14 files, +2902/-3.
+
+---
+
+## [2026-04-18 10:24 UTC] CRITICAL FIX — Paper cycle crash-triad (kill-switch + broker lazy-init + EvaluationRun ORM)
+
+Autonomous daily health check traced yesterday's complete paper-cycle failure to three bugs that had to be fixed together. All three landed in today's session; worker + api restarted and verified healthy.
+
+**Fix 1 — `_fire_ks()` signature mismatch in `apps/worker/jobs/paper_trading.py`.**
+`services/broker_adapter/health.py::check_broker_adapter_health` calls `fire_kill_switch_fn(reason)` with a string, but the inline kill-switch helper defined in `run_paper_trading_cycle` took zero args. Every invariant breach therefore crashed with `TypeError: _fire_ks() takes 0 positional arguments but 1 was given` BEFORE the kill switch could arm. Changed `def _fire_ks()` → `def _fire_ks(reason: str)`; still sets `app_state.kill_switch_active = True` on any exception path.
+
+**Fix 2 — Broker adapter lazy-init must precede the health invariant check.**
+Same file. On a fresh worker boot (which Phase 64 encourages because positions restore from DB), `app_state.broker_adapter` is None until the cycle constructs it — but the broker-adapter invariant check ran FIRST and saw None-adapter + live-positions, which is explicitly the "hard stop" condition in Deep-Dive Step 2 Rec 2. Added a guarded lazy-init block that runs before the health check:
+```python
+# ── Broker adapter lazy init (must precede health check) ─────────────────
+if getattr(app_state, "broker_adapter", None) is None and broker is None:
+    try:
+        from broker_adapters.paper.adapter import PaperBrokerAdapter
+        app_state.broker_adapter = PaperBrokerAdapter(market_open=True)
+        logger.info("broker_adapter_lazy_initialized", cycle_id=cycle_id, reason="fresh_worker_start")
+    except Exception as _bi_exc:
+        logger.warning("broker_adapter_lazy_init_failed", error=str(_bi_exc), cycle_id=cycle_id)
+```
+This preserves the invariant's intent (no live trading with a lost adapter mid-cycle) while correctly handling the cold-start case.
+
+**Fix 3 — `EvaluationRun.idempotency_key` missing on ORM model.**
+The 2026-04-17 Alembic migration `k1l2m3n4o5p6` added the `idempotency_key` column (+ unique constraint) to `evaluation_runs`, but `infra/db/models/evaluation.py::EvaluationRun` wasn't updated to mirror it. Every `_persist_evaluation_run` call with a `run_id` therefore raised `AttributeError: 'EvaluationRun' has no attribute 'idempotency_key'`. Added:
+```python
+idempotency_key: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
+```
+ORM models for `PortfolioSnapshot` and `PositionHistory` already had this attribute; evaluation.py was the outlier.
+
+**Fix 4 — Pre-existing test mock closure bug in `tests/unit/test_deep_dive_step2_idempotency_keys.py`.**
+After Fix 3 landed, `test_persist_evaluation_run_with_run_id_populates_idem_key` exposed a pre-existing bug in `_FakeEvalDb._Result.scalar_one_or_none`: the method referenced `self._existing`, but because `_Result` is a class nested inside `execute()`, the nested-scope `self` was ambiguous. Fixed by renaming the implicit-self parameter to `self_inner` and accessing `self_inner._existing` — unambiguous to the reader and a no-op in intended behaviour.
+
+**Verification:**
+- `docker compose restart worker api` → both containers healthy.
+- `/health` → all components `ok`.
+- Scheduler loaded 35 jobs; next paper cycle = Monday 2026-04-20 09:30 ET (market closed Saturday).
+- AST-parse + import + `hasattr(EvaluationRun, 'idempotency_key')` assertions all pass.
+- Pytest re-run of `test_deep_dive_step2_idempotency_keys.py` deferred to next interactive session (autonomous run, no Docker access from sandbox).
+
+**Operational impact:**
+Monday's first paper cycle will now be the first one since 2026-04-16 that reaches `_persist_evaluation_run` without crashing. The kill-switch will also arm cleanly if the adapter invariant *legitimately* fails later.
+
+**Flagged for operator (NOT auto-fixed):**
+Post-fix `_load_persisted_state` restored **cash=-$80,274.62 and 13 positions** — Phase 63's phantom-cash guard requires `positions==0` to intervene, so it doesn't. This is financial-state correction and should happen with operator present. See HEALTH_LOG.md 2026-04-18 entry, "Known Issues" §1.
+
+See: `apis/state/HEALTH_LOG.md` entry 2026-04-18 10:24 UTC.
+
+---
+
 ## [2026-04-17 12:12 UTC] OPS — Migrations self-heal on api startup (entrypoint script)
 
 Followed up on this morning's migration-drift incident (see 10:15 UTC entry below) with a permanent hardening so the same root cause cannot recur.
