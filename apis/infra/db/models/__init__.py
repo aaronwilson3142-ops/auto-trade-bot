@@ -14,7 +14,18 @@ from .proposal_execution import ProposalExecution
 from .readiness import ReadinessSnapshot
 from .reference import Security, SecurityTheme, Theme
 from .regime_detection import RegimeSnapshot
-from .self_improvement import ImprovementEvaluation, ImprovementProposal, PromotedVersion
+from .self_improvement import (
+    ImprovementEvaluation,
+    ImprovementProposal,
+    ProposalOutcome,
+    PromotedVersion,
+)
+from .shadow_portfolio import (
+    SHADOW_NAMES,
+    ShadowPortfolio,
+    ShadowPosition,
+    ShadowTrade,
+)
 from .signal import RankedOpportunity, RankingRun, SecuritySignal, SignalRun, Strategy
 from .signal_quality import SignalOutcome
 from .source import SecurityEventLink, Source, SourceEvent
@@ -57,7 +68,13 @@ __all__ = [
     # self-improvement
     "ImprovementProposal",
     "ImprovementEvaluation",
+    "ProposalOutcome",
     "PromotedVersion",
+    # shadow portfolios (Deep-Dive Step 7, DEC-034)
+    "SHADOW_NAMES",
+    "ShadowPortfolio",
+    "ShadowPosition",
+    "ShadowTrade",
     # audit
     "DecisionAudit",
     "SessionCheckpoint",

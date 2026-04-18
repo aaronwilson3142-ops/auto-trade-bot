@@ -232,6 +232,54 @@ def _persist_positions(
         logger.warning("persist_positions_failed", error=str(exc))
 
 
+def _shadow_enabled(cfg: Any) -> bool:
+    """Deep-Dive Step 7: single place that resolves the shadow-portfolio flag.
+
+    Every shadow call-site wraps its work in ``if _shadow_enabled(cfg):`` so a
+    flag flip is byte-for-byte a no-op on live portfolio behaviour.
+    """
+    return bool(getattr(cfg, "shadow_portfolio_enabled", False))
+
+
+def _shadow_service(db):
+    """Lazy import + construct ShadowPortfolioService.  Returns ``None`` on
+    any import/construction failure so the caller can soft-skip.
+    """
+    try:
+        from services.shadow_portfolio import (  # noqa: PLC0415
+            ShadowPortfolioService as _ShadowSvc,
+        )
+
+        return _ShadowSvc(db)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("shadow_portfolio.service_construct_failed", error=str(exc))
+        return None
+
+
+def _shadow_shares_for_notional(
+    target_notional: Decimal | int | float | None,
+    price: Decimal | int | float | None,
+) -> Decimal:
+    """Translate a (target_notional, price) pair into a whole-share quantity.
+
+    Mirrors paper_trading's own BUY sizing (``to_integral_value`` + ROUND_DOWN)
+    so a shadow and the live system agree on share count.  Returns Decimal("0")
+    when either input is missing or non-positive.
+    """
+    try:
+        if target_notional is None or price is None:
+            return Decimal("0")
+        tn = Decimal(str(target_notional))
+        px = Decimal(str(price))
+        if tn <= 0 or px <= 0:
+            return Decimal("0")
+        import decimal as _decimal  # noqa: PLC0415
+
+        return (tn / px).to_integral_value(rounding=_decimal.ROUND_DOWN)
+    except Exception:  # noqa: BLE001
+        return Decimal("0")
+
+
 def _fresh_rebalance_targets(app_state: Any, settings: Any) -> dict:
     """Return ``app_state.rebalance_targets`` iff the computed_at timestamp is
     within ``settings.rebalance_target_ttl_seconds`` of now.  Otherwise return
@@ -452,6 +500,32 @@ def run_paper_trading_cycle(
             "errors": [],
         }
 
+    # ── Broker adapter lazy init (must precede health check) ─────────────────
+    # On a fresh worker start app_state.broker_adapter is None.  The
+    # broker-adapter health invariant below treats (adapter=None + DB has
+    # open positions) as a catastrophic mid-cycle loss and fires the kill
+    # switch.  That is the RIGHT behaviour mid-cycle but a FALSE POSITIVE
+    # on a fresh worker start, where the adapter simply hasn't been
+    # lazy-initialized yet.  Build it here so the invariant sees a present
+    # adapter and falls through to the drift check (non-fatal) instead.
+    # `broker` may be supplied by the test harness; `broker or existing`
+    # preserves injection semantics.
+    if getattr(app_state, "broker_adapter", None) is None and broker is None:
+        try:
+            from broker_adapters.paper.adapter import PaperBrokerAdapter
+            app_state.broker_adapter = PaperBrokerAdapter(market_open=True)
+            logger.info(
+                "broker_adapter_lazy_initialized",
+                cycle_id=cycle_id,
+                reason="fresh_worker_start",
+            )
+        except Exception as _bi_exc:  # noqa: BLE001
+            logger.warning(
+                "broker_adapter_lazy_init_failed",
+                error=str(_bi_exc),
+                cycle_id=cycle_id,
+            )
+
     # ── Deep-Dive Step 2 Rec 1: Broker-adapter health invariant ──────────────
     # Safety gate: if the broker adapter is absent while the DB says we have
     # live open positions, fire the kill switch and abort this cycle.  If the
@@ -466,7 +540,8 @@ def run_paper_trading_cycle(
                 check_broker_adapter_health as _check_broker_health,
             )
 
-            def _fire_ks() -> None:
+            def _fire_ks(reason: str) -> None:  # noqa: ARG001
+                # health.check_broker_adapter_health calls this with a reason string
                 try:
                     app_state.kill_switch_active = True
                 except Exception:  # noqa: BLE001
@@ -660,6 +735,62 @@ def run_paper_trading_cycle(
             ranked_results=rankings,
             portfolio_state=portfolio_state,
         )
+
+        # ── Deep-Dive Step 7: Shadow Portfolio — watch_tier hook ─────────────
+        # For every ranked opportunity with composite_score in the configured
+        # watch band [low, high] that the live portfolio did NOT act on (i.e.
+        # not already in ``proposed_actions``), push a virtual BUY into the
+        # ``watch_tier`` shadow.  Flag-gated — OFF is byte-for-byte legacy.
+        if _shadow_enabled(cfg):
+            try:
+                _watch_low = float(getattr(cfg, "shadow_watch_composite_low", 0.55))
+                _watch_high = float(getattr(cfg, "shadow_watch_composite_high", 0.65))
+                _acted_tickers = {a.ticker for a in proposed_actions}
+                from infra.db.session import db_session as _watch_db_session  # noqa: PLC0415
+
+                with _watch_db_session() as _watch_db:
+                    _wsvc = _shadow_service(_watch_db)
+                    if _wsvc is not None:
+                        for _ranked in (rankings or []):
+                            _ticker = getattr(_ranked, "ticker", None) or getattr(
+                                _ranked, "symbol", None
+                            )
+                            _cscore = float(
+                                getattr(_ranked, "composite_score", None)
+                                or getattr(_ranked, "score", 0.0)
+                                or 0.0
+                            )
+                            if _ticker is None or _ticker in _acted_tickers:
+                                continue
+                            if not (_watch_low <= _cscore <= _watch_high):
+                                continue
+                            # Use per-position notional proxy = equity / 15 so
+                            # watch-tier shadow sizing is roughly consistent
+                            # with the live max_positions cap.
+                            _watch_equity = (
+                                float(portfolio_state.equity)
+                                if portfolio_state.equity else 100000.0
+                            )
+                            _watch_notional = Decimal(str(_watch_equity / 15.0))
+                            _watch_px = _fetch_price(
+                                _ticker, _watch_notional, _market_data_svc, errors
+                            )
+                            _watch_shares = _shadow_shares_for_notional(
+                                _watch_notional, _watch_px
+                            )
+                            if _watch_shares > Decimal("0") and _watch_px > Decimal("0"):
+                                _wsvc.record_watch_tier(
+                                    ticker=_ticker,
+                                    shares=_watch_shares,
+                                    price=_watch_px,
+                                    composite_score=_cscore,
+                                    executed_at=run_at,
+                                )
+            except Exception as _watch_exc:  # noqa: BLE001
+                logger.warning(
+                    "shadow_portfolio.watch_hook_failed",
+                    error=str(_watch_exc),
+                )
 
         # ── Phase 65: Suppress portfolio-engine CLOSEs for tickers that have
         # active rebalance targets.  The portfolio engine closes any position
@@ -1005,6 +1136,50 @@ def run_paper_trading_cycle(
                 proposed_actions.append(exit_action)
                 already_closing.add(exit_action.ticker)
 
+        # ── Deep-Dive Step 7: Shadow Portfolio — stopped_out_continued hook
+        # For every exit that fired on a stop reason (stop_loss, trailing_stop,
+        # atr_stop, or max_position_age), virtually re-open the position at
+        # the same price in the ``stopped_out_continued`` shadow.  Flag-gated.
+        if _shadow_enabled(cfg):
+            try:
+                _stop_reasons = (
+                    "stop_loss",
+                    "trailing_stop",
+                    "atr_stop",
+                    "max_position_age",
+                    "portfolio_fit_fail",
+                )
+                from infra.db.session import db_session as _so_db_session  # noqa: PLC0415
+
+                with _so_db_session() as _so_db:
+                    _sosvc = _shadow_service(_so_db)
+                    if _sosvc is not None:
+                        for _exit in exit_actions:
+                            _reason = (getattr(_exit, "reason", "") or "").lower()
+                            if not any(r in _reason for r in _stop_reasons):
+                                continue
+                            _pos = portfolio_state.positions.get(_exit.ticker)
+                            if _pos is None:
+                                continue
+                            _px_so = getattr(_pos, "current_price", None) or getattr(
+                                _pos, "avg_entry_price", None
+                            )
+                            _qty_so = getattr(_pos, "quantity", None)
+                            if not (_px_so and _qty_so and _qty_so > 0):
+                                continue
+                            _sosvc.record_stopped_out_continued(
+                                ticker=_exit.ticker,
+                                shares=_qty_so,
+                                price=_px_so,
+                                stop_reason=_reason[:64] or "stop",
+                                executed_at=run_at,
+                            )
+            except Exception as _so_exc:  # noqa: BLE001
+                logger.warning(
+                    "shadow_portfolio.stopped_out_hook_failed",
+                    error=str(_so_exc),
+                )
+
         # ── Evaluate overconcentration trims ──────────────────────────────────
         # Fire TRIM if a position has grown above max_single_name_pct.
         # Skip tickers already receiving a CLOSE (full exit supersedes a trim).
@@ -1046,6 +1221,87 @@ def run_paper_trading_cycle(
         except Exception as _reb_exc:  # noqa: BLE001
             logger.warning("rebalance_actions_failed", error=str(_reb_exc))
 
+        # ── Deep-Dive Step 7 (DEC-034): Parallel rebalance-weighting shadows
+        # Run the allocator three times in parallel (equal / score /
+        # score_invvol) and push virtual BUYs into the matching
+        # ``rebalance_*`` shadow.  Live portfolio still uses whatever
+        # ``rebalance_weighting_method`` dictates; the shadows are purely A/B.
+        if _shadow_enabled(cfg):
+            try:
+                from services.rebalancing_engine import (  # noqa: PLC0415
+                    compute_weights as _compute_weights,
+                )
+                from infra.db.session import db_session as _reb_shadow_db_session  # noqa: PLC0415
+
+                _modes = list(getattr(cfg, "shadow_rebalance_modes", []) or [])
+                _reb_equity_s = (
+                    float(portfolio_state.equity) if portfolio_state.equity else 0.0
+                )
+                _ranked_tickers = [
+                    (getattr(r, "ticker", None) or getattr(r, "symbol", None))
+                    for r in (rankings or [])
+                ]
+                _ranked_tickers = [t for t in _ranked_tickers if t]
+                _n_pos = int(getattr(cfg, "max_positions", 15) or 15)
+                _ranked_tickers = _ranked_tickers[: _n_pos]
+                _scores_map = {
+                    (getattr(r, "ticker", None) or getattr(r, "symbol", None)): float(
+                        getattr(r, "composite_score", None)
+                        or getattr(r, "score", 0.0)
+                        or 0.0
+                    )
+                    for r in (rankings or [])
+                }
+                _vols_map = {
+                    (getattr(r, "ticker", None) or getattr(r, "symbol", None)): float(
+                        getattr(r, "realized_volatility", None)
+                        or getattr(r, "volatility", 0.0)
+                        or 0.0
+                    )
+                    for r in (rankings or [])
+                }
+                if _ranked_tickers and _reb_equity_s > 0:
+                    with _reb_shadow_db_session() as _rdb:
+                        _rsvc = _shadow_service(_rdb)
+                        if _rsvc is not None:
+                            for _mode in _modes:
+                                _alloc = _compute_weights(
+                                    ranked_tickers=_ranked_tickers,
+                                    n_positions=len(_ranked_tickers),
+                                    method=_mode,
+                                    enabled=True,
+                                    scores=_scores_map,
+                                    volatilities=_vols_map,
+                                    min_floor_fraction=float(
+                                        getattr(cfg, "rebalance_min_floor_fraction", 0.10)
+                                    ),
+                                    max_single_weight=float(
+                                        getattr(cfg, "rebalance_max_single_weight", 0.20)
+                                    ),
+                                )
+                                for _t, _w in (_alloc.weights or {}).items():
+                                    _notional = Decimal(str(_reb_equity_s * _w))
+                                    _px_s = _fetch_price(
+                                        _t, _notional, _market_data_svc, errors
+                                    )
+                                    _shares_s = _shadow_shares_for_notional(
+                                        _notional, _px_s
+                                    )
+                                    if _shares_s > Decimal("0") and _px_s > Decimal("0"):
+                                        _rsvc.record_rebalance_shadow(
+                                            weighting_mode=_mode,
+                                            ticker=_t,
+                                            action="BUY",
+                                            shares=_shares_s,
+                                            price=_px_s,
+                                            executed_at=run_at,
+                                        )
+            except Exception as _rshadow_exc:  # noqa: BLE001
+                logger.warning(
+                    "shadow_portfolio.rebalance_hook_failed",
+                    error=str(_rshadow_exc),
+                )
+
         # ── Validate each action + fetch price + build execution requests ──────
         approved_requests: list[ExecutionRequest] = []
         fill_expectations: list[FillExpectation] = []
@@ -1062,6 +1318,43 @@ def run_paper_trading_cycle(
                     ticker=action.ticker,
                     violations=[v.rule_name for v in risk_result.violations],
                 )
+                # ── Deep-Dive Step 7: Shadow Portfolio — rejected_actions hook
+                # Push a virtual BUY into the ``rejected_actions`` shadow so
+                # the weekly assessment can compare its P&L against the live
+                # portfolio.  Flag-gated — OFF is byte-for-byte legacy.
+                if _shadow_enabled(cfg) and action.action_type == ActionType.OPEN:
+                    try:
+                        from infra.db.session import db_session as _shadow_db_session  # noqa: PLC0415
+
+                        with _shadow_db_session() as _shadow_db:
+                            _svc = _shadow_service(_shadow_db)
+                            if _svc is not None:
+                                _px = _fetch_price(
+                                    action.ticker,
+                                    action.target_notional,
+                                    _market_data_svc,
+                                    errors,
+                                )
+                                _shares = _shadow_shares_for_notional(
+                                    action.target_notional, _px
+                                )
+                                if _shares > Decimal("0") and _px > Decimal("0"):
+                                    _reason = ",".join(
+                                        v.rule_name for v in risk_result.violations
+                                    )[:64] or "risk_gate"
+                                    _svc.record_rejected_action(
+                                        ticker=action.ticker,
+                                        shares=_shares,
+                                        price=_px,
+                                        rejection_reason=_reason,
+                                        executed_at=run_at,
+                                    )
+                    except Exception as _shadow_exc:  # noqa: BLE001
+                        logger.warning(
+                            "shadow_portfolio.rejected_hook_failed",
+                            ticker=action.ticker,
+                            error=str(_shadow_exc),
+                        )
                 continue
 
             # Price fetch

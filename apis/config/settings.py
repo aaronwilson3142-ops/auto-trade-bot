@@ -256,6 +256,29 @@ class Settings(BaseSettings):
     # before the same min() stack; the max_single_name cap still binds.
     portfolio_fit_sizing_enabled: bool = Field(default=False)
 
+    # -- Deep-Dive Plan Step 7 (2026-04-17) Shadow Portfolio Scorer ------
+    # Rec 11 + DEC-034. When OFF the shadow tables exist but receive zero
+    # writes; the weekly assessment job is also a no-op.  When ON, the
+    # paper-trading worker pushes virtual entries into six named shadows
+    # (rejected_actions, watch_tier, stopped_out_continued, rebalance_equal,
+    # rebalance_score, rebalance_score_invvol) after risk validation but
+    # before execution.  Live portfolio behaviour is unaffected either way.
+    shadow_portfolio_enabled: bool = Field(default=False)
+    # Which alternative rebalance weightings get parallel A/B shadows.  The
+    # live allocator still uses ``rebalance_weighting_method``; these only
+    # control the set of *shadow* portfolios that are written.
+    shadow_rebalance_modes: list[str] = Field(
+        default_factory=lambda: ["equal", "score", "score_invvol"]
+    )
+    # Composite-score band [low, high] for the ``watch_tier`` shadow.
+    # Opportunities with composite in this band get virtual entries pushed
+    # into ``watch_tier`` even if the live portfolio passes on them.
+    shadow_watch_composite_low: float = Field(default=0.55, ge=0.0, le=1.0)
+    shadow_watch_composite_high: float = Field(default=0.65, ge=0.0, le=1.0)
+    # How many days a virtual-continue (stopped_out_continued) position is
+    # held before being force-closed by the weekly job (plan §7.5.2).
+    shadow_stopped_out_max_age_days: int = Field(default=30, ge=1, le=365)
+
     # -- Ranking Minimum Composite Score ----------------------------------
     ranking_min_composite_score: float = Field(default=0.30, ge=0.0, le=1.0)
 
