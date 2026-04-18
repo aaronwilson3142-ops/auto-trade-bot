@@ -1,12 +1,14 @@
 # APIS — Next Steps
-Last Updated: 2026-04-18 (post-overnight crash-triad drift committed at 63fa33e; all 8 Deep-Dive steps + drift fix now on main)
+Last Updated: 2026-04-18 (post-overnight repo hygiene: 63fa33e → 99b1a5e → efce65b; merged branches pruned; 45 scratch files swept)
 
-## COMPLETE — Deep-Dive Execution Plan (2026-04-16 → 2026-04-18) + Crash-Triad Drift (2026-04-18)
+## COMPLETE — Deep-Dive Execution Plan (2026-04-16 → 2026-04-18) + Crash-Triad Drift + Repo Hygiene (2026-04-18)
 
-All 8 steps of the 2026-04-16 Deep-Dive Execution Plan are merged to `main`. Every flag introduced by the plan defaults OFF, so production behaviour is byte-for-byte unchanged until the operator opts in. The 2026-04-18 morning crash-triad drift (`EvaluationRun.idempotency_key` ORM attr + idempotency test closure fix + HEALTH_LOG health-check entry) was committed as `63fa33e` on 2026-04-18 post-overnight, closing the final gap between the documented state and the tree.
+All 8 steps of the 2026-04-16 Deep-Dive Execution Plan are merged to `main`. Every flag introduced by the plan defaults OFF, so production behaviour is byte-for-byte unchanged until the operator opts in. Post-overnight handoff landed three documentation/hygiene commits on 2026-04-18: the triad drift (`63fa33e`), session-state docs (`99b1a5e`), and planning-docs + operator scripts (`efce65b`). 45 additional scratch files deleted; both fully-merged feature branches pruned.
 
-### Final git state (2026-04-18 post-drift)
-`main` = **63fa33e** (`fix(crash-triad): persist 2026-04-18 morning drift fixes`, 3 files, +91/-1) → fb9ecff → d3d2bfe → 7009538 → e6b2a3a → … .
+### Final git state (2026-04-18 post-hygiene)
+`main` = **efce65b** (`chore: persist Deep-Dive planning docs + operator restart scripts`, 4 files, +1353/-0) → 99b1a5e → 63fa33e → fb9ecff → d3d2bfe → 7009538 → e6b2a3a → … .
+
+Branches: only `main` remains (`feat/deep-dive-plan-steps-1-6` and `feat/deep-dive-plan-steps-7-8` deleted after merge verification).
 
 - `fb9ecff` docs(deep-dive): update state files after Steps 7-8 merge to main
 - `d3d2bfe` feat(deep-dive): Step 8 — Thompson Strategy Bandit (Rec 12) [+25 tests]
@@ -16,14 +18,23 @@ Combined Step 7+8 delta: 14 files, +2902 / −3. Both Alembic migrations verifie
 
 `feat/deep-dive-plan-steps-7-8` still exists at d3d2bfe. Push remains deferred (no `origin` remote).
 
-### Repo hygiene (2026-04-18 post-drift)
-89 scratch artifacts in the repo root (the `_alembic_*.txt` / `_git_*.txt` / `_step8_pytest*` / `_commit_*.txt` / `_docker_ps.txt*` / `_run_step8_validation.ps1` patterns flagged in the prior handoff) were swept. Other scratch files (`_tmp_*`, `_gs_*`, `_pytest_*`, `_g1.txt`..`_g4e.txt`, `_overnight_steps_7_8_report.txt`, `_run_step7_validation.ps1`, `_git_status.ps1`, `_run_phase64_validate*.bat`, `norgate_*.py`, `restart_*.bat`) were *not* swept — they were outside the operator's explicit sweep list and left for a future review.
+### Repo hygiene (2026-04-18 — DONE)
+- **First pass (pre-hygiene, already completed):** 89 scratch artifacts in the repo root matching `_alembic_*.txt` / `_git_*.txt` / `_step8_pytest*` / `_commit_*.txt` / `_docker_ps.txt*` / `_run_step8_validation.ps1` — deleted.
+- **Second pass (this session, 2026-04-18 post-triad):** 45 additional scratch files deleted — `_tmp_*` / `_g1..g4e.txt` / `_overnight_steps_7_8_report.txt` / `_pytest_*` / `_run_phase64_validate*.bat` / `_run_step7_validation.ps1` / `_step7_validation_out.txt` / `_run_full_tests.ps1` / `_full_tests_*.txt` / `_test_sync.txt` / `_git_status.ps1` / zero-byte `'` + `Run` + `apis/_tmp_check.py` + `apis/check_db.py` + `apis/infra/docker/tmp_query.sql` + `apis/state/_tmp_query.sql` + `apis/state/trim_log.py` + `norgate_*.py` (3) + `state/Test_Results.txt`.
+- **Planning docs + operator scripts persisted (`efce65b`):** `APIS_DEEP_DIVE_REVIEW_2026-04-16.md`, `APIS_EXECUTION_PLAN_2026-04-16.md`, `restart_apis_stack.bat`, `restart_worker_for_universe_expansion.bat` — all moved from untracked-noise into the tree.
+- **Merged branches deleted:** `feat/deep-dive-plan-steps-1-6` (was e6b2a3a) and `feat/deep-dive-plan-steps-7-8` (was d3d2bfe).
 
 ### Pre-existing uncommitted edits still in tree
-Left untouched (not part of the triad drift task):
+Left untouched (not part of any of this session's hygiene passes):
 - `APIS Daily Operations Guide.docx`
 - `APIS_Data_Dictionary.docx`
 - `apis/infra/db/versions/k1l2m3n4o5p6_add_idempotency_keys.py`
+
+### Remaining autonomous-path follow-ups (operator input required)
+- **`origin` remote:** no remote configured. Needs operator to provide URL (GitHub? GitLab? Bitbucket? personal server?). All commits are durable locally.
+- **Phantom broker state:** `cash = -$80,274.62` + 13 positions — ledger decision before Monday 2026-04-20 09:30 ET open. See `HEALTH_LOG.md` 2026-04-18 entry + `project_paper_cycle_crashtriad_2026-04-18.md`.
+- **3 pre-existing tree modifications:** docx + migration file above — inspect + decide commit/revert/ignore.
+- **Docker Desktop signin:** prior memory note (`project_docker_desktop_autostart_blocker.md`) says scheduled autostart cannot launch the GUI; operator sign-in still required before the next worker restart.
 
 ## IN PROGRESS — Deep-Dive Execution Plan (2026-04-16) [HISTORICAL]
 

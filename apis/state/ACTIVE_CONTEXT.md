@@ -1,5 +1,24 @@
 # APIS — Active Context
-Last Updated: 2026-04-18 (post-overnight handoff: crash-triad drift persisted to main at 63fa33e, 89 scratch files swept, negative-cash state still flagged for operator)
+Last Updated: 2026-04-18 (post-overnight repo hygiene — main at efce65b after three commits: 63fa33e triad + 99b1a5e state docs + efce65b planning/ops; merged branches pruned; phantom-cash still flagged)
+
+## 2026-04-18 Update — Repo Hygiene Pass (99b1a5e + efce65b, merged branches deleted)
+
+Follow-on to the triad-drift commit earlier today. Operator gave "yes all that you think you should tackle now" on the autonomous-only items from the prioritised next-steps list.
+
+**Commits added this pass:**
+- `99b1a5e docs(state): record post-overnight crash-triad drift commit + scratch sweep` — 4 files, +74/-8 (the 4 state/*.md updates).
+- `efce65b chore: persist Deep-Dive planning docs + operator restart scripts` — 4 files, +1353/-0 (APIS_DEEP_DIVE_REVIEW + APIS_EXECUTION_PLAN + 2 restart .bat helpers).
+
+**Cleanup:**
+- 45 additional scratch files deleted (see CHANGELOG 2026-04-18 hygiene entry).
+- Merged branches `feat/deep-dive-plan-steps-1-6` and `feat/deep-dive-plan-steps-7-8` deleted — `git branch -a` shows only `main`.
+
+**Still flagged / out of scope:**
+- Broker restore state `cash = -$80,274.62` + 13 phantom positions remains unresolved (operator ledger decision before Monday 2026-04-20 09:30 ET open).
+- 3 pre-existing tree modifications (`APIS Daily Operations Guide.docx`, `APIS_Data_Dictionary.docx`, `apis/infra/db/versions/k1l2m3n4o5p6_add_idempotency_keys.py`) — unchanged.
+- `origin` remote still not configured; push deferred until operator supplies URL.
+
+---
 
 ## 2026-04-18 Update — Crash-Triad Drift Committed (63fa33e) + Scratch Sweep
 

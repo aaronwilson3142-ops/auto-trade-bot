@@ -3,6 +3,34 @@ Format: [YYYY-MM-DD] | file/module | description
 
 ---
 
+## [2026-04-18] Repo Hygiene Pass — State Docs (99b1a5e) + Planning Docs + Operator Scripts (efce65b) + Scratch Cleanup + Merged Branches Deleted
+
+Continuation of the 2026-04-18 post-overnight session after the triad drift commit. Operator authorised "yes all that you think you should tackle now" — executed the autonomous items from the prioritised next-steps list.
+
+**Commit `99b1a5e docs(state): record post-overnight crash-triad drift commit + scratch sweep`** — 4 files, +74/-8:
+- `apis/state/ACTIVE_CONTEXT.md`, `apis/state/CHANGELOG.md`, `apis/state/NEXT_STEPS.md`, `apis/state/SESSION_HANDOFF_LOG.md` — session notes for the 63fa33e triad commit + 89-file scratch sweep now persisted to the tree.
+
+**Commit `efce65b chore: persist Deep-Dive planning docs + operator restart scripts`** — 4 files, +1353/-0:
+- `APIS_DEEP_DIVE_REVIEW_2026-04-16.md` (497 lines) — the 8-step review that drove 2026-04-17/18 execution.
+- `APIS_EXECUTION_PLAN_2026-04-16.md` (814 lines) — the execution plan implemented as `f8c6889..d3d2bfe`.
+- `restart_apis_stack.bat` (27 lines) — `docker compose up --force-recreate api worker` helper.
+- `restart_worker_for_universe_expansion.bat` (15 lines) — worker restart + log tail after ticker universe changes.
+
+**Scratch cleanup (45 files, not in prior sweep):**
+- Root: `_tmp_*` (9), `_gs_*.txt` / `_gs_*_err.txt` left from this session's Windows-side git shims will be cleaned at session end, `_g1..g4e.txt` (8), `_overnight_steps_7_8_report.txt`, `_pytest_*.txt` (4), `_run_phase64_validate*.bat` (4), `_run_step7_validation.ps1` + `_step7_validation_out.txt`, `_run_full_tests.ps1` + `_full_tests_*.txt` (3), `_test_sync.txt`, `_git_status.ps1`, zero-byte `'` and `Run`.
+- Elsewhere: `apis/_tmp_check.py`, `apis/check_db.py` (empty), `apis/infra/docker/tmp_query.sql`, `apis/state/_tmp_query.sql`, `apis/state/trim_log.py` (one-time utility), `norgate_diagnose.py` + `norgate_trial_check.py` + `norgate_vs_yfinance_compare.py` (one-off Norgate trial diagnostics from 2026-04-15), `state/Test_Results.txt` (stray path outside apis/).
+
+**Merged branches deleted:** `feat/deep-dive-plan-steps-1-6` (was e6b2a3a) and `feat/deep-dive-plan-steps-7-8` (was d3d2bfe) — both fully merged to main via fast-forward. Only `main` remains.
+
+**Git state after this pass:** `main` = `efce65b` → `99b1a5e` → `63fa33e` → `fb9ecff` → `d3d2bfe` → `7009538` → …. No `origin` remote still — push deferred.
+
+**Still unresolved (out of scope for this pass):**
+- Broker restore state `cash = -$80,274.62` + 13 positions — operator ledger decision before Monday 2026-04-20 09:30 ET open.
+- 3 pre-existing uncommitted edits in tree (`APIS Daily Operations Guide.docx`, `APIS_Data_Dictionary.docx`, `apis/infra/db/versions/k1l2m3n4o5p6_add_idempotency_keys.py`) — not inspected; operator artifacts.
+- `origin` remote not configured — needs operator input for URL (GitHub? GitLab? personal Git server?).
+
+---
+
 ## [2026-04-18] Crash-Triad Drift Persisted (63fa33e) + Scratch Sweep
 
 Follow-up handoff from the 2026-04-18 morning crash-triad investigation. The code fixes already described below (in the 10:24 UTC entry) had remained as uncommitted local edits because the overnight Steps 7+8 run was scoped to its own branch. Committing them now so `main` reflects the documented state.

@@ -3,6 +3,30 @@ Append one entry per mandatory checkpoint. Never overwrite existing entries.
 
 ---
 
+### [2026-04-18 repo-hygiene] State-doc + planning-doc + operator-script commits, scratch cleanup, merged branches pruned
+
+- **Capacity Trigger:** Operator gave green light "yes all that you think you should tackle now" on the prioritised next-steps list after the triad-drift commit landed. Executing the autonomous-only items (no ledger / no auto-execute-flag / no Docker launches).
+- **Actions:**
+  1. Ran Windows-side `git status --short` via Desktop Commander to confirm clean baseline after `63fa33e`. Eight modified (the 4 session-state files + 3 pre-existing operator artifacts) and a long untracked list (planning docs + operator scripts + scratch).
+  2. Inspected the ambiguous untracked files (`apis/check_db.py` = 0 bytes, `apis/state/trim_log.py` = 6-line one-shot HEALTH_LOG trimmer, `restart_*.bat` = working operator scripts, `norgate_*.py` = 2026-04-15 trial diagnostics, `'` / `Run` = 0-byte shell artifacts).
+  3. Committed state-doc updates: `99b1a5e docs(state): record post-overnight crash-triad drift commit + scratch sweep`, 4 files, +74/-8.
+  4. Committed planning docs + operator scripts: `efce65b chore: persist Deep-Dive planning docs + operator restart scripts`, 4 files, +1353/-0 (APIS_DEEP_DIVE_REVIEW_2026-04-16.md + APIS_EXECUTION_PLAN_2026-04-16.md + restart_apis_stack.bat + restart_worker_for_universe_expansion.bat).
+  5. Swept 45 scratch files across `_tmp_*`, `_g1..g4e.txt`, `_overnight_steps_7_8_report.txt`, `_pytest_*`, `_run_phase64_validate*.bat`, `_run_step7_validation.ps1` / `_step7_validation_out.txt`, `_run_full_tests.ps1` / `_full_tests_*.txt`, `_test_sync.txt`, `_git_status.ps1`, zero-byte `'` + `Run`, `apis/_tmp_check.py`, `apis/check_db.py`, `apis/infra/docker/tmp_query.sql`, `apis/state/_tmp_query.sql`, `apis/state/trim_log.py`, `norgate_*.py` (3 files), `state/Test_Results.txt`.
+  6. Deleted merged branches `feat/deep-dive-plan-steps-1-6` (was e6b2a3a) and `feat/deep-dive-plan-steps-7-8` (was d3d2bfe). `git branch -a` now shows only `* main`.
+- **Post-merge branch state:** `main` at `efce65b`; no feature branches; no `origin` remote still.
+- **Commit list added this session (on main):** `99b1a5e` docs(state); `efce65b` chore(planning+ops).
+- **Push status:** No `origin` remote. Not fixed. Operator needs to provide remote URL before push can be attempted.
+- **Open Items carried forward:**
+  - Pre-existing tree modifications left untouched: `APIS Daily Operations Guide.docx`, `APIS_Data_Dictionary.docx`, `apis/infra/db/versions/k1l2m3n4o5p6_add_idempotency_keys.py`. Operator should decide whether to commit, revert, or leave.
+  - Broker restore state `cash = -$80,274.62` + 13 phantom positions still requires operator ledger decision before Monday 2026-04-20 09:30 ET open.
+  - `origin` remote still not configured.
+  - This session's `_gs_*` / `_commit_*_msg.txt` shim files in the repo root will be cleaned at session end.
+- **Blockers:** None.
+- **Risks:** Very low — every commit in this pass is documentation or long-lived planning content, no runtime behaviour changed.
+- **Confidence:** High. All commits verified via `git show --stat`; `git branch -a` confirms clean branch state.
+
+---
+
 ### [2026-04-18 post-overnight] Crash-triad drift committed + scratch sweep
 
 - **Capacity Trigger:** Operator pointed out that three triad files flagged in the 2026-04-18 morning session still had uncommitted edits even though the CHANGELOG already documented them as landed; also asked for the repo-root scratch artifacts to be cleaned up.
