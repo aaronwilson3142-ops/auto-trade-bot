@@ -1,5 +1,5 @@
 # APIS — Next Steps
-Last Updated: 2026-04-18 (post-overnight repo hygiene: 63fa33e → 99b1a5e → efce65b; merged branches pruned; 45 scratch files swept)
+Last Updated: 2026-04-18 (post-overnight repo hygiene + first push — origin = github.com/aaronwilson3142-ops/auto-trade-bot; main at eef10a4)
 
 ## COMPLETE — Deep-Dive Execution Plan (2026-04-16 → 2026-04-18) + Crash-Triad Drift + Repo Hygiene (2026-04-18)
 
@@ -30,8 +30,8 @@ Left untouched (not part of any of this session's hygiene passes):
 - `APIS_Data_Dictionary.docx`
 - `apis/infra/db/versions/k1l2m3n4o5p6_add_idempotency_keys.py`
 
-### Remaining autonomous-path follow-ups (operator input required)
-- **`origin` remote:** no remote configured. Needs operator to provide URL (GitHub? GitLab? Bitbucket? personal server?). All commits are durable locally.
+### Remaining autonomous-path follow-ups
+- **`origin` remote:** DONE 2026-04-18. Now points at `https://github.com/aaronwilson3142-ops/auto-trade-bot.git` (private). `main` at `eef10a4` mirrored to `origin/main`. Future commits just need `git push`.
 - **Phantom broker state:** `cash = -$80,274.62` + 13 positions — ledger decision before Monday 2026-04-20 09:30 ET open. See `HEALTH_LOG.md` 2026-04-18 entry + `project_paper_cycle_crashtriad_2026-04-18.md`.
 - **3 pre-existing tree modifications:** docx + migration file above — inspect + decide commit/revert/ignore.
 - **Docker Desktop signin:** prior memory note (`project_docker_desktop_autostart_blocker.md`) says scheduled autostart cannot launch the GUI; operator sign-in still required before the next worker restart.

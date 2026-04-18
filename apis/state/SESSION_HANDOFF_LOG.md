@@ -3,6 +3,26 @@ Append one entry per mandatory checkpoint. Never overwrite existing entries.
 
 ---
 
+### [2026-04-18 origin-push] Added `origin` remote + first push of `main` to GitHub
+
+- **Capacity Trigger:** Operator created new private repo `https://github.com/aaronwilson3142-ops/auto-trade-bot.git` and handed over the URL.
+- **Actions:**
+  1. Pre-flight: `git ls-remote https://github.com/aaronwilson3142-ops/auto-trade-bot.git` returned zero refs — confirmed the repo was genuinely empty (no README, no license auto-init), so no "unrelated histories" risk.
+  2. `git remote add origin <url>`; verified via `git remote -v`.
+  3. `git push -u origin main` succeeded silently — Git Credential Manager already had cached creds so no browser OAuth prompt needed. Output: `* [new branch] main -> main`, `branch 'main' set up to track 'origin/main'`.
+  4. Verified: `git status` shows "Your branch is up to date with 'origin/main'"; `git ls-remote origin` shows `refs/heads/main = eef10a4` matching local HEAD.
+- **Post-push branch state:** `main` at `eef10a4`; no feature branches local or remote; `origin/main` = `eef10a4`.
+- **Push status:** FIXED. `origin` now points at `https://github.com/aaronwilson3142-ops/auto-trade-bot.git`; every commit from the initial history through `eef10a4` is now mirrored to GitHub.
+- **Open Items carried forward (no change):**
+  - Phantom broker state `cash = -$80,274.62` + 13 positions — still awaiting operator ledger decision before Monday 2026-04-20 09:30 ET open.
+  - 3 pre-existing tree modifications (`APIS Daily Operations Guide.docx`, `APIS_Data_Dictionary.docx`, `apis/infra/db/versions/k1l2m3n4o5p6_add_idempotency_keys.py`).
+  - Docker Desktop GUI signin still required before next worker restart.
+- **Blockers:** None.
+- **Risks:** Essentially zero — `git push` to an empty remote only mirrors history, touches no local state.
+- **Confidence:** High. `git ls-remote` hash matches local `git rev-parse HEAD`.
+
+---
+
 ### [2026-04-18 repo-hygiene] State-doc + planning-doc + operator-script commits, scratch cleanup, merged branches pruned
 
 - **Capacity Trigger:** Operator gave green light "yes all that you think you should tackle now" on the prioritised next-steps list after the triad-drift commit landed. Executing the autonomous-only items (no ledger / no auto-execute-flag / no Docker launches).

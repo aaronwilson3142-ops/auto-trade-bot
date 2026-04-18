@@ -1,5 +1,11 @@
 # APIS — Active Context
-Last Updated: 2026-04-18 (post-overnight repo hygiene — main at efce65b after three commits: 63fa33e triad + 99b1a5e state docs + efce65b planning/ops; merged branches pruned; phantom-cash still flagged)
+Last Updated: 2026-04-18 (origin pushed to github.com/aaronwilson3142-ops/auto-trade-bot; main at eef10a4; phantom-cash + Docker signin + 3 pre-existing tree edits still flagged)
+
+## 2026-04-18 Update — `origin` Remote Configured + First Push
+
+`https://github.com/aaronwilson3142-ops/auto-trade-bot.git` added as `origin` (private). `git push -u origin main` succeeded: `new branch main -> main`. Every commit from initial history through `eef10a4` is now mirrored to GitHub; future commits just need `git push`.
+
+---
 
 ## 2026-04-18 Update — Repo Hygiene Pass (99b1a5e + efce65b, merged branches deleted)
 

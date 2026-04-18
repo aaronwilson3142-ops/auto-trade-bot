@@ -3,6 +3,18 @@ Format: [YYYY-MM-DD] | file/module | description
 
 ---
 
+## [2026-04-18] `origin` Remote Configured + First Push to GitHub
+
+Operator created `https://github.com/aaronwilson3142-ops/auto-trade-bot.git` (private). Added as `origin`; pushed `main` at `eef10a4` to the new remote.
+
+- `git remote add origin https://github.com/aaronwilson3142-ops/auto-trade-bot.git`
+- `git push -u origin main` → `new branch main -> main`, local `main` now tracks `origin/main`.
+- `git ls-remote origin` confirms `refs/heads/main = eef10a4` (matches local HEAD).
+
+Every commit in the full project history is now replicated off the laptop for the first time. The phantom-cash / Docker / pre-existing-tree-edit issues still apply — push only changed the backup story, not the runtime state.
+
+---
+
 ## [2026-04-18] Repo Hygiene Pass — State Docs (99b1a5e) + Planning Docs + Operator Scripts (efce65b) + Scratch Cleanup + Merged Branches Deleted
 
 Continuation of the 2026-04-18 post-overnight session after the triad drift commit. Operator authorised "yes all that you think you should tackle now" — executed the autonomous items from the prioritised next-steps list.
