@@ -1,5 +1,23 @@
 # APIS — Active Context
-Last Updated: 2026-04-18 (origin pushed to github.com/aaronwilson3142-ops/auto-trade-bot; main at eef10a4; phantom-cash + Docker signin + 3 pre-existing tree edits still flagged)
+Last Updated: 2026-04-18 (phantom broker ledger reset + docx state-docs committed 1fa4b31 + pushed; Docker + worker healthy; next paper cycle Mon 2026-04-20 09:35 ET)
+
+## 2026-04-18 Update — Phantom Broker Cleanup + Pre-Existing Tree Edits Resolved
+
+Operator green-lit "let's tackle #2, 3 and 4" (phantom ledger, pre-existing tree edits, Docker signin). Docker Desktop was already back up with all APIS containers healthy — operator must have signed in earlier.
+
+**Pre-existing tree edits (task #3):** Committed two genuine docx state-doc updates as `1fa4b31 docs: refresh APIS operator docs (Daily Ops Guide + Data Dictionary)` and pushed to `origin/main` alongside prior `f46ef7e`. Daily Ops Guide +860 B / 162→175 paragraphs; Data Dictionary -21,815 B / 935→1063 paragraphs. Migration flag on `k1l2m3n4o5p6_add_idempotency_keys.py` was a false-positive stale git stat cache (content hash matched HEAD exactly).
+
+**Phantom broker ledger cleanup (task #2):** Inspected positions and found 13 open rows (cost basis $173,584) from the buggy 2026-04-17 paper cycles — all opened against the crash-triad bug (`_fire_ks() takes 0 positional arguments but 1 was given`; patched 2026-04-18 at `63fa33e`). Latest portfolio_snapshot showed `cash = -$80,274.62`. Note: `paper_portfolio` table doesn't exist — cash lives in `portfolio_snapshots`.
+
+Executed single-transaction cleanup: `UPDATE positions SET status='closed', closed_at=NOW(), exit_price=entry_price, realized_pnl=0, unrealized_pnl=0, market_value=0 WHERE status='open'` (13 rows) + `INSERT INTO portfolio_snapshots` with cash=$100k / equity=$100k / gross=$0 / note='Phantom broker state reset 2026-04-18 after crash-triad cleanup'. Audit trail preserved (closed rows retain entry price, opened_at, cost basis).
+
+Restarted worker — back healthy in 19s with 35 jobs registered. **Next paper cycle: Monday 2026-04-20 09:35 ET** (Saturday today → markets closed).
+
+**Docker signin (task #4):** Already healthy. No operator action needed.
+
+**State now:** positions 115 closed / 0 open; latest snapshot cash=$100k / equity=$100k; worker + api + postgres + redis + grafana + prometheus + alertmanager + kind all healthy; working tree clean; `main` at `1fa4b31` mirrored to `origin/main`.
+
+---
 
 ## 2026-04-18 Update — `origin` Remote Configured + First Push
 

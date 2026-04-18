@@ -3,6 +3,27 @@ Append one entry per mandatory checkpoint. Never overwrite existing entries.
 
 ---
 
+### [2026-04-18 phantom-cleanup] Closed 13 phantom positions + reset cash to $100k; restarted worker
+
+- **Capacity Trigger:** Operator green-lit "let's tackle #2, 3 and 4" (phantom ledger, pre-existing tree edits, Docker signin). Docker Desktop already back up (containers healthy — Aaron must have signed back in earlier). Crash-triad drift at `63fa33e` already protects against regressions.
+- **Actions:**
+  1. Committed two genuinely-edited docx state docs as `1fa4b31 docs: refresh APIS operator docs (Daily Ops Guide + Data Dictionary)` and pushed to `origin/main`. Migration file `k1l2m3n4o5p6_add_idempotency_keys.py` was a false-positive (stale git stat cache; hash matched HEAD).
+  2. Confirmed Docker Desktop + all APIS containers healthy via `docker ps`: api (Up 6h healthy), worker (Up 6h healthy), postgres / redis / grafana / prometheus / alertmanager / kind.
+  3. Inspected `positions` table: 13 open positions (cost basis $173,584, all opened 2026-04-16/17 during broken paper cycles). Latest `portfolio_snapshots` row: `cash=-$80,274.62`, `equity=$93,569.03`. Confirmed `paper_portfolio` table does NOT exist — cash lives in `portfolio_snapshots`.
+  4. Logs confirmed crash-triad signature (`_fire_ks() takes 0 positional arguments but 1 was given` + `broker_adapter_missing_with_live_positions`) on every 2026-04-17 paper cycle from 13:35 → 19:30 ET. Daily evaluation job at 21:00 showed `position_count: 0` — broker in-memory state never loaded the 13 DB phantom positions.
+  5. Executed single-transaction cleanup via `docker exec docker-postgres-1 psql`: `UPDATE positions SET status='closed', closed_at=NOW(), exit_price=entry_price, realized_pnl=0, unrealized_pnl=0, market_value=0 WHERE status='open';` (13 rows) + `INSERT INTO portfolio_snapshots (...) VALUES (gen_random_uuid(), NOW(), 'paper', 100000, 0, 0, 100000, 0, 'Phantom broker state reset 2026-04-18 after crash-triad cleanup');` (1 row). Audit trail preserved — closed positions retain entry price, opened_at, and cost basis history.
+  6. Restarted worker (`docker restart docker-worker-1`); came back healthy in 19s with 35 scheduled jobs. Next paper cycle: Monday 2026-04-20 09:35 ET.
+- **Post-cleanup DB state:** positions = 115 closed / 0 open; latest portfolio_snapshot = `cash=$100,000, gross=$0, equity=$100,000 (2026-04-18 16:37 UTC)`.
+- **Push status:** `1fa4b31` pushed to `origin/main` alongside prior `f46ef7e`. Working tree clean (no untracked scratch).
+- **Open Items carried forward:**
+  - `APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED` flag remains OFF — operator decision.
+  - Sanity-watch next Monday paper cycle at 09:35 ET: expect zero errors, fresh positions opened against clean $100k cash.
+- **Blockers:** None.
+- **Risks:** Low. Closure preserves historical rows (closed_at/exit_price set, no DELETE). Worker restart loads clean DB state — should see 0 open positions and the clean $100k snapshot as the new baseline.
+- **Confidence:** High. Pre/post counts match; snapshot confirmed; worker healthy; crash-triad signature no longer possible (patched in `63fa33e`).
+
+---
+
 ### [2026-04-18 origin-push] Added `origin` remote + first push of `main` to GitHub
 
 - **Capacity Trigger:** Operator created new private repo `https://github.com/aaronwilson3142-ops/auto-trade-bot.git` and handed over the URL.

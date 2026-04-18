@@ -3,6 +3,25 @@ Format: [YYYY-MM-DD] | file/module | description
 
 ---
 
+## [2026-04-18] Phantom Broker Ledger Reset + Docx State Doc Commit + Pushed to GitHub
+
+Post-triad cleanup of three outstanding operator items. All executed autonomously per standing fix authority.
+
+**Commit `1fa4b31 docs: refresh APIS operator docs (Daily Ops Guide + Data Dictionary)`** — 2 files:
+- `APIS Daily Operations Guide.docx` (+860 B; 162 → 175 paragraphs)
+- `APIS_Data_Dictionary.docx` (-21,815 B; 935 → 1063 paragraphs — substantial reorganisation/cleanup)
+
+Both docx files had real accumulated edits from the 2026-04-17/18 Deep-Dive sessions. Pre-existing migration file flag (`k1l2m3n4o5p6_add_idempotency_keys.py`) was a false-positive stale git stat cache — working-tree hash matched HEAD exactly. Pushed `1fa4b31` to `origin/main`.
+
+**DB phantom ledger cleanup (no code change, pgSQL only):**
+- `positions`: 13 phantom open rows → closed (status='closed', closed_at=NOW(), exit_price=entry_price, realized_pnl=0, unrealized_pnl=0, market_value=0). Audit trail preserved.
+- `portfolio_snapshots`: new clean row at 2026-04-18 16:37 UTC with cash=$100,000, gross=$0, equity=$100,000, notes='Phantom broker state reset 2026-04-18 after crash-triad cleanup'.
+- Worker restarted — back healthy in 19s, 35 scheduled jobs registered, next paper cycle Monday 2026-04-20 09:35 ET.
+
+Logs confirmed the phantom positions were byproducts of every 2026-04-17 paper cycle crashing on the triad signature (`_fire_ks() takes 0 positional arguments but 1 was given` + `broker_adapter_missing_with_live_positions`). Triad drift at `63fa33e` already prevents recurrence.
+
+---
+
 ## [2026-04-18] `origin` Remote Configured + First Push to GitHub
 
 Operator created `https://github.com/aaronwilson3142-ops/auto-trade-bot.git` (private). Added as `origin`; pushed `main` at `eef10a4` to the new remote.

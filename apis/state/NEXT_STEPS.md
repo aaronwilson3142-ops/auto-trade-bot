@@ -1,5 +1,5 @@
 # APIS — Next Steps
-Last Updated: 2026-04-18 (post-overnight repo hygiene + first push — origin = github.com/aaronwilson3142-ops/auto-trade-bot; main at eef10a4)
+Last Updated: 2026-04-18 (phantom cleanup done — docx state-docs committed 1fa4b31 + pushed; DB positions 13 open → 0; clean $100k snapshot written; worker healthy; next paper cycle Mon 2026-04-20 09:35 ET)
 
 ## COMPLETE — Deep-Dive Execution Plan (2026-04-16 → 2026-04-18) + Crash-Triad Drift + Repo Hygiene (2026-04-18)
 
@@ -25,16 +25,19 @@ Combined Step 7+8 delta: 14 files, +2902 / −3. Both Alembic migrations verifie
 - **Merged branches deleted:** `feat/deep-dive-plan-steps-1-6` (was e6b2a3a) and `feat/deep-dive-plan-steps-7-8` (was d3d2bfe).
 
 ### Pre-existing uncommitted edits still in tree
-Left untouched (not part of any of this session's hygiene passes):
-- `APIS Daily Operations Guide.docx`
-- `APIS_Data_Dictionary.docx`
-- `apis/infra/db/versions/k1l2m3n4o5p6_add_idempotency_keys.py`
+All resolved 2026-04-18:
+- `APIS Daily Operations Guide.docx` + `APIS_Data_Dictionary.docx` → committed as `1fa4b31 docs: refresh APIS operator docs (Daily Ops Guide + Data Dictionary)` and pushed to `origin/main`.
+- `apis/infra/db/versions/k1l2m3n4o5p6_add_idempotency_keys.py` → false-positive stale stat cache (content hash matched HEAD); cleared via `git checkout HEAD -- <path>`.
 
 ### Remaining autonomous-path follow-ups
-- **`origin` remote:** DONE 2026-04-18. Now points at `https://github.com/aaronwilson3142-ops/auto-trade-bot.git` (private). `main` at `eef10a4` mirrored to `origin/main`. Future commits just need `git push`.
-- **Phantom broker state:** `cash = -$80,274.62` + 13 positions — ledger decision before Monday 2026-04-20 09:30 ET open. See `HEALTH_LOG.md` 2026-04-18 entry + `project_paper_cycle_crashtriad_2026-04-18.md`.
-- **3 pre-existing tree modifications:** docx + migration file above — inspect + decide commit/revert/ignore.
-- **Docker Desktop signin:** prior memory note (`project_docker_desktop_autostart_blocker.md`) says scheduled autostart cannot launch the GUI; operator sign-in still required before the next worker restart.
+- **`origin` remote:** DONE 2026-04-18. Now points at `https://github.com/aaronwilson3142-ops/auto-trade-bot.git` (private). `main` at `1fa4b31` mirrored to `origin/main`. Future commits just need `git push`.
+- **Phantom broker state:** DONE 2026-04-18. 13 phantom positions closed at entry price (realized_pnl=0); fresh clean `portfolio_snapshots` row at cash=$100k / equity=$100k / gross=$0; worker restarted healthy. Audit trail preserved. Logs confirmed the phantom rows were products of every 2026-04-17 paper cycle crashing on the now-patched triad signature (`_fire_ks() takes 0 positional arguments but 1 was given`).
+- **3 pre-existing tree modifications:** DONE 2026-04-18 (see above).
+- **Docker Desktop signin:** DONE 2026-04-18. Docker Desktop + all APIS containers are healthy (api, worker, postgres, redis, grafana, prometheus, alertmanager, kind). Operator must already have signed in earlier. `project_docker_desktop_autostart_blocker.md` memory remains valid as a heads-up for future reboots.
+
+### Watch-list for Monday 2026-04-20 09:35 ET
+- First paper cycle after cleanup. Expect: zero errors, opening positions against clean $100k cash, new portfolio_snapshots row written by the cycle itself.
+- If `broker_adapter_missing_with_live_positions` or `_fire_ks()` errors reappear → drift regression; bisect against `63fa33e` + `7009538`/`d3d2bfe`.
 
 ## IN PROGRESS — Deep-Dive Execution Plan (2026-04-16) [HISTORICAL]
 
