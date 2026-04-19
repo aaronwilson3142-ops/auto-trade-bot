@@ -1,5 +1,5 @@
 # APIS — Active Context
-Last Updated: 2026-04-19 02:15 UTC (5 AM CT Sat scheduled deep-dive finished **RED** — production-paper Postgres was polluted by an outside-the-stack test run at 01:40 UTC; clean $100k baseline gone; phantom NVDA open with `origin_strategy=NULL`; Phase 63 guard did not trip because cash is still positive; operator approval required for cleanup — see `state/HEALTH_LOG.md` 2026-04-19 entry + email draft to aaron.wilson3142@gmail.com).
+Last Updated: 2026-04-19 02:35 UTC (5 AM CT Sat deep-dive found RED test-pollution at 01:40 UTC → operator approved core cleanup at 02:20 UTC → executed at 02:32 UTC: DELETE 11 position_history + 3 positions + 27 portfolio_snapshots + INSERT fresh $100k clean baseline. **Wider-scope pollution** discovered post-cleanup (1 signal_run / 2,515 security_signals / 1 ranking_run / 10 ranked_opportunities / 1 evaluation_run / 8 evaluation_metrics at 01:41 UTC) — NOT yet cleaned, awaiting operator approval. See `apis/state/NEXT_STEPS.md` for SQL + `HEALTH_LOG.md` 2026-04-19 entry for full picture.)
 
 ## 2026-04-19 02:15 UTC — RED Deep-Dive Run (blocks Monday 09:35 ET baseline)
 

@@ -50,13 +50,46 @@ Scheduled autonomous run of the APIS Daily Deep-Dive Health Check (8 sections). 
 
 ### Overall Severity: **RED** (driven by §2)
 
-### Next Steps (operator action required)
-1. **Decide what to do with the 01:40 UTC pollution.** Options:
-   a. Clean: `DELETE FROM portfolio_snapshots WHERE snapshot_timestamp > '2026-04-18 16:37 UTC'; UPDATE positions SET closed_at = NOW(), status='closed', exit_price=entry_price WHERE closed_at IS NULL; INSERT a fresh $100k baseline snapshot.` (Matches Phase 63/64 cleanup pattern.)
-   b. Let the Monday paper cycle attempt to open against the polluted baseline — will likely fail the position-cap / cash checks and leave the phantom NVDA floating.
-2. **Identify the source of the test pollution.** Likely candidate: a `pytest` or script run that resolved `DATABASE_URL` to the compose Postgres instead of an ephemeral `postgres:5432` test service. Grep CLI history, scheduled tasks, and any CI runners that fired around 01:39 UTC.
-3. Consider adding a DB-level "production guard" trigger that refuses writes from non-container client IPs during `OPERATING_MODE=paper`.
-4. Optional: queue an alembic cleanup migration for the ~25 cosmetic drift items (no urgency).
+### Cleanup Executed 2026-04-19 02:32 UTC (operator-approved at 02:20 UTC)
+
+Operator reply: "yes, i do not want a corrupted baseline". Executed transactional cleanup of the originally-scoped pollution (snapshots + positions + tied position_history). Preserved the pre-pollution clean $100k baseline row `e2c1505e-41d8-452d-a6e5-fc7283f7f737` at 2026-04-18 16:37:10.60265 UTC (notes: "Phantom broker state reset 2026-04-18 after crash-triad cleanup"). Inserted a fresh $100k confirmation snapshot at 02:32:48 UTC with audit notes.
+
+```
+DELETE 11   -- position_history rows from 01:40 burst
+DELETE 3    -- polluted positions (2 closed + 1 open NVDA phantom)
+DELETE 27   -- polluted portfolio_snapshots
+INSERT 0 1  -- fresh clean $100k baseline
+COMMIT
+
+Verification:
+  remaining_polluted_snaps      = 0
+  remaining_phantom_positions   = 0
+  latest portfolio_snapshot     = 2026-04-19 02:32:48 UTC, cash=$100,000.00, equity=$100,000.00, 'Clean $100k reset after test-pollution cleanup (operator-approved)'
+```
+
+API `/health`: `{"status":"ok", "db":"ok", "broker":"ok", "scheduler":"ok", "paper_cycle":"ok", "broker_auth":"ok", "kill_switch":"ok"}`. Worker heartbeat present in Redis.
+
+### Wider Pollution Scope — Not Yet Cleaned (operator decision required)
+
+After the core cleanup I did a broader sweep of the 01:39-01:41 UTC window and found additional pollution artifacts that were **outside the originally-approved scope**:
+
+| Table | Rows | Notes |
+|---|---|---|
+| `signal_runs` | 1 @ 01:41:49 | Normal cadence is 10:30 UTC weekdays; this is the **only** Saturday-night signal_run in recent history |
+| `security_signals` | 2,515 | Tied to that signal_run |
+| `ranking_runs` | 1 @ 01:41:53 | Normal cadence is 10:45 UTC weekdays; same anomaly |
+| `ranked_opportunities` | 10 | Tied to that ranking_run. Output matches 2026-04-17 10:45 UTC production ranking byte-for-byte (deterministic pipeline) |
+| `evaluation_runs` | 1 @ 01:41:56 | `mode=research`; normal is `mode=paper` at 21:00 UTC. Only recent research-mode eval run |
+| `evaluation_metrics` | 8 | Tied to that evaluation_run |
+
+**Impact assessment:** If Monday's scheduled `signal_run` (10:30 UTC) and `ranking_run` (10:45 UTC) fire normally before the 13:35 UTC paper cycle, these will be superseded and the 01:41 pollution never influences live trading. Risk vector: if either job fails or is delayed past 13:35 UTC, the paper cycle would fall back to the 01:41 polluted ranking.
+
+**Recommendation:** clean them too — low risk since the Monday runs will produce fresh data anyway, and it removes a weekend-visible data anomaly. SQL draft ready in `apis/state/NEXT_STEPS.md`.
+
+### Other Follow-Ups
+1. **Identify the source.** Likely a pytest/CI/IDE run with `DATABASE_URL` fall-through to compose Postgres. Check shell history, Windows Task Scheduler, IDE auto-runners around 01:39 UTC (= 20:39 CT Friday).
+2. Consider adding a DB-level "production guard" event trigger that refuses writes from non-container client IPs while `OPERATING_MODE=paper`.
+3. Optional: queue an alembic cleanup migration for the ~25 cosmetic drift items (no urgency).
 
 
 

@@ -1,24 +1,45 @@
 # APIS — Next Steps
 Last Updated: 2026-04-19 02:15 UTC (5 AM CT Sat deep-dive finished **RED** — Postgres polluted by an outside-stack test run at 01:40 UTC; operator must decide cleanup path before Mon 09:35 ET)
 
-## 🔴 BLOCKS MON 09:35 ET — Clean 01:40 UTC Test Pollution (Owner: Operator)
+## ✅ DONE 2026-04-19 02:32 UTC — Core Pollution Cleanup Executed (operator-approved at 02:20 UTC)
 
-**Symptom:** `portfolio_snapshots` latest row = cash=$49,665.68 / equity=$53,497.60 (clean $100k baseline at 16:37 UTC is gone). 27 snapshots in last 4h, all from a 01:40:13–01:40:14 UTC burst. 3 `positions` opened 01:40:11.776 → 01:40:12.272; 1 still open: NVDA `6307f4e2-0125-4a6d-92f8-24e8c59c4939` qty 19 @ $201.78, `origin_strategy=NULL`. `orders` last-4h = 0 → direct DB write, not a paper-trading cycle.
+Clean transaction completed: `DELETE 11` position_history + `DELETE 3` positions + `DELETE 27` portfolio_snapshots + `INSERT 1` fresh $100k baseline. Pre-pollution clean $100k baseline (2026-04-18 16:37:10 UTC) preserved. Latest snapshot now shows cash=$100,000 / equity=$100,000 / gross=0. API `/health` all-green.
 
-**Cleanup SQL (operator-approve before running):**
+---
+
+## 🟡 PENDING DECISION — Wider-Scope Pollution Cleanup (operator approval required)
+
+Post-cleanup sweep discovered the 01:40 test event also wrote into `signal_runs` / `ranking_runs` / `evaluation_runs` (outside the originally-approved scope):
+
+| Table | Rows | Timestamp |
+|---|---|---|
+| `signal_runs` | 1 | 2026-04-19 01:41:49 UTC |
+| `security_signals` | 2,515 | FK → that signal_run |
+| `ranking_runs` | 1 | 2026-04-19 01:41:53 UTC |
+| `ranked_opportunities` | 10 | FK → that ranking_run |
+| `evaluation_runs` | 1 | 2026-04-19 01:41:56 UTC, `mode=research` |
+| `evaluation_metrics` | 8 | FK → that evaluation_run |
+
+Anomaly markers: (a) timestamps are Saturday 01:41 UTC, but normal cadence is weekday 10:30 / 10:45 / 21:00 UTC; (b) the evaluation_run is `mode=research` — the only recent research-mode run; (c) the ranked_opportunities output matches 2026-04-17 10:45 UTC production byte-for-byte (deterministic pipeline replay on fixture data).
+
+**Risk**: if Monday's 10:30 UTC signal_run or 10:45 UTC ranking_run fail or are delayed past the 13:35 UTC paper cycle, the polluted 01:41 rows would be used as the "latest" rankings.
+
+**Cleanup SQL (awaiting operator approval):**
 ```sql
--- 1. Close the phantom open position (preserves PnL audit trail)
-UPDATE positions
-SET closed_at=NOW(), status='closed', exit_price=entry_price, exit_reason='test_pollution_cleanup_2026-04-19'
-WHERE closed_at IS NULL;
-
--- 2. Delete polluted snapshots
-DELETE FROM portfolio_snapshots WHERE snapshot_timestamp > '2026-04-18 16:37:00';
-
--- 3. Re-seed $100k clean baseline
-INSERT INTO portfolio_snapshots (id, snapshot_timestamp, mode, cash_balance, gross_exposure, net_exposure, equity_value, drawdown_pct, created_at, updated_at)
-VALUES (gen_random_uuid(), NOW(), 'paper', 100000.00, 0.00, 0.00, 100000.00, 0.00, NOW(), NOW());
+BEGIN;
+-- order matters: delete children before parents
+DELETE FROM security_signals WHERE signal_run_id IN (SELECT id FROM signal_runs WHERE run_timestamp = '2026-04-19 01:41:49.488061');
+DELETE FROM signal_runs WHERE run_timestamp = '2026-04-19 01:41:49.488061';
+DELETE FROM ranked_opportunities WHERE ranking_run_id IN (SELECT id FROM ranking_runs WHERE run_timestamp = '2026-04-19 01:41:53.475685');
+DELETE FROM ranking_runs WHERE run_timestamp = '2026-04-19 01:41:53.475685';
+DELETE FROM evaluation_metrics WHERE evaluation_run_id IN (SELECT id FROM evaluation_runs WHERE run_timestamp = '2026-04-19 01:41:56.321694');
+DELETE FROM evaluation_runs WHERE run_timestamp = '2026-04-19 01:41:56.321694';
+COMMIT;
 ```
+
+---
+
+## Follow-Ups (lower priority)
 
 **Source hunt** — find the runner that hit `docker-postgres-1`:
 - Likely a pytest invocation with unset/wrong `APIS_TEST_DATABASE_URL` that fell back to compose Postgres.
@@ -27,7 +48,9 @@ VALUES (gen_random_uuid(), NOW(), 'paper', 100000.00, 0.00, 0.00, 100000.00, 0.0
 
 **Hardening (optional, post-cleanup):** Postgres event trigger that refuses writes from client IPs outside the compose network while `OPERATING_MODE=paper`.
 
-Full detail in `apis/state/HEALTH_LOG.md` 2026-04-19 entry. Email draft sent to aaron.wilson3142@gmail.com.
+**Alembic drift**: ~25 cosmetic drift items (TIMESTAMP↔DateTime, comment wording, `ix_proposal_executions_proposal_id` missing). Non-functional. Queue cleanup migration when convenient.
+
+Full detail in `apis/state/HEALTH_LOG.md` 2026-04-19 entry.
 
 ---
 
