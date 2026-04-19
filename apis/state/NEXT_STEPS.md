@@ -7,35 +7,21 @@ Clean transaction completed: `DELETE 11` position_history + `DELETE 3` positions
 
 ---
 
-## 🟡 PENDING DECISION — Wider-Scope Pollution Cleanup (operator approval required)
+## ✅ DONE 2026-04-19 02:42 UTC — Wider-Scope Pollution Cleanup Executed (operator-approved at 02:38 UTC)
 
-Post-cleanup sweep discovered the 01:40 test event also wrote into `signal_runs` / `ranking_runs` / `evaluation_runs` (outside the originally-approved scope):
+Second cleanup transaction landed (after a v1 attempt rolled back on a missed FK — `ranking_runs.signal_run_id → signal_runs.id`). Final v2 with corrected delete order:
 
-| Table | Rows | Timestamp |
-|---|---|---|
-| `signal_runs` | 1 | 2026-04-19 01:41:49 UTC |
-| `security_signals` | 2,515 | FK → that signal_run |
-| `ranking_runs` | 1 | 2026-04-19 01:41:53 UTC |
-| `ranked_opportunities` | 10 | FK → that ranking_run |
-| `evaluation_runs` | 1 | 2026-04-19 01:41:56 UTC, `mode=research` |
-| `evaluation_metrics` | 8 | FK → that evaluation_run |
-
-Anomaly markers: (a) timestamps are Saturday 01:41 UTC, but normal cadence is weekday 10:30 / 10:45 / 21:00 UTC; (b) the evaluation_run is `mode=research` — the only recent research-mode run; (c) the ranked_opportunities output matches 2026-04-17 10:45 UTC production byte-for-byte (deterministic pipeline replay on fixture data).
-
-**Risk**: if Monday's 10:30 UTC signal_run or 10:45 UTC ranking_run fail or are delayed past the 13:35 UTC paper cycle, the polluted 01:41 rows would be used as the "latest" rankings.
-
-**Cleanup SQL (awaiting operator approval):**
-```sql
-BEGIN;
--- order matters: delete children before parents
-DELETE FROM security_signals WHERE signal_run_id IN (SELECT id FROM signal_runs WHERE run_timestamp = '2026-04-19 01:41:49.488061');
-DELETE FROM signal_runs WHERE run_timestamp = '2026-04-19 01:41:49.488061';
-DELETE FROM ranked_opportunities WHERE ranking_run_id IN (SELECT id FROM ranking_runs WHERE run_timestamp = '2026-04-19 01:41:53.475685');
-DELETE FROM ranking_runs WHERE run_timestamp = '2026-04-19 01:41:53.475685';
-DELETE FROM evaluation_metrics WHERE evaluation_run_id IN (SELECT id FROM evaluation_runs WHERE run_timestamp = '2026-04-19 01:41:56.321694');
-DELETE FROM evaluation_runs WHERE run_timestamp = '2026-04-19 01:41:56.321694';
-COMMIT;
 ```
+DELETE 2515  security_signals
+DELETE   10  ranked_opportunities
+DELETE    8  evaluation_metrics
+DELETE    1  ranking_runs   (parent FK to signal_runs — must die first)
+DELETE    1  signal_runs
+DELETE    1  evaluation_runs
+COMMIT
+```
+
+Verification: 0 polluted rows remaining; latest legitimate rows restored — signal_runs → 2026-04-17 10:30, ranking_runs → 2026-04-17 10:45, evaluation_runs → 2026-04-16 21:00 (mode=paper). DB is now fully clean of the 2026-04-19 01:39-01:41 UTC test pollution.
 
 ---
 

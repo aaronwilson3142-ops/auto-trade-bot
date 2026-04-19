@@ -69,7 +69,29 @@ Verification:
 
 API `/health`: `{"status":"ok", "db":"ok", "broker":"ok", "scheduler":"ok", "paper_cycle":"ok", "broker_auth":"ok", "kill_switch":"ok"}`. Worker heartbeat present in Redis.
 
-### Wider Pollution Scope — Not Yet Cleaned (operator decision required)
+### Wider Pollution Scope — Cleaned 2026-04-19 02:42 UTC (operator-approved at 02:38 UTC)
+
+Operator reply on the wider scope: "yes, clean those too". Executed second cleanup transaction. **First attempt rolled back** because of an FK I missed: `ranking_runs.signal_run_id → signal_runs.id`. Second attempt with corrected order (children → ranking_runs → signal_runs/evaluation_runs) succeeded.
+
+```
+DELETE 2515  security_signals (FK → signal_runs)
+DELETE   10  ranked_opportunities (FK → ranking_runs)
+DELETE    8  evaluation_metrics (FK → evaluation_runs)
+DELETE    1  ranking_runs (FK → signal_runs — must die before signal_runs)
+DELETE    1  signal_runs
+DELETE    1  evaluation_runs
+COMMIT
+
+Verification: 0 polluted rows remaining in any of the 6 tables.
+Latest legitimate rows restored:
+  signal_runs       → 2026-04-17 10:30:00 UTC (Fri weekday job)
+  ranking_runs      → 2026-04-17 10:45:00 UTC (Fri weekday job)
+  evaluation_runs   → 2026-04-16 21:00:00 UTC (daily, mode=paper)
+```
+
+**Lesson learned:** when widening pollution cleanup, always query `information_schema` for cross-table FKs into the parent tables BEFORE building the DELETE order. The `ranking_runs → signal_runs` FK was non-obvious from naming.
+
+### Original Wider-Scope Findings (kept for audit)
 
 After the core cleanup I did a broader sweep of the 01:39-01:41 UTC window and found additional pollution artifacts that were **outside the originally-approved scope**:
 
