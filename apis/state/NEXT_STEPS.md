@@ -1,5 +1,35 @@
 # APIS — Next Steps
-Last Updated: 2026-04-18 (Phase 57 Part 2 concrete insider-flow adapters landed default-OFF on `main` + pushed; 358/360 targeted sweep; 2 failures pre-existing scheduler drift; next paper cycle Mon 2026-04-20 09:35 ET unchanged)
+Last Updated: 2026-04-19 02:15 UTC (5 AM CT Sat deep-dive finished **RED** — Postgres polluted by an outside-stack test run at 01:40 UTC; operator must decide cleanup path before Mon 09:35 ET)
+
+## 🔴 BLOCKS MON 09:35 ET — Clean 01:40 UTC Test Pollution (Owner: Operator)
+
+**Symptom:** `portfolio_snapshots` latest row = cash=$49,665.68 / equity=$53,497.60 (clean $100k baseline at 16:37 UTC is gone). 27 snapshots in last 4h, all from a 01:40:13–01:40:14 UTC burst. 3 `positions` opened 01:40:11.776 → 01:40:12.272; 1 still open: NVDA `6307f4e2-0125-4a6d-92f8-24e8c59c4939` qty 19 @ $201.78, `origin_strategy=NULL`. `orders` last-4h = 0 → direct DB write, not a paper-trading cycle.
+
+**Cleanup SQL (operator-approve before running):**
+```sql
+-- 1. Close the phantom open position (preserves PnL audit trail)
+UPDATE positions
+SET closed_at=NOW(), status='closed', exit_price=entry_price, exit_reason='test_pollution_cleanup_2026-04-19'
+WHERE closed_at IS NULL;
+
+-- 2. Delete polluted snapshots
+DELETE FROM portfolio_snapshots WHERE snapshot_timestamp > '2026-04-18 16:37:00';
+
+-- 3. Re-seed $100k clean baseline
+INSERT INTO portfolio_snapshots (id, snapshot_timestamp, mode, cash_balance, gross_exposure, net_exposure, equity_value, drawdown_pct, created_at, updated_at)
+VALUES (gen_random_uuid(), NOW(), 'paper', 100000.00, 0.00, 0.00, 100000.00, 0.00, NOW(), NOW());
+```
+
+**Source hunt** — find the runner that hit `docker-postgres-1`:
+- Likely a pytest invocation with unset/wrong `APIS_TEST_DATABASE_URL` that fell back to compose Postgres.
+- 01:40 UTC ≈ 20:40 CT Friday — check Task Scheduler, any IDE auto-run, any CI job triggered Fri evening.
+- Signatures to grep for: round-number quantities, millisecond opened+closed timing, NULL `origin_strategy`.
+
+**Hardening (optional, post-cleanup):** Postgres event trigger that refuses writes from client IPs outside the compose network while `OPERATING_MODE=paper`.
+
+Full detail in `apis/state/HEALTH_LOG.md` 2026-04-19 entry. Email draft sent to aaron.wilson3142@gmail.com.
+
+---
 
 ## COMPLETE — Phase 57 Part 2 Landed Default-OFF (2026-04-18)
 

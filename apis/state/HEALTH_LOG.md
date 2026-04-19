@@ -4,7 +4,61 @@ Auto-generated daily health check results.
 
 ---
 
-## Test Sweep — 2026-04-18 (Phase 57 Part 2 landing)
+## 2026-04-19 02:15 UTC — Deep-Dive Scheduled Run (5 AM CT Saturday 2026-04-18) — **RED**
+
+Scheduled autonomous run of the APIS Daily Deep-Dive Health Check (8 sections). Operator was not present.
+
+**Severity: RED** — production-paper Postgres was polluted by what appears to be a test-suite run sometime between 01:39:23 and 01:40:14 UTC (≈90 min before this run began). The clean $100k baseline that was in place at 2026-04-18 16:37 UTC (per the prior HEALTH_LOG GREEN entry at 00:55 UTC) has been overwritten.
+
+### §1 Infrastructure — GREEN
+- All 7 containers healthy (`docker-api-1`, `docker-worker-1`, `docker-postgres-1`, `docker-redis-1`, `docker-prometheus-1`, `docker-grafana-1`, `docker-alertmanager-1`).
+- Worker log (24h): 0 crash-triad regressions (`_fire_ks`, `broker_adapter_missing_with_live_positions`, `EvaluationRun.idempotency_key`, `paper_cycle:no_data`, `phantom_cash_guard_triggered` all zero).
+- API log (24h): clean.
+- Alertmanager: 0 active alerts.
+- Prometheus: all scrape targets healthy.
+- `pg_database_size('apis')` within normal bounds; Redis reachable; heartbeat key present.
+
+### §2 Execution + Data Audit — **RED** (primary finding)
+- `portfolio_snapshots` last-6 rows all at 01:40:13–01:40:14 UTC, sub-second apart, all identical: `cash_balance=49665.6800, gross_exposure=3831.9200, equity_value=53497.6000`. 27 snapshots inserted in the last 4h (vs. the expected ≤ one every ~15 min during session, zero overnight).
+- `positions` last-4h: **3 positions opened in 0.5 seconds (01:40:11.776 → 01:40:12.272)**, currently 1 still open: NVDA `6307f4e2-0125-4a6d-92f8-24e8c59c4939`, quantity 19 @ $201.78, `status=open`, `origin_strategy=NULL`, `opened_at=2026-04-19 01:40:12.272322`.
+- `orders` last-4h: **0**. Positions therefore did **not** come from paper-trading cycle execution — they were inserted directly into the DB.
+- Round-number fixtures, millisecond timing, and NULL `origin_strategy` (Step 5 stamping is mandatory on every paper_trading open-path since 2026-04-18 `d08875d`) all confirm the 01:40 burst was a pytest fixture hitting the real Postgres rather than a test sandbox DB.
+- **Operator watch criterion violated**: NEXT_STEPS required "Trades open against clean $100k cash" for Monday 09:35 ET. Current state is cash=$49,665.68 / equity=$53,497.60 with a phantom unstamped NVDA open.
+- Root cause hypothesis: a test run (either pytest outside a container or a misconfigured fixture) connected to `docker-postgres-1` instead of an ephemeral test DB. No log evidence in `docker-api-1` or `docker-worker-1` for that window — the workload came from **outside** the compose stack.
+- **NOT auto-fixed.** Standing authority explicitly excludes DB writes/deletes — operator approval required. Phase 63 phantom-cash guard did NOT trigger because cash is positive ($49,665.68 > $0), which is the guard's intended trigger condition.
+
+### §3 Code + Schema — YELLOW (non-blocking)
+- `git status` against `origin/main`: clean (no unpushed commits). Dirty items: `state/DECISION_LOG.md` (4 earlier task-frequency meta-decision entries, will be committed in §7) and `_health_audit_2026-04-18.ps1` (unused scratch, untracked). No stale `feat/*`/`fix/*` branches.
+- `alembic current` = single head `o5p6q7r8s9t0` (Step 5 origin_strategy) — matches migration file, single-head contract preserved.
+- `alembic check`: ~25 cosmetic drift items (TIMESTAMP↔DateTime representation, comment wording, index rename `ix_strategy_bandit_state_family`→`ix_strategy_bandit_state_strategy_family`, missing `ix_proposal_executions_proposal_id`). Non-functional metadata drift; no unapplied migration files. YELLOW — queue a cleanup migration but no live impact.
+- `pytest tests/unit -k "deep_dive or phase22 or phase57"` in `docker-api-1`: **358 passed, 2 failed, 3655 deselected in 26.04s**. The 2 failures are the well-documented pre-existing phase22 scheduler-count drift (`test_scheduler_has_thirteen_jobs`: 35 vs expected 30 — actual worker scheduler has 35 jobs post-Phase 22; `test_all_expected_job_ids_present`: 5 extra paper-cycle IDs) per DEC-021. No regressions.
+
+### §4 Config + Gate Verification — GREEN
+- All 10 critical APIS_* flags match expected live values:
+  - `APIS_KILL_SWITCH=false` ✓
+  - `APIS_OPERATING_MODE=paper` ✓
+  - `APIS_MAX_POSITIONS=15` ✓ (raised 10→15 2026-04-15)
+  - `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✓
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✓ (fixed 2026-04-19 01:00)
+  - `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✓
+  - `APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED=False` (default) ✓ (readiness gate still closed)
+  - `APIS_INSIDER_FLOW_PROVIDER="null"` (default) ✓ (Phase 57 Part 2 default-OFF)
+  - `APIS_STRATEGY_BANDIT_ENABLED=False` (default) ✓ (Deep-Dive Step 8 default-OFF)
+  - `APIS_SHADOW_PORTFOLIO_ENABLED=False` (default) ✓ (Deep-Dive Step 7 default-OFF)
+- No env/code drift. No auto-fixes applied.
+- Worker APScheduler 35 jobs confirmed via the failing `test_scheduler_has_thirteen_jobs` assertion output (source of truth: live worker).
+
+### Overall Severity: **RED** (driven by §2)
+
+### Next Steps (operator action required)
+1. **Decide what to do with the 01:40 UTC pollution.** Options:
+   a. Clean: `DELETE FROM portfolio_snapshots WHERE snapshot_timestamp > '2026-04-18 16:37 UTC'; UPDATE positions SET closed_at = NOW(), status='closed', exit_price=entry_price WHERE closed_at IS NULL; INSERT a fresh $100k baseline snapshot.` (Matches Phase 63/64 cleanup pattern.)
+   b. Let the Monday paper cycle attempt to open against the polluted baseline — will likely fail the position-cap / cash checks and leave the phantom NVDA floating.
+2. **Identify the source of the test pollution.** Likely candidate: a `pytest` or script run that resolved `DATABASE_URL` to the compose Postgres instead of an ephemeral `postgres:5432` test service. Grep CLI history, scheduled tasks, and any CI runners that fired around 01:39 UTC.
+3. Consider adding a DB-level "production guard" trigger that refuses writes from non-container client IPs during `OPERATING_MODE=paper`.
+4. Optional: queue an alembic cleanup migration for the ~25 cosmetic drift items (no urgency).
+
+
 
 Targeted cross-step pytest sweep in `docker-api-1` ahead of the Phase 57 Part 2 commit. Covered Deep-Dive steps 1–8, Phase 22 enrichment, and Phase 57 Parts 1 + 2.
 

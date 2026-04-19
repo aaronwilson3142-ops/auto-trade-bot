@@ -4,6 +4,35 @@ Auto-generated daily health check results.
 
 ---
 
+## 2026-04-19 02:15 UTC — Deep-Dive Scheduled Run (5 AM CT Saturday 2026-04-18) — **RED**
+
+Scheduled autonomous run of the APIS Daily Deep-Dive Health Check (8 sections). Operator was not present.
+
+**Severity: RED** — production-paper Postgres was polluted by what appears to be a test-suite run sometime between 01:39:23 and 01:40:14 UTC (≈90 min before this run began). The clean $100k baseline that was in place at 2026-04-18 16:37 UTC has been overwritten.
+
+### §1 Infrastructure — GREEN
+All 7 containers healthy, Alertmanager 0 active, worker+api logs clean of crash-triad regressions.
+
+### §2 Execution + Data Audit — **RED**
+- `portfolio_snapshots`: 27 rows in last 4h, all from a 01:40 burst. Latest row: `cash=$49,665.68 / gross=$3,831.92 / equity=$53,497.60` (vs. $100k baseline at 16:37 UTC).
+- `positions`: 3 rows opened in 0.5s window 01:40:11.776 → 01:40:12.272. 1 still open: NVDA `6307f4e2-…` qty 19 @ $201.78, **`origin_strategy=NULL`**.
+- `orders` last-4h: **0**. Positions written directly without order — clear test-fixture signature.
+- Phase 63 phantom-cash guard did **not** trigger (cash > 0). Operator approval required for cleanup; standing authority excludes DB writes.
+
+### §3 Code + Schema — YELLOW
+- Git: clean against `origin/main`, no unpushed commits, no stale branches. Dirty: `state/DECISION_LOG.md` (4 lines, will commit) + 1 scratch ps1.
+- Alembic: head `o5p6q7r8s9t0`, single head ✓. `alembic check` reports ~25 cosmetic drift items (TIMESTAMP↔DateTime types, comment wording, one missing `ix_proposal_executions_proposal_id`). Non-functional.
+- Pytest: **358 passed / 2 failed** (matches DEC-021 baseline — phase22 scheduler-count drift only).
+
+### §4 Config + Gate Verification — GREEN
+All 10 critical APIS_* flags verified against `apis/config/settings.py` defaults — no drift, no auto-fixes applied.
+
+### Overall: **RED** (driven by §2 test-data pollution)
+
+Full §1–§4 detail is in `apis/state/HEALTH_LOG.md`. Operator email sent to aaron.wilson3142@gmail.com.
+
+---
+
 ## Health Check — 2026-03-29 18:57 local
 
 **Overall Status:** HEALTHY

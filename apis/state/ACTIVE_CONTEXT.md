@@ -1,7 +1,28 @@
 # APIS — Active Context
-Last Updated: 2026-04-18 (Phase 57 Part 2 — concrete insider-flow adapters + enrichment wiring landed default-OFF on `main` + pushed; stack healthy; Monday 09:35 ET paper cycle unchanged — signal stays absent until operator opts in and supplies a credential.)
+Last Updated: 2026-04-19 02:15 UTC (5 AM CT Sat scheduled deep-dive finished **RED** — production-paper Postgres was polluted by an outside-the-stack test run at 01:40 UTC; clean $100k baseline gone; phantom NVDA open with `origin_strategy=NULL`; Phase 63 guard did not trip because cash is still positive; operator approval required for cleanup — see `state/HEALTH_LOG.md` 2026-04-19 entry + email draft to aaron.wilson3142@gmail.com).
 
-## 2026-04-18 Update — Phase 57 Part 2 Landed Default-OFF
+## 2026-04-19 02:15 UTC — RED Deep-Dive Run (blocks Monday 09:35 ET baseline)
+
+**What tripped RED:** between 01:39:23 and 01:40:14 UTC something outside the compose stack wrote directly into `docker-postgres-1`:
+- 27 `portfolio_snapshots` in a 4h window, all with cash=$49,665.68 / equity=$53,497.60 (baseline was $100k clean at 16:37 UTC).
+- 3 `positions` opened in 0.5 seconds at 01:40:11.776 → 01:40:12.272. 1 still open: `NVDA 6307f4e2-…` qty 19 @ $201.78, `origin_strategy=NULL`, `status=open`.
+- `orders` last-4h: **0** — no broker round-trip, no worker/api log evidence. Round-number quantities + NULL origin_strategy (mandatory since 2026-04-18 `d08875d`) + millisecond timing = pytest fixture signature.
+
+**Why auto-fix did not run:** standing authority excludes DB writes. Phase 63 phantom-cash guard did not trip because `cash_balance > 0` is the guard's non-trigger state.
+
+**What is GREEN / YELLOW:**
+- Infra, Alertmanager, worker+api log scans: GREEN. No crash-triad regressions.
+- Code+schema: YELLOW. Git clean vs `origin/main`; alembic head `o5p6q7r8s9t0` OK; `alembic check` reports ~25 cosmetic type/comment/index drift items (non-functional, queue cleanup migration). Pytest 358/360 — exactly DEC-021 baseline.
+- Config+gates: GREEN. 10/10 critical APIS_* flags match `apis/config/settings.py` defaults. No drift, no auto-fix applied.
+
+**Operator action required before Mon 09:35 ET:**
+1. Decide whether to clean-slate (`DELETE portfolio_snapshots WHERE snapshot_timestamp > 16:37 UTC`; close open phantom; re-seed $100k snapshot) or let Monday cycle fire against the polluted baseline.
+2. Find and shut down the test runner that hit the production-paper DB (suspect: pytest/CI job or IDE runner connected to compose Postgres instead of an ephemeral test DB around 01:39 UTC = 20:39 CT Fri).
+3. Optional hardening: Postgres trigger refusing non-container-IP writes while `OPERATING_MODE=paper`.
+
+---
+
+## Previous Update — 2026-04-18 Phase 57 Part 2 Landed Default-OFF
 
 Five operator-greenlit follow-ups from the Saturday triage (2026-04-18) are now all complete. Item 4 — "wire concrete QuiverQuant + SEC EDGAR adapters behind default-OFF flag" — landed straight to `main` per explicit operator directive ("commit the concrete adapter straight to `main`; default-OFF flag means behaviour-neutral, consistent with how the Deep-Dive steps landed").
 
