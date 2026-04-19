@@ -4,6 +4,92 @@ Auto-generated daily health check results.
 
 ---
 
+## Health Check — 2026-04-19 00:55 UTC (Saturday evening 20:55 ET, market closed)
+
+**Overall Status:** ✅ GREEN — No issues found; no fixes applied. This is the second scheduled run on 2026-04-18 (local time), ~14 hours after the morning crash-triad-fix run earlier today. Stack has been running clean since the post-cleanup worker restart at 16:37 UTC. All 35 scheduled jobs correctly parked for Monday 2026-04-20; first paper cycle at 09:35 ET. One configuration drift flagged for operator (non-blocking, no action taken).
+
+### Container Status
+All 7 required APIS containers + kind control-plane up:
+- docker-api-1 — Up 15h (healthy)
+- docker-worker-1 — Up 8h (healthy, post-restart after phantom cleanup)
+- docker-postgres-1 — Up 45h (healthy)
+- docker-redis-1 — Up 45h (healthy)
+- docker-prometheus-1 — Up 45h
+- docker-grafana-1 — Up 45h
+- docker-alertmanager-1 — Up 45h
+- apis-control-plane (kind) — Up 45h (bonus, non-APIS)
+
+### API /health Endpoint
+All components `ok`:
+- db: ok
+- broker: ok
+- scheduler: ok
+- paper_cycle: ok
+- broker_auth: ok
+- kill_switch: ok
+
+Mode: paper. Timestamp 2026-04-19T00:55:12Z.
+
+### Worker Logs (24h window, >4h tail empty as expected weekend)
+- Zero ERROR / CRITICAL / TypeError / traceback lines.
+- Clean boot sequence at 2026-04-18T16:37:43Z; scheduler loaded 35 jobs; heartbeat + Redis connected.
+- All 35 jobs parked with `next_run` on 2026-04-20 (Monday). First paper cycle `paper_trading_cycle_morning` → 2026-04-20 09:35 ET. Ingestion cluster starts 06:00 ET, signal_generation 06:30 ET, ranking_generation 06:45 ET. End-of-day jobs land 17:00–18:45 ET.
+- **No sign of the crash-triad regressions:** no `_fire_ks takes 0 args`, no `broker_adapter_missing_with_live_positions`, no `EvaluationRun has no attribute 'idempotency_key'`.
+
+### API Logs (24h window)
+Two pre-existing non-blocking warnings at 10:17:49 UTC (API restore path):
+- `regime_result_restore_failed: detection_basis_json`
+- `readiness_report_restore_failed: ReadinessGateRow.__init__() missing 1 required positional argument: 'description'`
+
+Both documented in prior log entries as known non-blocking state-restore quirks; no impact on paper cycles. Not auto-fixed today.
+
+### Prometheus Scrape Targets
+Both active targets `health=up`:
+- `apis` job (api:8000/metrics) — lastScrape 00:55:53Z, lastError empty.
+- `prometheus` self-scrape (localhost:9090/metrics) — lastScrape 00:56:04Z, lastError empty.
+No droppedTargets.
+
+### Database Health
+- `pg_isready` → `/var/run/postgresql:5432 - accepting connections`.
+- `alembic_version = o5p6q7r8s9t0` (head; matches Deep-Dive Step 5 migration documented in ACTIVE_CONTEXT).
+- `portfolio_snapshots` top-5 (newest first):
+  | snapshot_timestamp | cash_balance | equity_value |
+  |---|---:|---:|
+  | 2026-04-18 16:37:10 | **$100,000.00** | **$100,000.00** |
+  | 2026-04-17 19:30:19 | -$80,274.62 | $93,569.03 |
+  | 2026-04-17 18:30:19 | -$88,460.68 | $93,624.80 |
+  | 2026-04-17 17:30:03 | -$85,244.24 | $93,017.47 |
+  | 2026-04-17 16:00:03 | -$80,560.46 | $92,729.57 |
+  The 2026-04-18 16:37:10 snapshot is the post-cleanup reset; the four 2026-04-17 rows remain as an audit trail (preserved deliberately).
+- `positions` rollup: 115 closed / 0 open. Phantom cleanup holds.
+- `evaluation_runs` row count: 84.
+- `positions.origin_strategy`: NULL for all 115 closed rows. Expected — Step 5 landed today (d08875d) with backfill-but-never-overwrite on OPEN only; closed positions stay NULL. First non-NULL rows should appear after Monday's 09:35 ET cycle.
+
+### Known-Issue Checks
+- Learning-acceleration baseline confirmed: `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` (not the accelerated 0.15).
+- Position caps confirmed at Phase 65 values: `APIS_MAX_POSITIONS=15`, `APIS_MAX_NEW_POSITIONS_PER_DAY=5`.
+- `APIS_KILL_SWITCH=false`, `APIS_OPERATING_MODE=paper`.
+- Deep-Dive gating flags all default OFF (Step 6 ledger, Step 7 shadow portfolio, Step 8 strategy bandit, self-improvement auto-execute). None overridden in env. Step 8 posterior-update invariant is flag-independent per Plan A8.6.
+
+### ⚠️ Configuration Drift Flagged (not auto-fixed)
+- `APIS_MAX_THEMATIC_PCT=0.50` in worker env vs. code default `0.75` in `apis/config/settings.py:131`. Phase 66 memory and CHANGELOG both say the default was raised 0.50 → 0.75 on 2026-04-16 to let AI-heavy concentration run hot, but the `.env`-injected override is still pinning the runtime cap at 0.50. That means the AI-heavy behaviour Phase 66 intended is NOT actually in effect; the ranking bias is still live, but the concentration cap is not. Operator should reconcile before Monday's 09:35 ET baseline cycle: either update `.env` to `APIS_MAX_THEMATIC_PCT=0.75` (align with Phase 66 intent) or revert the code default to 0.50 and update the memory + DECISION_LOG. Deliberately NOT auto-edited — `.env` edits are out of scope for the scheduled health check per standing policy.
+
+### Fixes Applied (post-operator-approval at 2026-04-19 01:00 UTC)
+- **`APIS_MAX_THEMATIC_PCT` drift resolved — Option A applied.** Operator (Aaron) reviewed the flag above and asked for it fixed. Updated `apis/.env` and `apis/.env.example` from `0.50` → `0.75` to align with Phase 66's code default and DEC-026 intent. Recreated `docker-worker-1` + `docker-api-1` via `C:\Temp\restart_worker.bat` (`docker compose --env-file ../../.env up -d worker`, which cascades to api via dependency). Verified:
+  - `docker exec docker-worker-1 env | grep THEMATIC` → `APIS_MAX_THEMATIC_PCT=0.75` ✅
+  - Both containers Up + healthy (api 42s / worker 11s); `/health` all `ok`.
+  - Worker rebooted clean — 35 jobs registered at 2026-04-19T01:03:12Z; scheduled times unchanged (first paper cycle Mon 2026-04-20 09:35 ET).
+  - No code changes. No DB writes.
+- Scratch `C:\Temp\_restart.bat` copy wasn't needed — reused pre-existing `C:\Temp\restart_worker.bat`.
+- Working-tree `_restart_worker_api.bat` written at repo root then left in place (operator can delete or add to `.gitignore` sweep).
+
+### Action Items (for operator, before Monday 09:35 ET open)
+1. ~~Reconcile `APIS_MAX_THEMATIC_PCT`~~ — DONE 2026-04-19 01:00 UTC. Runtime cap now 0.75 (matches Phase 66).
+2. Re-run Step-2 idempotency unit test once at console (per earlier HEALTH_LOG entry): `docker exec -w /app/apis docker-worker-1 python -m pytest tests/unit/test_deep_dive_step2_idempotency_keys.py -v`.
+3. Monitor Monday's first paper cycle for: (a) non-NULL `origin_strategy` on any new OPEN position rows (Step 5 acceptance); (b) no regression of the crash-triad bugs; (c) no alternating-churn pattern (Phase 65 watch); (d) portfolio can now concentrate up to 75% in the AI theme without tripping `max_thematic_pct` (Phase 66 behaviour now actually active).
+
+---
+
 ## Health Check — 2026-04-18 10:24 UTC (Saturday, market closed)
 
 **Overall Status:** 🟡 → ✅ GREEN (after fixes) — Yesterday's worker log exposed three bugs that were blocking every Friday paper-trading cycle; applied in-code fixes, restarted worker + api, confirmed healthy. Market is closed today (Saturday), so no new paper cycles will run until Monday 2026-04-20. Flagged for operator review: a negative-cash / 13-phantom-position DB state that Phase 63's guard does not trigger on (positions>0).

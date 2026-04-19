@@ -1,5 +1,41 @@
 # APIS — Active Context
-Last Updated: 2026-04-18 (Deep-Dive Step 5 origin_strategy wiring landed `d08875d` + pushed to origin/main; 236/236 cross-step sweep passes; next paper cycle Mon 2026-04-20 09:35 ET)
+Last Updated: 2026-04-19 01:05 UTC (thematic-pct drift resolved — `.env` 0.50 → 0.75, worker + api recreated; Phase 66's 75% AI-heavy concentration cap is now actually in effect. Stack healthy. Monday 09:35 ET paper cycle unchanged.)
+
+## 2026-04-19 01:00 UTC Update — `.env` Fix (Option A applied)
+
+Aaron reviewed the 00:55 UTC health-check flag and asked for the drift fixed now.
+
+**Edits:**
+- `apis/.env`:33 — `APIS_MAX_THEMATIC_PCT=0.50` → `0.75`.
+- `apis/.env.example`:34 — same (template).
+
+**Rollout:** `C:\Temp\restart_worker.bat` → `docker compose --env-file ../../.env up -d worker` recreated worker + api (worker pulls api recreate via dependency). Both back Up + healthy in <1 min. Worker logs `apis_worker_started` with `job_count=35` at 2026-04-19T01:03:12Z.
+
+**Verified runtime:**
+- `docker exec docker-worker-1 env | grep THEMATIC` → `APIS_MAX_THEMATIC_PCT=0.75`.
+- `/health` all components `ok`.
+- First paper cycle unchanged: Mon 2026-04-20 09:35 ET.
+
+No code changes. No DB writes. No schema changes. See `CHANGELOG.md` entry + memory `project_thematic_pct_env_drift_2026-04-18.md` (now marked RESOLVED).
+
+**Not committed:** `.env` and `.env.example` edits are on the working tree; `.env` is traditionally gitignored (secrets). Operator can decide whether to commit `.env.example` separately.
+
+Leftover scratch in repo root: `_restart_worker_api.bat` (unused — reused pre-existing `C:\Temp\restart_worker.bat` instead). Safe to delete.
+
+---
+
+## 2026-04-19 00:55 UTC Update — Evening Health Check (No Changes before fix)
+
+Second scheduled-task run on 2026-04-18 (local) completed ✅ GREEN. Full entry in `HEALTH_LOG.md`. Summary:
+- All 7 containers + kind healthy. `/health` all components `ok`. Worker logs clean (no ERROR/TypeError). Prometheus targets both up.
+- DB: alembic at `o5p6q7r8s9t0` (Step 5 head); 115 closed / 0 open positions; latest snapshot cash=$100k / equity=$100k (phantom cleanup holds); `evaluation_runs` at 84; `positions.origin_strategy` still NULL on closed rows (expected).
+- Scheduler parked all 35 jobs for Monday 2026-04-20. First paper cycle `paper_trading_cycle_morning` → 09:35 ET.
+- Flag raised for operator: `APIS_MAX_THEMATIC_PCT=0.50` env override vs code default 0.75 (Phase 66). **Resolved 01:00 UTC — see update above.**
+
+No code changes, no container restarts, no DB writes in the 00:55 UTC pass; the 01:00 UTC follow-up added the `.env` edit + compose recreate described above.
+
+---
+
 
 ## 2026-04-18 Update — Deep-Dive Step 5 `origin_strategy` Wiring (Deferred Finisher)
 

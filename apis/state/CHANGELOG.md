@@ -3,6 +3,25 @@ Format: [YYYY-MM-DD] | file/module | description
 
 ---
 
+## [2026-04-19 UTC / 2026-04-18 evening CT] `.env` fix — `APIS_MAX_THEMATIC_PCT` 0.50 → 0.75 (operator-approved Option A)
+
+Resolves the config drift surfaced by the 2026-04-19 00:55 UTC health check. Phase 66 (2026-04-16, DEC-026) raised `max_thematic_pct` in `apis/config/settings.py:131` from 0.50 → 0.75 to let the AI-heavy thesis concentrate up to 75% of the book, but the operator's `.env` still pinned the env override at 0.50 — so the runtime cap was 0.50, not 0.75. Ranking/theme bonuses were live; concentration cap was not. Operator reviewed the flag and asked for it reconciled.
+
+**Files changed:**
+- `apis/.env`:33 — `APIS_MAX_THEMATIC_PCT=0.50` → `0.75`.
+- `apis/.env.example`:34 — same update (keep the template aligned).
+
+**Rollout:** `docker compose --env-file ../../.env up -d worker` (via pre-existing `C:\Temp\restart_worker.bat`) → api + worker both recreated with new env; both came back Up + healthy in <1 min; 35 scheduler jobs re-registered; first paper cycle unchanged at Mon 2026-04-20 09:35 ET.
+
+**Verification:**
+- `docker exec docker-worker-1 env | grep THEMATIC` → `APIS_MAX_THEMATIC_PCT=0.75`.
+- `curl /health` → all components `ok`.
+- No code changes. No DB writes. No schema changes.
+
+**Not touched:** `apis/config/settings.py:131` stays at 0.75 (code default). Phase 66 memory, DEC-026, and CHANGELOG reference for the 2026-04-16 raise are all now actually reflective of runtime state.
+
+---
+
 ## [2026-04-18] Deep-Dive Step 5 `origin_strategy` Wiring — Deferred Finisher (d08875d)
 
 Completes the Step 5 deferred work identified in the 2026-04-16 Deep-Dive review: wiring the strategy family (`origin_strategy`) through the paper-trading open-path so every new `Position` row is stamped with the family that opened it. Without this stamp, the Step 6 Proposal Outcome Ledger and Step 8 Thompson Strategy Bandit have no way to attribute realised P&L back to the strategy that opened the position.
