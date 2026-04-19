@@ -304,6 +304,25 @@ class Settings(BaseSettings):
     # -- Self-Improvement Auto-Execute Gate (Phase 58) -------------------
     self_improvement_auto_execute_enabled: bool = Field(default=False)
     enable_insider_flow_strategy: bool = Field(default=False)
+    # -- Phase 57 Part 2 — Insider-Flow Provider Wiring (2026-04-18, DEC-024) --
+    # Provider selection for InsiderFlowAdapter.  Defaults to "null" so the
+    # signal stays neutral unless an operator both flips
+    # ``enable_insider_flow_strategy`` AND names a real provider here.  This is
+    # the promotion gate from the Phase 57 scaffold: the strategy + overlay
+    # fields have been live since Phase 57 Part 1; Part 2 only adds optional
+    # concrete data sources behind default-OFF flags.
+    #   - "null"        → NullInsiderFlowAdapter (no data, neutral score)
+    #   - "quiverquant" → QuiverQuantAdapter (requires quiverquant_api_key)
+    #   - "sec_edgar"   → SECEdgarFormFourAdapter (requires sec_edgar_user_agent)
+    #   - "composite"   → both providers merged (requires both credentials)
+    # If the chosen provider's credentials are missing the factory falls back
+    # to NullInsiderFlowAdapter and logs a WARNING so the operator notices.
+    insider_flow_provider: str = Field(default="null")
+    quiverquant_api_key: str = Field(default="")
+    # SEC requires a contact email in the User-Agent on all programmatic
+    # access per https://www.sec.gov/os/accessing-edgar-data ; format is
+    # "<App Name> <contact-email>".  Omitting it means no EDGAR calls.
+    sec_edgar_user_agent: str = Field(default="")
     self_improvement_min_auto_execute_confidence: float = Field(
         default=0.70, ge=0.0, le=1.0
     )

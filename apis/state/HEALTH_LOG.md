@@ -4,6 +4,24 @@ Auto-generated daily health check results.
 
 ---
 
+## Test Sweep — 2026-04-18 (Phase 57 Part 2 landing)
+
+Targeted cross-step pytest sweep in `docker-api-1` ahead of the Phase 57 Part 2 commit. Covered Deep-Dive steps 1–8, Phase 22 enrichment, and Phase 57 Parts 1 + 2.
+
+**Result: 358/360 passed in ~31s, 2 failures, 2 warnings.**
+
+Both failures are **pre-existing** and **not caused by Phase 57 Part 2**:
+- `apis/tests/unit/test_phase22_enrichment_pipeline.py::TestWorkerSchedulerPhase22::test_scheduler_has_thirteen_jobs` — expected 30 jobs, actual 35.
+- `apis/tests/unit/test_phase22_enrichment_pipeline.py::TestWorkerSchedulerPhase22::test_all_expected_job_ids_present` — 5 extra ids: `paper_trading_cycle_pre_midday`, `paper_trading_cycle_late_morning`, `paper_trading_cycle_early_afternoon`, `paper_trading_cycle_afternoon`, `paper_trading_cycle_close`.
+
+**Root cause:** DEC-021 (2026-04-09 learning-acceleration) raised the paper-trading cycle count from 7 → 12 in-day runs and bumped the job total from 30 → 35. These two tests were never re-baselined.
+
+**Follow-up:** low priority; behavioural regression would surface as a scheduler-count drift check in `phase22`, not a paper-trading fault. Can be re-baselined either when DEC-022 (revert learning acceleration to 7 cycles) lands, or by updating the expected counts to 35 / adding the 5 new ids — whichever comes first.
+
+All 55 Phase 57 tests (Part 1 + Part 2) pass. No new warnings introduced.
+
+---
+
 ## Health Check — 2026-04-19 00:55 UTC (Saturday evening 20:55 ET, market closed)
 
 **Overall Status:** ✅ GREEN — No issues found; no fixes applied. This is the second scheduled run on 2026-04-18 (local time), ~14 hours after the morning crash-triad-fix run earlier today. Stack has been running clean since the post-cleanup worker restart at 16:37 UTC. All 35 scheduled jobs correctly parked for Monday 2026-04-20; first paper cycle at 09:35 ET. One configuration drift flagged for operator (non-blocking, no action taken).

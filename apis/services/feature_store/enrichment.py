@@ -43,6 +43,7 @@ class FeatureEnrichmentService:
         theme_engine: Any = None,
         macro_policy: Any = None,
         news_intelligence: Any = None,
+        insider_flow_adapter: Any = None,
     ) -> None:
         if theme_engine is None:
             from services.theme_engine.service import ThemeEngineService
@@ -53,9 +54,14 @@ class FeatureEnrichmentService:
         if news_intelligence is None:
             from services.news_intelligence.service import NewsIntelligenceService
             news_intelligence = NewsIntelligenceService()
+        # Phase 57 Part 2 (DEC-024): default to None so existing call sites
+        # that never constructed an adapter stay behaviour-neutral.  The
+        # overlay pre-compute step in enrich_batch only runs when an adapter
+        # has been explicitly injected.
         self._theme_engine = theme_engine
         self._macro_policy = macro_policy
         self._news_intelligence = news_intelligence
+        self._insider_flow_adapter = insider_flow_adapter
 
     # ------------------------------------------------------------------
     # Public API
@@ -103,6 +109,18 @@ class FeatureEnrichmentService:
                 sentiment_score=sentiment_score,
                 sentiment_confidence=sentiment_confidence,
             )
+            # Phase 57 Part 2 (DEC-024) — apply insider-flow overlay when an
+            # adapter has been injected.  No adapter ⇒ dict is empty ⇒ overlay
+            # stays at its zero default (pre-Part-2 behaviour).
+            insider_overlays = self._compute_insider_flow_batch([feature_set.ticker])
+            ov = insider_overlays.get(feature_set.ticker.upper())
+            if ov is not None:
+                enriched = replace(
+                    enriched,
+                    insider_flow_score=ov.net_flow_score,
+                    insider_flow_confidence=ov.aggregate_confidence,
+                    insider_flow_age_days=ov.most_recent_age_days,
+                )
             # Apply fundamentals overlay if available for this ticker
             if fundamentals_store:
                 fund_data = fundamentals_store.get(feature_set.ticker)
@@ -140,6 +158,14 @@ class FeatureEnrichmentService:
         news_insights = news_insights or []
         # Pre-compute macro overlay once — shared across the batch
         macro_bias, macro_regime = self._compute_macro_overlay(policy_signals)
+        # Phase 57 Part 2 (DEC-024): pre-compute insider-flow overlays once per
+        # cycle.  One adapter.fetch_events() call per batch keeps HTTP traffic
+        # bounded and also lets providers like EDGAR amortise rate-limiting
+        # across all tickers.  ``None`` means no adapter wired → overlay stays
+        # at its zero default, matching pre-Part-2 behaviour.
+        insider_overlays: dict[str, Any] = self._compute_insider_flow_batch(
+            [fs.ticker for fs in feature_sets]
+        )
         enriched: list[FeatureSet] = []
         for fs in feature_sets:
             try:
@@ -155,6 +181,14 @@ class FeatureEnrichmentService:
                     sentiment_score=sentiment_score,
                     sentiment_confidence=sentiment_confidence,
                 )
+                ov = insider_overlays.get(fs.ticker.upper())
+                if ov is not None:
+                    enriched_fs = replace(
+                        enriched_fs,
+                        insider_flow_score=ov.net_flow_score,
+                        insider_flow_confidence=ov.aggregate_confidence,
+                        insider_flow_age_days=ov.most_recent_age_days,
+                    )
                 if fundamentals_store:
                     fund_data = fundamentals_store.get(fs.ticker)
                     if fund_data is not None:
@@ -243,6 +277,48 @@ class FeatureEnrichmentService:
             min(1.0, total_weight / len(ticker_insights)), 4
         )
         return sentiment_score, sentiment_confidence
+
+    # ------------------------------------------------------------------
+    # Phase 57 Part 2 — Insider-flow overlay (DEC-024)
+    # ------------------------------------------------------------------
+
+    def _compute_insider_flow_batch(self, tickers: list[str]) -> dict:
+        """Return ticker_upper → InsiderFlowOverlay for the given tickers.
+
+        Behaviour:
+            - No adapter injected ⇒ empty dict (overlay left at zero default).
+            - Adapter raises ⇒ empty dict + WARNING (never breaks enrichment).
+            - Adapter returns [] ⇒ empty dict (ticker defaults stay zero).
+            - Otherwise aggregate per-ticker via adapter.aggregate() and
+              return the resulting overlays keyed by upper-case ticker.
+        """
+        adapter = self._insider_flow_adapter
+        if adapter is None or not tickers:
+            return {}
+        try:
+            events = adapter.fetch_events(tickers)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "insider_flow_fetch_failed n_tickers=%d error=%s",
+                len(tickers), exc,
+            )
+            return {}
+
+        if not events:
+            return {}
+
+        overlays: dict = {}
+        for t in tickers:
+            try:
+                overlay = adapter.aggregate(t, events)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "insider_flow_aggregate_failed ticker=%s error=%s", t, exc,
+                )
+                continue
+            if overlay.event_count > 0:
+                overlays[t.upper()] = overlay
+        return overlays
 
     # ------------------------------------------------------------------
     # Fundamentals overlay helpers

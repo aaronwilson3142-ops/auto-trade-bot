@@ -3,6 +3,25 @@ Format: timestamp | decision | alternatives considered | rationale | consequence
 
 ---
 
+## [2026-04-18] Phase 57 Part 2 — Insider Flow Providers Land Default-OFF
+
+### DEC-036: Land Phase 57 Part 2 (QuiverQuant + SEC EDGAR adapters + enrichment wiring) straight to `main` behind default-OFF credential gates
+- **Decision:** Commit the two concrete `InsiderFlowAdapter` implementations (`QuiverQuantAdapter`, `SECEdgarFormFourAdapter`), the `build_insider_flow_adapter` factory, and the `FeatureEnrichmentService` hook directly to `main` without a feature branch. The entire codepath is gated by `APIS_INSIDER_FLOW_PROVIDER=null` (default) plus the Part-1 `APIS_ENABLE_INSIDER_FLOW_STRATEGY=false` flag, so production behaviour is byte-for-byte identical until the operator opts in and supplies a credential.
+- **Alternatives considered:**
+  - (a) Land on `feat/phase57-part2` branch, open a PR against `main`. Rejected — operator directive 2026-04-18 ("commit the concrete adapter straight to `main`; default-OFF flag means behaviour-neutral, consistent with how the Deep-Dive steps landed"). The Deep-Dive Step 1–8 commits used the same straight-to-`main` pattern.
+  - (b) Crash-on-missing-credential. Rejected — "a missing signal is preferable to a crashed paper cycle." The factory logs a WARNING and degrades to `NullInsiderFlowAdapter`. Explicit `_fire_ks()`-triad lesson from the 2026-04-17 crash-triad (see `project_paper_cycle_crashtriad_2026-04-18.md`): adapters in the hot path must fail open.
+  - (c) Use HTTP retries that raise on exhaustion. Rejected for the same reason; retry exhaustion returns `[]`.
+- **Rationale:** Default-OFF behind two flags + credential presence = zero risk of unintended signal injection before ToS review. The paid QuiverQuant account requires operator review of programmatic-ingestion terms before a key can be provisioned. SEC EDGAR requires a real User-Agent before any traffic is sent. Both gates are explicit in the factory's fallback matrix (see docstring of `insider_flow_factory.py`).
+- **Consequence:** Adapter code is on `main` and live in the image, but the signal stays absent from `InsiderFlowOverlay` until the operator:
+  1. Reviews QuiverQuant ToS for the APIS use-case.
+  2. Sets `APIS_INSIDER_FLOW_PROVIDER=quiverquant` (or `sec_edgar`/`composite`) in `apis/.env`.
+  3. Sets the matching credential (`APIS_QUIVERQUANT_API_KEY` and/or `APIS_SEC_EDGAR_USER_AGENT=<real contact>`).
+  4. For EDGAR: threads a `ticker_to_cik` map into the factory call from the enrichment wire (currently passes `None` → tickers without CIK silently skip).
+  5. Flips `APIS_ENABLE_INSIDER_FLOW_STRATEGY=true` so the `InsiderFlowStrategy` reads the now-populated overlay.
+- **Not covered by this decision:** the signal's weight inside the regime-weighted blend. That stays at its Part-1 scaffold value until after shadow-portfolio evidence accumulates (see DEC-034). Any raise is a separate proposal through the self-improvement engine (subject to DEC-033's frozen-gates list).
+
+---
+
 ## [2026-04-16] Deep-Dive Review — Self-Improvement First Direction
 
 ### DEC-031: Defer walk-forward / OOS harness and survivorship-free data acquisition; prioritize self-improvement expansion + safe trade-count first

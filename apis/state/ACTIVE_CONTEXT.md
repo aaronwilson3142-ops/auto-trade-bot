@@ -1,5 +1,27 @@
 # APIS — Active Context
-Last Updated: 2026-04-19 01:05 UTC (thematic-pct drift resolved — `.env` 0.50 → 0.75, worker + api recreated; Phase 66's 75% AI-heavy concentration cap is now actually in effect. Stack healthy. Monday 09:35 ET paper cycle unchanged.)
+Last Updated: 2026-04-18 (Phase 57 Part 2 — concrete insider-flow adapters + enrichment wiring landed default-OFF on `main` + pushed; stack healthy; Monday 09:35 ET paper cycle unchanged — signal stays absent until operator opts in and supplies a credential.)
+
+## 2026-04-18 Update — Phase 57 Part 2 Landed Default-OFF
+
+Five operator-greenlit follow-ups from the Saturday triage (2026-04-18) are now all complete. Item 4 — "wire concrete QuiverQuant + SEC EDGAR adapters behind default-OFF flag" — landed straight to `main` per explicit operator directive ("commit the concrete adapter straight to `main`; default-OFF flag means behaviour-neutral, consistent with how the Deep-Dive steps landed").
+
+**What landed:**
+- `apis/services/data_ingestion/adapters/quiverquant_adapter.py` (~270 lines) — Congressional STOCK Act (primary) via QuiverQuant REST; Bearer auth; 2s rate-limit; 3 retries + jitter; returns `[]` on any error.
+- `apis/services/data_ingestion/adapters/sec_edgar_form4_adapter.py` (~330 lines) — SEC EDGAR Form 4 (supplementary) via submissions JSON → per-filing XML; 0.25s rate-limit (≤4 req/s, under SEC's 10 req/s cap); zero-pads CIKs to 10 digits; tickers without CIK silently skip.
+- `apis/services/data_ingestion/adapters/insider_flow_factory.py` (~140 lines) — `build_insider_flow_adapter(settings, ticker_to_cik)`; fallback matrix (`null` / missing creds / composite partial) → `NullInsiderFlowAdapter` with WARNING. **Never raises.**
+- `apis/services/feature_store/enrichment.py` — adds `insider_flow_adapter` parameter (default None → no-op); one fetch per batch, `dataclasses.replace()` per ticker; None-safe and empty-event-safe.
+- `apis/config/settings.py` — three new `Field(default=…)` entries (`insider_flow_provider=null`, `quiverquant_api_key=""`, `sec_edgar_user_agent=""`).
+- `apis/.env.example` — matching `APIS_*` keys.
+- `apis/tests/unit/test_phase57_part2_insider_flow_providers.py` — 31 new tests (factory fallback, QuiverQuant HTTP + parsing, SEC EDGAR CIK mapping + XML parsing, enrichment overlay population with fake http client).
+
+**Tests:** targeted cross-step sweep across Deep-Dive steps 1–8 + Phase 22 enrichment + Phase 57 Parts 1+2 = **358/360 passed in ~31s.** The two failures (`test_phase22_enrichment_pipeline.py::TestWorkerSchedulerPhase22::test_scheduler_has_thirteen_jobs` and `::test_all_expected_job_ids_present`) are pre-existing scheduler drift from DEC-021 (learning acceleration bumped the job count 30 → 35 on 2026-04-09). **Not caused by this commit.** Tracked in HEALTH_LOG for separate cleanup.
+
+**Behavioural neutrality:** with the default env (`APIS_INSIDER_FLOW_PROVIDER=null` + `APIS_ENABLE_INSIDER_FLOW_STRATEGY=false`), the factory returns `NullInsiderFlowAdapter`, `fetch_events()` returns `[]`, the batch helper returns `{}`, no `replace()` call fires, and `InsiderFlowStrategy` still no-ops. Production behaviour is byte-for-byte identical until the operator flips both flags and supplies a credential. See DEC-036 for the full promotion gate.
+
+**Still gated on operator review:**
+- QuiverQuant ToS review for APIS use-case (paid subscription).
+- SEC EDGAR User-Agent real-contact string.
+- Ticker→CIK map wiring in the enrichment pipeline (currently `ticker_to_cik=None` — tickers without CIK silently skip).
 
 ## 2026-04-19 01:00 UTC Update — `.env` Fix (Option A applied)
 

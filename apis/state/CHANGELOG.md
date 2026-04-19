@@ -3,6 +3,48 @@ Format: [YYYY-MM-DD] | file/module | description
 
 ---
 
+## [2026-04-18] Phase 57 Part 2 — Concrete Insider-Flow Adapters + Enrichment Wiring (Default OFF)
+
+Completes the Phase 57 insider/smart-money flow signal family. Part 1 (2026-03-28) shipped the ABC (`InsiderFlowAdapter`), dataclasses (`InsiderFlowEvent`, `InsiderFlowOverlay`), `NullInsiderFlowAdapter` fallback, `insider_flow_*` feature-store columns, and the `InsiderFlowStrategy` scaffold — all behind `APIS_ENABLE_INSIDER_FLOW_STRATEGY=false`. Part 2 wires in the two concrete providers chosen in DEC-023: **QuiverQuant** (primary, congressional STOCK Act filings) and **SEC EDGAR Form 4** (supplementary, corporate insider filings), plus the enrichment-pipeline hook that populates the overlay per ticker per cycle.
+
+**Promotion gate — still default OFF.** Two credential-gated flags guard every code path introduced by this commit:
+- `APIS_ENABLE_INSIDER_FLOW_STRATEGY=false` (unchanged from Part 1)
+- `APIS_INSIDER_FLOW_PROVIDER=null` (new; values: `null` | `quiverquant` | `sec_edgar` | `composite`)
+- `APIS_QUIVERQUANT_API_KEY=""` (new; empty → fall back to Null with WARNING)
+- `APIS_SEC_EDGAR_USER_AGENT=""` (new; empty → fall back to Null with WARNING)
+
+Any gap in config degrades to `NullInsiderFlowAdapter` — the factory **never raises**, because a missing signal is preferable to a crashed paper cycle.
+
+**Files added (4):**
+- `apis/services/data_ingestion/adapters/quiverquant_adapter.py` (~270 lines) — `QuiverQuantAdapter(InsiderFlowAdapter)`. Per-ticker GET `/historical/congresstrading/{ticker}` with Bearer auth; rate-limit 2s min interval, 3 retries with full-jitter exponential backoff on 429/5xx; returns `[]` on 404, network errors, bad JSON, retry exhaustion — never raises. `_midpoint_of_range()` handles QuiverQuant's bracket amounts (`$1,001 – $15,000`) and explicit numeric `Amount`; `_classify_side()` maps Transaction strings to BUY/SELL (unrecognised → None, skipped).
+- `apis/services/data_ingestion/adapters/sec_edgar_form4_adapter.py` (~330 lines) — `SECEdgarFormFourAdapter(InsiderFlowAdapter)`. Two-stage fetch: submissions JSON (index) → per-filing Form 4 XML (details). Rate-limit 0.25s min interval (≤4 req/s under SEC's 10 req/s cap); requires user_agent (SEC compliance); `_pad_cik()` zero-pads CIKs to 10 digits; tickers without CIK silently skipped. Maps `transactionCode`: A→BUY, D→SELL, others ignored.
+- `apis/services/data_ingestion/adapters/insider_flow_factory.py` (~140 lines) — `build_insider_flow_adapter(settings, ticker_to_cik)` dispatcher. Fallback matrix: unknown provider → Null; missing credentials → Null (warns); composite with partial creds → whichever single adapter has creds. `_CompositeInsiderFlowAdapter` merges events from multiple sub-adapters and swallows per-adapter errors.
+- `apis/tests/unit/test_phase57_part2_insider_flow_providers.py` (~480 lines, 31 tests) — factory fallback matrix (9), QuiverQuant parsing + HTTP (9), SEC EDGAR parsing + CIK mapping (7), `FeatureEnrichmentService` overlay population (5). Uses `_FakeHttpClient` with pre-loaded `_FakeResponse` queue; zero network IO.
+
+**Files modified (3):**
+- `apis/config/settings.py` — added three `Field(default=…)` entries after `enable_insider_flow_strategy` (line ~306): `insider_flow_provider`, `quiverquant_api_key`, `sec_edgar_user_agent`.
+- `apis/.env.example` — new block after `APIS_KILL_SWITCH`:
+  ```
+  APIS_ENABLE_INSIDER_FLOW_STRATEGY=false
+  APIS_INSIDER_FLOW_PROVIDER=null
+  APIS_QUIVERQUANT_API_KEY=
+  APIS_SEC_EDGAR_USER_AGENT=
+  ```
+- `apis/services/feature_store/enrichment.py` — `FeatureEnrichmentService.__init__` accepts optional `insider_flow_adapter` (default None → no-op). New `_compute_insider_flow_batch(tickers) -> dict[str, InsiderFlowOverlay]` helper: None adapter or empty tickers → `{}`; `adapter.fetch_events()` raising → log WARNING, return `{}`. `enrich()` / `enrich_batch()` call the helper once per batch, then use `dataclasses.replace(fs, insider_flow_score=ov.net_flow_score, insider_flow_confidence=ov.aggregate_confidence, insider_flow_age_days=ov.most_recent_age_days)` per ticker — None-safe; empty events leave the Part-1 defaults at zero.
+
+**Tests:** targeted cross-step sweep across Deep-Dive steps 1–8 + Phase 22 enrichment + Phase 57 Parts 1+2 = **358/360 passed in ~31s**. The two failures (`test_phase22_enrichment_pipeline.py::TestWorkerSchedulerPhase22::test_scheduler_has_thirteen_jobs` + `::test_all_expected_job_ids_present`) are pre-existing scheduler drift from DEC-021 (2026-04-09 learning acceleration: 30 → 35 jobs; 5 extra cycles `paper_trading_cycle_pre_midday/late_morning/early_afternoon/afternoon/close`). Not caused by this commit; noted in HEALTH_LOG.
+
+**Behavioural neutrality:** with the default env (`insider_flow_provider=null`), the factory returns `NullInsiderFlowAdapter`, `adapter.fetch_events()` returns `[]`, `_compute_insider_flow_batch()` returns `{}`, and no `replace()` call fires on any `FeatureSet`. Production behaviour is byte-for-byte identical until the operator sets `APIS_INSIDER_FLOW_PROVIDER=quiverquant` (or `sec_edgar`/`composite`) **and** supplies the corresponding credential. The `InsiderFlowStrategy` scaffold from Part 1 is still gated by its own `APIS_ENABLE_INSIDER_FLOW_STRATEGY=false`.
+
+**Commit `2026-04-18` (main):** `feat(phase57): Part 2 — concrete insider-flow adapters + enrichment wiring (default OFF)` — 7 files, +~1,220/-~10. DEC-023 rationale (QuiverQuant + SEC EDGAR vs Finnhub) preserved in file docstrings. **New DEC-036** records the landing.
+
+**Still to confirm after operator opt-in:**
+- QuiverQuant ToS review before setting `APIS_QUIVERQUANT_API_KEY` — paid API, Aaron's account must permit programmatic ingestion for APIS use-case.
+- SEC EDGAR User-Agent string convention: `"Aaron Wilson aaron.wilson3142@gmail.com"` (SEC requires real contact info).
+- Ticker→CIK map wiring: the enrichment pipeline currently passes `ticker_to_cik=None`; to enable EDGAR the operator must thread the map from `securities` or `pointintime_universe` into the factory call.
+
+---
+
 ## [2026-04-19 UTC / 2026-04-18 evening CT] `.env` fix — `APIS_MAX_THEMATIC_PCT` 0.50 → 0.75 (operator-approved Option A)
 
 Resolves the config drift surfaced by the 2026-04-19 00:55 UTC health check. Phase 66 (2026-04-16, DEC-026) raised `max_thematic_pct` in `apis/config/settings.py:131` from 0.50 → 0.75 to let the AI-heavy thesis concentrate up to 75% of the book, but the operator's `.env` still pinned the env override at 0.50 — so the runtime cap was 0.50, not 0.75. Ranking/theme bonuses were live; concentration cap was not. Operator reviewed the flag and asked for it reconciled.

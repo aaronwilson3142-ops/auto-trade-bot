@@ -1,5 +1,23 @@
 # APIS — Next Steps
-Last Updated: 2026-04-18 (Deep-Dive Step 5 origin_strategy wiring landed `d08875d` + pushed; 236/236 cross-step sweep; next paper cycle Mon 2026-04-20 09:35 ET)
+Last Updated: 2026-04-18 (Phase 57 Part 2 concrete insider-flow adapters landed default-OFF on `main` + pushed; 358/360 targeted sweep; 2 failures pre-existing scheduler drift; next paper cycle Mon 2026-04-20 09:35 ET unchanged)
+
+## COMPLETE — Phase 57 Part 2 Landed Default-OFF (2026-04-18)
+
+Phase 57 ("insider/smart-money flow" signal family) is now fully wired end-to-end — Part 1 scaffold + Part 2 concrete providers. Both sit behind default-OFF credential gates per DEC-036: unknown provider, missing API key, or missing SEC User-Agent all degrade to `NullInsiderFlowAdapter` with a WARNING — never a crash. Production behaviour is byte-for-byte identical until the operator:
+1. Reviews QuiverQuant ToS for APIS's programmatic-ingestion use-case.
+2. Sets `APIS_INSIDER_FLOW_PROVIDER=quiverquant` (or `sec_edgar`/`composite`) in `apis/.env`.
+3. Sets the matching credential (`APIS_QUIVERQUANT_API_KEY` and/or `APIS_SEC_EDGAR_USER_AGENT=<real contact>`).
+4. For EDGAR: threads a `ticker_to_cik` map into the factory (currently passes `None` so tickers without CIK silently skip).
+5. Flips `APIS_ENABLE_INSIDER_FLOW_STRATEGY=true` so the `InsiderFlowStrategy` reads the populated overlay.
+
+See CHANGELOG entry dated 2026-04-18 + DEC-036 for full diff and rationale. 31 new unit tests + 358/360 cross-step sweep.
+
+**Removed from this queue.** Phase 57 Part 2 was the only pending item on the 2026-04-18 5-item triage list; all 5 are now complete:
+1. ✅ `.env.example` template bump to `APIS_MAX_THEMATIC_PCT=0.75` (commit `4a02fd3`).
+2. ✅ Delete `_restart_worker_api.bat` scratch file.
+3. ✅ Monday cycle watch plan + checker script (commit `ca6278b` + `0ef6a0c`).
+4. ✅ **Phase 57 Part 2 concrete adapters (this commit).**
+5. ✅ Learning-acceleration rollback PR (commit `0ef6a0c`).
 
 ## PRIORITY — Monday 2026-04-20 09:35 ET Baseline Paper Cycle (unchanged)
 
