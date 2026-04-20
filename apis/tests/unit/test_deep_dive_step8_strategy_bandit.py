@@ -16,7 +16,6 @@ Covers:
 """
 from __future__ import annotations
 
-import datetime as dt
 import math
 import random
 import uuid
@@ -24,7 +23,6 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Tiny in-memory Session stub tailored to StrategyBanditService
@@ -38,7 +36,7 @@ class _FakeResult:
     def scalar_one_or_none(self):
         return self._rows[0] if self._rows else None
 
-    def scalars(self) -> "_FakeResult":
+    def scalars(self) -> _FakeResult:
         return self
 
     def all(self) -> list[Any]:

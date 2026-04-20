@@ -69,7 +69,7 @@ class PointInTimeUniverseService:
 
     def __init__(
         self,
-        adapter: "PointInTimeAdapter | None" = None,
+        adapter: PointInTimeAdapter | None = None,
         watchlist_name: str = DEFAULT_WATCHLIST,
         default_index_name: str = DEFAULT_INDEX,
     ) -> None:

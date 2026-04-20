@@ -46,7 +46,7 @@ def run_proposal_outcome_assessment(now: dt.datetime | None = None) -> dict:
         _log.info("proposal_outcome_assessment.skipped", reason="flag_off")
         return {"considered": 0, "assessed": 0, "skipped": 0, "flag_off": True}
 
-    now = now or dt.datetime.now(dt.timezone.utc)
+    now = now or dt.datetime.now(dt.UTC)
     with SessionLocal() as db:
         svc = ProposalOutcomeLedgerService(db)
         due = svc.get_due_for_assessment(now=now)

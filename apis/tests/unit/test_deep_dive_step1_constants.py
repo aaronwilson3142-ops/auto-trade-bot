@@ -133,7 +133,7 @@ class TestRankingEngineUsesSettings:
             explanation_dict={"rationale": "t"},
             source_reliability_tier="secondary_verified",
             contains_rumor=False,
-            as_of=dt.datetime.now(dt.timezone.utc),
+            as_of=dt.datetime.now(dt.UTC),
         )
 
     def test_recommend_action_respects_custom_buy_threshold(self, monkeypatch):
@@ -171,14 +171,14 @@ class TestRebalanceTargetTTL:
 
     def test_fresh_targets_returned(self):
         from apps.worker.jobs.paper_trading import _fresh_rebalance_targets
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime.now(dt.UTC)
         st = self._make_state(now, {"AAPL": 0.2, "MSFT": 0.3})
         cfg = self._make_settings(3600)
         assert _fresh_rebalance_targets(st, cfg) == {"AAPL": 0.2, "MSFT": 0.3}
 
     def test_stale_targets_dropped(self):
         from apps.worker.jobs.paper_trading import _fresh_rebalance_targets
-        old = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=2)
+        old = dt.datetime.now(dt.UTC) - dt.timedelta(hours=2)
         st = self._make_state(old, {"AAPL": 0.2})
         cfg = self._make_settings(3600)
         assert _fresh_rebalance_targets(st, cfg) == {}
@@ -191,14 +191,14 @@ class TestRebalanceTargetTTL:
 
     def test_ttl_zero_disables_freshness_check(self):
         from apps.worker.jobs.paper_trading import _fresh_rebalance_targets
-        ancient = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=30)
+        ancient = dt.datetime.now(dt.UTC) - dt.timedelta(days=30)
         st = self._make_state(ancient, {"AAPL": 0.2})
         cfg = self._make_settings(0)
         assert _fresh_rebalance_targets(st, cfg) == {"AAPL": 0.2}
 
     def test_empty_targets_fast_path(self):
         from apps.worker.jobs.paper_trading import _fresh_rebalance_targets
-        st = self._make_state(dt.datetime.now(dt.timezone.utc), {})
+        st = self._make_state(dt.datetime.now(dt.UTC), {})
         cfg = self._make_settings(3600)
         assert _fresh_rebalance_targets(st, cfg) == {}
 
@@ -220,7 +220,7 @@ class TestThemeAlignmentUsesSettings:
         fs = FeatureSet(
             security_id=1,
             ticker="NVDA",
-            as_of_timestamp=dt.datetime.now(dt.timezone.utc),
+            as_of_timestamp=dt.datetime.now(dt.UTC),
             theme_scores={"ai_infrastructure": 0.5},
         )
         out = ThemeAlignmentStrategy().score(fs)
@@ -234,6 +234,7 @@ class TestSelfImprovementUsesSettings:
     )
     def test_hit_rate_rule_reads_setting(self, monkeypatch):
         from decimal import Decimal
+
         from services.self_improvement.service import SelfImprovementService
 
         svc = SelfImprovementService()

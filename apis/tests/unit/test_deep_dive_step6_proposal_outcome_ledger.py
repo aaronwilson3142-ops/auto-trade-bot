@@ -22,7 +22,6 @@ from typing import Any
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # PROPOSAL_OUTCOME_WINDOWS table
 # ---------------------------------------------------------------------------
@@ -125,14 +124,14 @@ class TestLedgerValidationGuards:
             svc.write_decision(
                 proposal_id=uuid.uuid4(),
                 decision="FROBNICATE",
-                decision_at=dt.datetime.now(dt.timezone.utc),
+                decision_at=dt.datetime.now(dt.UTC),
                 baseline_metric_snapshot={"sharpe": 1.2},
             )
 
     def test_write_decision_accepts_each_valid_decision(self) -> None:
         from services.self_improvement.outcome_ledger import (
-            ProposalOutcomeLedgerService,
             VALID_DECISIONS,
+            ProposalOutcomeLedgerService,
         )
 
         for d in VALID_DECISIONS:
@@ -141,7 +140,7 @@ class TestLedgerValidationGuards:
             svc.write_decision(
                 proposal_id=uuid.uuid4(),
                 decision=d,
-                decision_at=dt.datetime.now(dt.timezone.utc),
+                decision_at=dt.datetime.now(dt.UTC),
                 baseline_metric_snapshot={},
                 proposal_type="source_weight",
             )
@@ -154,7 +153,7 @@ class TestLedgerValidationGuards:
         svc.write_decision(
             proposal_id=uuid.uuid4(),
             decision="PROMOTED",
-            decision_at=dt.datetime.now(dt.timezone.utc),
+            decision_at=dt.datetime.now(dt.UTC),
             baseline_metric_snapshot={},
             proposal_type="holding_period_rule",  # 14-day window per DEC-035
         )
@@ -170,7 +169,7 @@ class TestLedgerValidationGuards:
         svc.write_decision(
             proposal_id=uuid.uuid4(),
             decision="PROMOTED",
-            decision_at=dt.datetime.now(dt.timezone.utc),
+            decision_at=dt.datetime.now(dt.UTC),
             baseline_metric_snapshot={},
             proposal_type="holding_period_rule",
             measurement_window_days=7,
@@ -187,7 +186,7 @@ class TestLedgerValidationGuards:
                 realized_metric_snapshot={},
                 outcome_verdict="amazing",
                 outcome_confidence=0.5,
-                measured_at=dt.datetime.now(dt.timezone.utc),
+                measured_at=dt.datetime.now(dt.UTC),
             )
 
     def test_write_assessment_rejects_out_of_range_confidence(self) -> None:
@@ -200,7 +199,7 @@ class TestLedgerValidationGuards:
                 realized_metric_snapshot={},
                 outcome_verdict="improved",
                 outcome_confidence=1.5,
-                measured_at=dt.datetime.now(dt.timezone.utc),
+                measured_at=dt.datetime.now(dt.UTC),
             )
         with pytest.raises(ValueError, match="confidence"):
             svc.write_assessment(
@@ -208,7 +207,7 @@ class TestLedgerValidationGuards:
                 realized_metric_snapshot={},
                 outcome_verdict="improved",
                 outcome_confidence=-0.01,
-                measured_at=dt.datetime.now(dt.timezone.utc),
+                measured_at=dt.datetime.now(dt.UTC),
             )
 
 
@@ -258,6 +257,7 @@ class TestBattingAverage:
 # (production).  Follow the Step 5 precedent: skip under 3.10 rather than
 # patching an out-of-scope pre-existing model file.
 import sys as _sys
+
 _skip_if_no_dt_utc = pytest.mark.skipif(
     _sys.version_info < (3, 11),
     reason="models.py uses dt.UTC which is Python 3.11+; sandbox is 3.10",

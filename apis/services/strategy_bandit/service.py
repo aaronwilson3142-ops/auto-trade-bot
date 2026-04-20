@@ -28,9 +28,9 @@ from __future__ import annotations
 import datetime as dt
 import random
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Iterable
 
 import structlog
 from sqlalchemy import select
@@ -170,7 +170,7 @@ class StrategyBanditService:
             row.beta = (Decimal(str(row.beta)) + Decimal("1.0"))
             row.n_losses = int(row.n_losses) + 1
             outcome = "loss"
-        row.updated_at = now or dt.datetime.now(dt.timezone.utc)
+        row.updated_at = now or dt.datetime.now(dt.UTC)
         self._db.flush()
 
         result = BanditUpdateResult(
@@ -205,7 +205,7 @@ class StrategyBanditService:
         cached draws are reused.  The per-row ``cycles_since_resample``
         counter is incremented regardless.
         """
-        now = now or dt.datetime.now(dt.timezone.utc)
+        now = now or dt.datetime.now(dt.UTC)
         # Distinguish None (use defaults) from [] (caller explicitly asked
         # for an empty weight map — honour that rather than silently falling
         # back to the default family list).

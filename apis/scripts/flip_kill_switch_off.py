@@ -46,7 +46,7 @@ def _flip_db_row() -> None:
                 db.add(row)
             else:
                 row.value_text = val
-        print(f"[ok] DB kill_switch_active set to 'false'")
+        print("[ok] DB kill_switch_active set to 'false'")
 
 
 def _flip_runtime_via_api() -> None:

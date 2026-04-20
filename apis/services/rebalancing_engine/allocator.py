@@ -29,9 +29,8 @@ one for the other without changing the downstream drift computation.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Mapping
-
 
 # ── Tunable defaults (used when no settings object is supplied) ───────────────
 
@@ -105,7 +104,7 @@ def compute_weights(
     # Master kill-switch: any "off" state collapses to equal weighting.
     if not enabled or method == "equal":
         return AllocationResult(
-            weights={t: equal_w for t in top},
+            weights=dict.fromkeys(top, equal_w),
             method_used="equal",
             tickers_considered=n,
             reason="kill_switch_off" if (not enabled and method != "equal") else "",
@@ -113,7 +112,7 @@ def compute_weights(
 
     if method not in ("score", "score_invvol"):
         return AllocationResult(
-            weights={t: equal_w for t in top},
+            weights=dict.fromkeys(top, equal_w),
             method_used="equal",
             tickers_considered=n,
             fell_back_to_equal=True,
@@ -144,7 +143,7 @@ def compute_weights(
     if positive_count == 0:
         # No positive scores — cannot meaningfully differentiate; use equal.
         return AllocationResult(
-            weights={t: equal_w for t in top},
+            weights=dict.fromkeys(top, equal_w),
             method_used="equal",
             tickers_considered=n,
             fell_back_to_equal=True,

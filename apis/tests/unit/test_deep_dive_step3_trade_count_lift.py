@@ -14,14 +14,10 @@ Flag-OFF cases must be bit-for-bit equivalent to pre-Step-3 behavior.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from decimal import Decimal
 from typing import Any
 
-import pytest
-
-from services.ranking_engine.service import RankingEngineService
 from apps.worker.jobs.paper_trading import _apply_ranking_min_filter
-
+from services.ranking_engine.service import RankingEngineService
 
 # ── Shared stubs ─────────────────────────────────────────────────────────────
 

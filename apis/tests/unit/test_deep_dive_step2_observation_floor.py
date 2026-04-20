@@ -10,13 +10,11 @@ statistical-noise territory per DEC-034.
 """
 from __future__ import annotations
 
-import datetime as dt
 import sys
 from types import SimpleNamespace
 from unittest import mock
 
 import pytest
-
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
 

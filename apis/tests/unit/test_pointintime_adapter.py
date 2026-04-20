@@ -235,8 +235,8 @@ class TestAdapterFactorySelection:
     def test_factory_defaults_to_yfinance_when_settings_unset(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from services.data_ingestion.adapters.yfinance_adapter import YFinanceAdapter
         from services.data_ingestion import service as svc_mod
+        from services.data_ingestion.adapters.yfinance_adapter import YFinanceAdapter
 
         adapter = svc_mod._build_default_adapter()
         # Default data_source is YFINANCE

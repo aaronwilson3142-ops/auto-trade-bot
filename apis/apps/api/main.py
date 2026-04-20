@@ -170,7 +170,7 @@ def _load_persisted_state() -> None:
                 # Ensure timezone-aware (health check uses UTC-aware datetime).
                 _snap_ts = latest_snap.snapshot_timestamp
                 if _snap_ts is not None and _snap_ts.tzinfo is None:
-                    _snap_ts = _snap_ts.replace(tzinfo=_dt.timezone.utc)
+                    _snap_ts = _snap_ts.replace(tzinfo=_dt.UTC)
                 app_state.last_paper_cycle_at = _snap_ts
                 logger.info(
                     "portfolio_snapshot_restored",
@@ -182,12 +182,13 @@ def _load_persisted_state() -> None:
 
     # ── Phase 59: Restore portfolio_state from open Position rows ───────────
     try:
-        import sqlalchemy as _sa_port
         from decimal import Decimal as _Dec
 
+        import sqlalchemy as _sa_port
+
         from infra.db.models import Security
-        from infra.db.models.portfolio import Position as _DBPosition
         from infra.db.models.portfolio import PortfolioSnapshot as _DBSnap2
+        from infra.db.models.portfolio import Position as _DBPosition
         from infra.db.session import db_session as _db_sess_port
         from services.portfolio_engine.models import PortfolioPosition, PortfolioState
 
@@ -267,8 +268,9 @@ def _load_persisted_state() -> None:
 
     # ── Phase 59: Restore closed_trades + trade_grades from closed Positions ─
     try:
-        import sqlalchemy as _sa_ct
         from decimal import Decimal as _Dec2
+
+        import sqlalchemy as _sa_ct
 
         from infra.db.models import Security as _Sec2
         from infra.db.models.portfolio import Position as _DBPos2
@@ -295,8 +297,8 @@ def _load_persisted_state() -> None:
                 r_pnl = _Dec2(str(pos.realized_pnl)) if pos.realized_pnl else (exit_p - entry_p) * qty
                 cost = entry_p * qty if qty else _Dec2("1")
                 r_pnl_pct = (r_pnl / cost) if cost else _Dec2("0")
-                opened = pos.opened_at or _dt.datetime.now(_dt.timezone.utc)
-                closed = pos.closed_at or _dt.datetime.now(_dt.timezone.utc)
+                opened = pos.opened_at or _dt.datetime.now(_dt.UTC)
+                closed = pos.closed_at or _dt.datetime.now(_dt.UTC)
                 hold_days = (closed.date() - opened.date()).days if closed and opened else 0
 
                 ct = ClosedTrade(
@@ -350,6 +352,7 @@ def _load_persisted_state() -> None:
     # ── Phase 59: Restore active_weight_profile from WeightProfile table ─────
     try:
         import json as _json_wp
+
         import sqlalchemy as _sa_wp
 
         from infra.db.models.weight_profile import WeightProfile as _DBWeight
@@ -383,6 +386,7 @@ def _load_persisted_state() -> None:
     # ── Phase 59: Restore current_regime_result from RegimeSnapshot table ────
     try:
         import json as _json_rg
+
         import sqlalchemy as _sa_rg
 
         from infra.db.models.regime_detection import RegimeSnapshot as _DBRegime
@@ -424,6 +428,7 @@ def _load_persisted_state() -> None:
     # ── Phase 59: Restore latest_readiness_report from ReadinessSnapshot ─────
     try:
         import json as _json_rr
+
         import sqlalchemy as _sa_rr
 
         from infra.db.models.readiness import ReadinessSnapshot as _DBReady

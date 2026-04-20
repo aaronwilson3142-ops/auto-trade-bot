@@ -17,11 +17,10 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import sys
 from decimal import Decimal
 from typing import Any
 from unittest.mock import MagicMock, Mock, patch
-
-import sys
 
 import pytest
 
@@ -73,7 +72,7 @@ def _make_mock_position(
     pos.quantity = Decimal(str(quantity))
     pos.market_value = Decimal(str(market_value)) if market_value else None
     pos.realized_pnl = Decimal(str(realized_pnl)) if realized_pnl else None
-    pos.opened_at = opened_at or dt.datetime(2026, 4, 1, 10, 0, tzinfo=dt.timezone.utc)
+    pos.opened_at = opened_at or dt.datetime(2026, 4, 1, 10, 0, tzinfo=dt.UTC)
     pos.closed_at = closed_at
     pos.thesis_snapshot_json = thesis_snapshot_json
     return pos
@@ -85,7 +84,7 @@ def _make_mock_snapshot(
     gross_exposure=20000.0,
 ):
     snap = MagicMock()
-    snap.snapshot_timestamp = dt.datetime(2026, 4, 8, 17, 0, tzinfo=dt.timezone.utc)
+    snap.snapshot_timestamp = dt.datetime(2026, 4, 8, 17, 0, tzinfo=dt.UTC)
     snap.cash_balance = Decimal(str(cash_balance))
     snap.equity_value = Decimal(str(equity_value))
     snap.gross_exposure = Decimal(str(gross_exposure))
@@ -125,7 +124,6 @@ class TestRestorePortfolioState:
 
     def test_restore_with_snapshot_and_positions(self):
         """When DB has a snapshot + open positions, portfolio_state is populated."""
-        from services.portfolio_engine.models import PortfolioPosition, PortfolioState
 
         state = _make_app_state()
         snap = _make_mock_snapshot()
@@ -178,7 +176,7 @@ class TestRestorePortfolioState:
             quantity=Decimal("100"),
             avg_entry_price=Decimal("50.00"),
             current_price=Decimal("52.00"),
-            opened_at=dt.datetime(2026, 4, 1, tzinfo=dt.timezone.utc),
+            opened_at=dt.datetime(2026, 4, 1, tzinfo=dt.UTC),
         )
         assert pos.ticker == "AAPL"
         assert pos.market_value == Decimal("5200.00")
@@ -193,7 +191,7 @@ class TestRestorePortfolioState:
             quantity=Decimal("100"),
             avg_entry_price=Decimal("50.00"),
             current_price=Decimal("52.00"),
-            opened_at=dt.datetime(2026, 4, 1, tzinfo=dt.timezone.utc),
+            opened_at=dt.datetime(2026, 4, 1, tzinfo=dt.UTC),
         )
         ps = PortfolioState(
             cash=Decimal("80000"),
@@ -236,8 +234,8 @@ class TestRestoreClosedTrades:
             realized_pnl=Decimal("500"),
             realized_pnl_pct=Decimal("0.025"),
             reason="restored_from_db",
-            opened_at=dt.datetime(2026, 3, 15, tzinfo=dt.timezone.utc),
-            closed_at=dt.datetime(2026, 4, 5, tzinfo=dt.timezone.utc),
+            opened_at=dt.datetime(2026, 3, 15, tzinfo=dt.UTC),
+            closed_at=dt.datetime(2026, 4, 5, tzinfo=dt.UTC),
             hold_duration_days=21,
         )
         assert ct.ticker == "MSFT"
@@ -373,7 +371,7 @@ class TestRestoreRegimeResult:
             regime=MarketRegime.BULL_TREND,
             confidence=0.85,
             detection_basis={"sma_ratio": 1.05, "vix": 15.0},
-            detected_at=dt.datetime(2026, 4, 8, 6, 20, tzinfo=dt.timezone.utc),
+            detected_at=dt.datetime(2026, 4, 8, 6, 20, tzinfo=dt.UTC),
         )
         assert rr.regime == MarketRegime.BULL_TREND
         assert rr.confidence == 0.85
@@ -395,13 +393,13 @@ class TestRestoreRegimeResult:
             regime=MarketRegime.SIDEWAYS,
             confidence=0.6,
             detection_basis={},
-            detected_at=dt.datetime(2026, 4, 7, tzinfo=dt.timezone.utc),
+            detected_at=dt.datetime(2026, 4, 7, tzinfo=dt.UTC),
         )
         newer = RegimeResult(
             regime=MarketRegime.BULL_TREND,
             confidence=0.8,
             detection_basis={},
-            detected_at=dt.datetime(2026, 4, 8, tzinfo=dt.timezone.utc),
+            detected_at=dt.datetime(2026, 4, 8, tzinfo=dt.UTC),
         )
         history = [older, newer]
         assert history[-1].regime == MarketRegime.BULL_TREND
@@ -423,7 +421,7 @@ class TestRestoreRegimeResult:
             detection_basis={},
             is_manual_override=True,
             override_reason="Market crash",
-            detected_at=dt.datetime(2026, 4, 8, 6, 20, tzinfo=dt.timezone.utc),
+            detected_at=dt.datetime(2026, 4, 8, 6, 20, tzinfo=dt.UTC),
         )
         assert rr.is_manual_override is True
         assert rr.override_reason == "Market crash"
@@ -441,7 +439,7 @@ class TestRestoreReadinessReport:
         from services.readiness.models import ReadinessReport
 
         report = ReadinessReport(
-            generated_at=dt.datetime(2026, 4, 8, 18, 45, tzinfo=dt.timezone.utc),
+            generated_at=dt.datetime(2026, 4, 8, 18, 45, tzinfo=dt.UTC),
             current_mode="paper",
             target_mode="human_approved",
             overall_status="WARN",
@@ -640,6 +638,7 @@ class TestStartupCatchup:
     def test_catchup_called_in_lifespan(self):
         """_run_startup_catchup is called during lifespan startup."""
         import inspect
+
         import apps.api.main as main_mod
 
         # Read the full module source to confirm _run_startup_catchup is

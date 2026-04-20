@@ -39,7 +39,6 @@ from services.data_ingestion.adapters.sec_edgar_form4_adapter import (
 from services.feature_store.enrichment import FeatureEnrichmentService
 from services.feature_store.models import FeatureSet
 
-
 # ---------------------------------------------------------------------------
 # Fake HTTP plumbing
 # ---------------------------------------------------------------------------
@@ -548,7 +547,7 @@ def _make_feature_set(ticker: str = "NVDA") -> FeatureSet:
     return FeatureSet(
         security_id=uuid.uuid4(),
         ticker=ticker,
-        as_of_timestamp=dt.datetime(2026, 4, 18, tzinfo=dt.timezone.utc),
+        as_of_timestamp=dt.datetime(2026, 4, 18, tzinfo=dt.UTC),
     )
 
 

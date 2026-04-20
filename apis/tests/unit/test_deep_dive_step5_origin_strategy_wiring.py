@@ -25,11 +25,8 @@ from decimal import Decimal
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from services.portfolio_engine.models import PortfolioPosition, PortfolioState
 from services.risk_engine.family_params import derive_origin_strategy
-
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -80,7 +77,7 @@ def _make_position(
         quantity=Decimal(str(quantity)),
         avg_entry_price=Decimal(str(avg_entry_price)),
         current_price=Decimal(str(current_price)),
-        opened_at=dt.datetime(2026, 4, 1, tzinfo=dt.timezone.utc),
+        opened_at=dt.datetime(2026, 4, 1, tzinfo=dt.UTC),
         security_id=security_id,
         origin_strategy=origin_strategy,
     )
@@ -236,7 +233,7 @@ class TestPersistPositionsWritesOriginStrategy:
             yield fake_db
 
         with patch("infra.db.session.db_session", fake_session):
-            _persist_positions(ps, [], dt.datetime.now(dt.timezone.utc))
+            _persist_positions(ps, [], dt.datetime.now(dt.UTC))
 
         assert len(fake_db.added) == 1
         added = fake_db.added[0]
@@ -261,7 +258,7 @@ class TestPersistPositionsWritesOriginStrategy:
             yield fake_db
 
         with patch("infra.db.session.db_session", fake_session):
-            _persist_positions(ps, [], dt.datetime.now(dt.timezone.utc))
+            _persist_positions(ps, [], dt.datetime.now(dt.UTC))
 
         assert len(fake_db.added) == 1
         added = fake_db.added[0]
@@ -295,7 +292,7 @@ class TestPersistPositionsBackfillAndImmutability:
             yield fake_db
 
         with patch("infra.db.session.db_session", fake_session):
-            _persist_positions(ps, [], dt.datetime.now(dt.timezone.utc))
+            _persist_positions(ps, [], dt.datetime.now(dt.UTC))
 
         # No new row added; existing backfilled in place.
         assert fake_db.added == []
@@ -331,7 +328,7 @@ class TestPersistPositionsBackfillAndImmutability:
             yield fake_db
 
         with patch("infra.db.session.db_session", fake_session):
-            _persist_positions(ps, [], dt.datetime.now(dt.timezone.utc))
+            _persist_positions(ps, [], dt.datetime.now(dt.UTC))
 
         # Pinned family preserved even though the ranking has shifted.
         assert existing.origin_strategy == "momentum"
@@ -361,7 +358,7 @@ class TestPersistPositionsBackfillAndImmutability:
             yield fake_db
 
         with patch("infra.db.session.db_session", fake_session):
-            _persist_positions(ps, [], dt.datetime.now(dt.timezone.utc))
+            _persist_positions(ps, [], dt.datetime.now(dt.UTC))
 
         assert existing.origin_strategy is None
 

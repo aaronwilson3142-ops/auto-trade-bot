@@ -20,13 +20,11 @@ Covers:
 """
 from __future__ import annotations
 
-import datetime as dt
 import uuid
 from decimal import Decimal
 from typing import Any
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Settings integration
@@ -80,10 +78,9 @@ class TestShadowNameConstants:
         }
 
     def test_rejection_vs_rebalance_taxonomy_split(self) -> None:
-        from services.shadow_portfolio import REBALANCE_SHADOWS, REJECTION_SHADOWS
-
         # Every canonical name must belong to exactly one bucket kind.
         from infra.db.models.shadow_portfolio import SHADOW_NAMES
+        from services.shadow_portfolio import REBALANCE_SHADOWS, REJECTION_SHADOWS
 
         for name in SHADOW_NAMES:
             assert (name in REJECTION_SHADOWS) ^ (name in REBALANCE_SHADOWS), (
@@ -115,18 +112,18 @@ class _FakeQuery:
         self.limit_n: int | None = None
         self.ordered_by_name: bool = False
 
-    def where(self, *criteria) -> "_FakeQuery":
+    def where(self, *criteria) -> _FakeQuery:
         for c in criteria:
             self.predicates.extend(self._unpack(c))
         return self
 
-    def order_by(self, *_a, **_kw) -> "_FakeQuery":
+    def order_by(self, *_a, **_kw) -> _FakeQuery:
         # Remember that the query requested ordering — for list_shadows this
         # asks for alphabetical; for get_trades this is by executed_at.
         self.ordered_by_name = True
         return self
 
-    def limit(self, n: int) -> "_FakeQuery":
+    def limit(self, n: int) -> _FakeQuery:
         self.limit_n = int(n)
         return self
 
@@ -166,7 +163,7 @@ class _FakeResult:
             return None
         return self._rows[0]
 
-    def scalars(self) -> "_FakeResult":
+    def scalars(self) -> _FakeResult:
         return self
 
     def all(self) -> list[Any]:

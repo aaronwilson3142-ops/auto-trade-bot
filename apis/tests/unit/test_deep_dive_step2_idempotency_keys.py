@@ -21,7 +21,6 @@ from unittest import mock
 
 import pytest
 
-
 # ── Lightweight fakes to stand in for PortfolioState and related types ───────
 
 
@@ -53,7 +52,7 @@ class _FakeStmt:
         self.values_dict = dict(values)
         self.constraint: str | None = None
 
-    def on_conflict_do_nothing(self, *, constraint: str | None = None) -> "_FakeStmt":
+    def on_conflict_do_nothing(self, *, constraint: str | None = None) -> _FakeStmt:
         self.constraint = constraint
         return self
 
@@ -290,7 +289,7 @@ def test_persist_evaluation_run_with_run_id_populates_idem_key():
     # First added object is the run, then 8 metric rows.
     assert len(db.added) == 9
     run = db.added[0]
-    assert getattr(run, "idempotency_key") == "2026-04-16:paper:evaluation_run"
+    assert run.idempotency_key == "2026-04-16:paper:evaluation_run"
 
 
 @pytest.mark.skipif(
@@ -330,6 +329,6 @@ def test_persist_evaluation_run_without_run_id_takes_legacy_path():
 
     assert len(db.added) == 9
     run = db.added[0]
-    assert getattr(run, "idempotency_key") is None
+    assert run.idempotency_key is None
     # Legacy path must not issue a pre-flight SELECT.
     assert db.executed_queries == []

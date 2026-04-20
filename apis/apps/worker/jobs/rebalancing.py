@@ -72,7 +72,9 @@ def run_rebalance_check(
         _method = str(getattr(cfg, "rebalance_weighting_method", "equal"))
         _method_on = bool(getattr(cfg, "score_weighted_rebalance_enabled", False))
         if _method_on and _method in ("score", "score_invvol"):
-            from services.rebalancing_engine import compute_weights as _compute_weights  # noqa: PLC0415
+            from services.rebalancing_engine import (
+                compute_weights as _compute_weights,  # noqa: PLC0415
+            )
 
             _scores: dict[str, float] = {}
             for _r in rankings or []:

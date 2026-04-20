@@ -19,8 +19,9 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping
+from typing import Any
 
 import structlog
 from sqlalchemy import and_, select
@@ -200,7 +201,7 @@ class ProposalOutcomeLedgerService:
         """Return ledger rows whose measurement window has elapsed but
         whose ``realized_metric_snapshot`` is still NULL.
         """
-        now = now or dt.datetime.now(dt.timezone.utc)
+        now = now or dt.datetime.now(dt.UTC)
         rows = (
             self._db.execute(
                 select(ProposalOutcome).where(

@@ -13,13 +13,8 @@ equivalent to the pre-Step-4 ``RebalancingService.compute_target_weights``.
 """
 from __future__ import annotations
 
-import math
-
-import pytest
-
-from services.rebalancing_engine import compute_weights, RebalanceAllocator
+from services.rebalancing_engine import RebalanceAllocator, compute_weights
 from services.risk_engine.rebalancing import RebalancingService
-
 
 _EPS = 1e-6
 

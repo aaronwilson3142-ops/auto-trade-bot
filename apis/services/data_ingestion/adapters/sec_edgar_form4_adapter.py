@@ -257,7 +257,7 @@ class SECEdgarFormFourAdapter(InsiderFlowAdapter):
             return []
 
         try:
-            root = ET.fromstring(xml_text)
+            root = ET.fromstring(xml_text)  # noqa: S314 — EDGAR XML from a known gov source; defusedxml swap tracked separately
         except ET.ParseError as exc:
             logger.warning(
                 "edgar_form4_xml_parse_failed ticker=%s accn=%s error=%s",

@@ -12,8 +12,7 @@ Covers the full truth-table for ``resolve_action_conflicts``:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 from services.action_orchestrator.invariants import (
     ActionConflict,
@@ -21,7 +20,6 @@ from services.action_orchestrator.invariants import (
     assert_no_action_conflicts,
     resolve_action_conflicts,
 )
-
 
 # ── Stub types mirroring PortfolioAction / RankedResult shape ─────────────────
 

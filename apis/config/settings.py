@@ -7,11 +7,10 @@ from __future__ import annotations
 
 from enum import Enum
 from functools import lru_cache
-from typing import Annotated, Dict
+from typing import Annotated
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
 
 # -- Deep-Dive Plan Step 1 (2026-04-16) -- centralized AI-bias defaults ------
 # These defaults preserve the literals previously embedded in
@@ -19,7 +18,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # services/signal_engine/strategies/theme_alignment.py (_AI_THEME_BONUS).
 # Promoted to config/settings.py for reversibility (DEC-032 keeps the values
 # frozen; moving them to config does not change the operator bet).
-_DEFAULT_AI_RANKING_BONUS_MAP: Dict[str, float] = {
+_DEFAULT_AI_RANKING_BONUS_MAP: dict[str, float] = {
     "ai_infrastructure":   0.08,
     "ai_applications":     0.07,
     "semiconductors":      0.06,
@@ -31,7 +30,7 @@ _DEFAULT_AI_RANKING_BONUS_MAP: Dict[str, float] = {
     "mega_cap_tech":       0.03,
 }
 
-_DEFAULT_AI_THEME_BONUS_MAP: Dict[str, float] = {
+_DEFAULT_AI_THEME_BONUS_MAP: dict[str, float] = {
     "ai_infrastructure":   1.35,
     "ai_applications":     1.30,
     "semiconductors":      1.25,
@@ -170,10 +169,10 @@ class Settings(BaseSettings):
     ranking_threshold_avg_loss_floor: float = Field(
         default=-0.02, ge=-1.0, le=0.0
     )
-    ai_ranking_bonus_map: Dict[str, float] = Field(
+    ai_ranking_bonus_map: dict[str, float] = Field(
         default_factory=lambda: dict(_DEFAULT_AI_RANKING_BONUS_MAP)
     )
-    ai_theme_bonus_map: Dict[str, float] = Field(
+    ai_theme_bonus_map: dict[str, float] = Field(
         default_factory=lambda: dict(_DEFAULT_AI_THEME_BONUS_MAP)
     )
     rebalance_target_ttl_seconds: int = Field(default=3600, ge=0)

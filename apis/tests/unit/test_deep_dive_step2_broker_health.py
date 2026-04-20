@@ -13,7 +13,6 @@ from services.broker_adapter.health import (
     check_broker_adapter_health,
 )
 
-
 # ── Stubs ────────────────────────────────────────────────────────────────────
 
 

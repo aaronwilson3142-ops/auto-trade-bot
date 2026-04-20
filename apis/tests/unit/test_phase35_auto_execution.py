@@ -68,7 +68,7 @@ def _make_app_state() -> ApiAppState:
     from services.signal_engine.signal_quality import SignalQualityReport
     state = get_app_state()
     state.latest_signal_quality = SignalQualityReport(
-        computed_at=dt.datetime.now(dt.timezone.utc),
+        computed_at=dt.datetime.now(dt.UTC),
         total_outcomes_recorded=50,  # well above the default floor of 10
         strategies_with_data=["momentum"],
         strategy_results=[],
@@ -185,7 +185,7 @@ class TestExecutionRecord:
             config_delta={"min_score": 0.65},
             baseline_params={"min_score": 0.5},
             status="applied",
-            executed_at=dt.datetime.now(dt.timezone.utc),
+            executed_at=dt.datetime.now(dt.UTC),
         )
         assert rec.id == "exec-1"
         assert rec.status == "applied"
@@ -201,7 +201,7 @@ class TestExecutionRecord:
             config_delta={},
             baseline_params={},
             status="applied",
-            executed_at=dt.datetime.now(dt.timezone.utc),
+            executed_at=dt.datetime.now(dt.UTC),
         )
         assert rec.notes == ""
 
@@ -456,7 +456,7 @@ class TestAutoExecutionDBPersist:
             config_delta={},
             baseline_params={},
             status="applied",
-            executed_at=dt.datetime.now(dt.timezone.utc),
+            executed_at=dt.datetime.now(dt.UTC),
         )
         # Should not raise
         self.svc._persist_execution(record, bad_factory)
@@ -472,7 +472,7 @@ class TestAutoExecutionDBPersist:
             config_delta={},
             baseline_params={},
             status="applied",
-            executed_at=dt.datetime.now(dt.timezone.utc),
+            executed_at=dt.datetime.now(dt.UTC),
         )
         # Must not raise
         self.svc._persist_execution(record, None)
@@ -480,7 +480,7 @@ class TestAutoExecutionDBPersist:
     def test_persist_rollback_skips_when_no_session_factory(self):
         self.svc._persist_rollback(
             "some-id",
-            dt.datetime.now(dt.timezone.utc),
+            dt.datetime.now(dt.UTC),
             None,
         )  # must not raise
 
@@ -490,7 +490,7 @@ class TestAutoExecutionDBPersist:
 
         self.svc._persist_rollback(
             "some-id",
-            dt.datetime.now(dt.timezone.utc),
+            dt.datetime.now(dt.UTC),
             bad_factory,
         )  # must not raise
 
@@ -516,7 +516,7 @@ class TestSelfImprovementSchemas:
 
     def test_execution_record_schema_fields(self):
         from apps.api.schemas.self_improvement import ExecutionRecordSchema
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime.now(dt.UTC)
         schema = ExecutionRecordSchema(
             id="e1",
             proposal_id="p1",
@@ -562,7 +562,7 @@ class TestSelfImprovementSchemas:
             skipped_count=1,
             error_count=0,
             errors=[],
-            run_at=dt.datetime.now(dt.timezone.utc),
+            run_at=dt.datetime.now(dt.UTC),
         )
         assert resp.executed_count == 2
 
@@ -783,7 +783,7 @@ class TestAutoExecuteWorkerJob:
         from services.signal_engine.signal_quality import SignalQualityReport
         state = _make_app_state()
         state.latest_signal_quality = SignalQualityReport(
-            computed_at=dt.datetime.now(dt.timezone.utc),
+            computed_at=dt.datetime.now(dt.UTC),
             total_outcomes_recorded=3,  # below default floor of 10
         )
         state.improvement_proposals = [_make_promoted_proposal()]

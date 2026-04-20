@@ -41,7 +41,6 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
-import logging
 import sys
 import time
 from decimal import Decimal
@@ -54,8 +53,8 @@ if str(_project_root) not in sys.path:
 
 from config.logging_config import configure_logging, get_logger
 from config.universe import get_universe_tickers
-from services.backtest.config import BacktestConfig
 from services.backtest.comparison import BacktestComparisonService
+from services.backtest.config import BacktestConfig
 
 configure_logging(log_level="INFO")
 logger = get_logger(__name__)

@@ -314,8 +314,8 @@ def _fresh_rebalance_targets(app_state: Any, settings: Any) -> dict:
         return {}
     try:
         if computed_at.tzinfo is None:
-            computed_at = computed_at.replace(tzinfo=dt.timezone.utc)
-        age = (dt.datetime.now(dt.timezone.utc) - computed_at).total_seconds()
+            computed_at = computed_at.replace(tzinfo=dt.UTC)
+        age = (dt.datetime.now(dt.UTC) - computed_at).total_seconds()
     except Exception:  # noqa: BLE001
         return {}
     if age > ttl:
@@ -549,6 +549,8 @@ def run_paper_trading_cycle(
         try:
             from services.broker_adapter.health import (
                 BrokerAdapterHealthError as _BrokerHealthErr,
+            )
+            from services.broker_adapter.health import (
                 check_broker_adapter_health as _check_broker_health,
             )
 
@@ -1258,10 +1260,10 @@ def run_paper_trading_cycle(
         # ``rebalance_weighting_method`` dictates; the shadows are purely A/B.
         if _shadow_enabled(cfg):
             try:
+                from infra.db.session import db_session as _reb_shadow_db_session  # noqa: PLC0415
                 from services.rebalancing_engine import (  # noqa: PLC0415
                     compute_weights as _compute_weights,
                 )
-                from infra.db.session import db_session as _reb_shadow_db_session  # noqa: PLC0415
 
                 _modes = list(getattr(cfg, "shadow_rebalance_modes", []) or [])
                 _reb_equity_s = (
@@ -1354,7 +1356,9 @@ def run_paper_trading_cycle(
                 # portfolio.  Flag-gated — OFF is byte-for-byte legacy.
                 if _shadow_enabled(cfg) and action.action_type == ActionType.OPEN:
                     try:
-                        from infra.db.session import db_session as _shadow_db_session  # noqa: PLC0415
+                        from infra.db.session import (
+                            db_session as _shadow_db_session,  # noqa: PLC0415
+                        )
 
                         with _shadow_db_session() as _shadow_db:
                             _svc = _shadow_service(_shadow_db)

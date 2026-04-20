@@ -20,22 +20,20 @@ from decimal import Decimal
 
 import pytest
 
+from services.portfolio_engine.models import PortfolioPosition, PortfolioState
+from services.portfolio_engine.service import PortfolioEngineService
+from services.ranking_engine.models import RankedResult
 from services.risk_engine.family_params import (
     FAMILY_PARAMS,
-    FamilyParams,
     compute_atr_stop_pct,
     compute_atr_trailing_pct,
     derive_origin_strategy,
     resolve_family,
 )
 from services.risk_engine.service import RiskEngineService
-from services.portfolio_engine.service import PortfolioEngineService
-from services.portfolio_engine.models import PortfolioPosition, PortfolioState
-from services.ranking_engine.models import RankedResult
-
 
 _EPS = 1e-6
-_NOW = dt.datetime.now(dt.timezone.utc)
+_NOW = dt.datetime.now(dt.UTC)
 
 
 # ── FAMILY_PARAMS table + resolver ───────────────────────────────────────────
@@ -175,7 +173,7 @@ def _make_position(
         quantity=Decimal("1"),
         avg_entry_price=avg,
         current_price=cur,
-        opened_at=dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=opened_days_ago),
+        opened_at=dt.datetime.now(dt.UTC) - dt.timedelta(days=opened_days_ago),
         thesis_summary="",
         strategy_key="",
         security_id=None,
@@ -323,7 +321,7 @@ def _ranked(ticker: str, composite: float, fit: float | None) -> RankedResult:
         sizing_hint_pct=None,
         source_reliability_tier="verified",
         contains_rumor=False,
-        as_of=dt.datetime.now(dt.timezone.utc),
+        as_of=dt.datetime.now(dt.UTC),
     )
 
 

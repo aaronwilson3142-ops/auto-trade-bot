@@ -18,9 +18,9 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Iterable, Mapping
 
 import structlog
 from sqlalchemy import and_, select
@@ -155,7 +155,7 @@ class ShadowPortfolioService:
         if price_d <= 0:
             raise ValueError(f"price must be positive, got {price_d}")
 
-        now = executed_at or dt.datetime.now(dt.timezone.utc)
+        now = executed_at or dt.datetime.now(dt.UTC)
         shadow = self.ensure_shadow(shadow_name)
 
         pos_row = self._db.execute(

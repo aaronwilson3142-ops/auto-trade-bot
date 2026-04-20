@@ -75,8 +75,6 @@ ignore = [
     "ANN001",  # missing type annotation for function argument
     "ANN002",  # missing type annotation for *args
     "ANN003",  # missing type annotation for **kwargs
-    "ANN101",  # missing type annotation for self
-    "ANN102",  # missing type annotation for cls
     "ANN201",  # missing return type for public function
     "ANN202",  # missing return type for private function
     "ANN401",  # Any type disallowed — used intentionally in generic helpers
@@ -84,6 +82,7 @@ ignore = [
     "S101",    # use of assert — allowed in tests
     "S104",    # hardcoded bind-all interfaces — intentional for containerised API
     "S110",    # try-except-pass — used deliberately in optional integrations
+    "S311",    # pseudo-random (random.*) — ML sampling / jitter, never crypto
     # ── Style / formatting ─────────────────────────────────────────────────────
     "E501",    # line too long — black/formatter handles this; 100-char target
     "E402",    # module import not at top — required by some FastAPI lazy-import patterns

@@ -699,8 +699,6 @@ def _restore_evaluation_history_from_db() -> None:
     2026-04-14.
     """
     try:
-        import datetime as _dt_eval
-        from decimal import Decimal as _Dec_eval
         from types import SimpleNamespace as _SN
 
         import sqlalchemy as _sa

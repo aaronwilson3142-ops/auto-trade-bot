@@ -44,8 +44,6 @@ import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
-from typing import Optional
-
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Constants — the error patterns we are confirming the ABSENCE of
@@ -61,7 +59,7 @@ PHANTOM_CLEANUP_NOTE = "Phantom broker state reset 2026-04-18"
 @dataclass
 class CheckResult:
     name: str
-    passed: Optional[bool]  # None ⇒ skipped
+    passed: bool | None  # None ⇒ skipped
     detail: str
 
     @property
@@ -89,8 +87,8 @@ def check_worker_logs_clean(cycle_date: dt.date) -> CheckResult:
     # during EDT; we look back to 13:00 UTC to catch startup-phase errors too.
     since = f"{cycle_date.isoformat()}T13:00:00"
     try:
-        result = subprocess.run(
-            ["docker", "logs", "docker-worker-1", "--since", since],
+        result = subprocess.run(  # noqa: S603
+            ["docker", "logs", "docker-worker-1", "--since", since],  # noqa: S607 — operator-only CLI shim; `docker` always in PATH
             capture_output=True,
             text=True,
             timeout=30,

@@ -30,7 +30,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TimestampMixin
 
-
 # Reserved shadow names — these are the six DEC-034 buckets.  Free-form
 # names are still permitted by the schema (no CHECK), but these are the
 # canonical set recognised by ``ShadowPortfolioService``.

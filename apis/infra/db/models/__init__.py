@@ -17,8 +17,8 @@ from .regime_detection import RegimeSnapshot
 from .self_improvement import (
     ImprovementEvaluation,
     ImprovementProposal,
-    ProposalOutcome,
     PromotedVersion,
+    ProposalOutcome,
 )
 from .shadow_portfolio import (
     SHADOW_NAMES,
@@ -27,9 +27,9 @@ from .shadow_portfolio import (
     ShadowTrade,
 )
 from .signal import RankedOpportunity, RankingRun, SecuritySignal, SignalRun, Strategy
-from .strategy_bandit import StrategyBanditState
 from .signal_quality import SignalOutcome
 from .source import SecurityEventLink, Source, SourceEvent
+from .strategy_bandit import StrategyBanditState
 from .system_state import SystemStateEntry
 from .weight_profile import WeightProfile
 

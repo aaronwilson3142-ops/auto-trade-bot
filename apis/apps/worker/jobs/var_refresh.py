@@ -102,9 +102,8 @@ def run_var_refresh(
         price_history: dict[str, list[float]] = {}
 
         try:
-            from infra.db.models.market_data import DailyMarketBar  # noqa: PLC0415
-
             from infra.db.models import Security  # noqa: PLC0415
+            from infra.db.models.market_data import DailyMarketBar  # noqa: PLC0415
 
             with session_factory() as session:
                 rows = (

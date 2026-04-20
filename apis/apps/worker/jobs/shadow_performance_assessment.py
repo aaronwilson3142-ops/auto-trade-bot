@@ -57,7 +57,7 @@ def run_shadow_performance_assessment(now: dt.datetime | None = None) -> dict:
         _log.info("shadow_performance_assessment.skipped", reason="flag_off")
         return {"flag_off": True, "shadows": {}, "proposals_emitted": 0}
 
-    now = now or dt.datetime.now(dt.timezone.utc)
+    now = now or dt.datetime.now(dt.UTC)
     summary: dict[str, dict] = {}
     with SessionLocal() as db:
         svc = ShadowPortfolioService(db)

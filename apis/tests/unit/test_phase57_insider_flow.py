@@ -29,7 +29,6 @@ import pytest
 from services.data_ingestion.adapters.insider_flow_adapter import (
     InsiderFlowAdapter,
     InsiderFlowEvent,
-    InsiderFlowOverlay,
     NullInsiderFlowAdapter,
 )
 from services.feature_store.models import ComputedFeature, FeatureSet
@@ -43,7 +42,6 @@ from services.signal_engine.strategies import (
     ValuationStrategy,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------
@@ -56,7 +54,7 @@ def _make_feature_set(
     volatility: float | None = 0.25,
     dollar_volume: float | None = 1.5e9,
 ) -> FeatureSet:
-    now = dt.datetime(2026, 4, 8, tzinfo=dt.timezone.utc)
+    now = dt.datetime(2026, 4, 8, tzinfo=dt.UTC)
     features: list[ComputedFeature] = []
     if volatility is not None:
         features.append(
@@ -97,7 +95,7 @@ class TestFeatureSetOverlayDefaults:
         fs = FeatureSet(
             security_id=uuid.uuid4(),
             ticker="AAPL",
-            as_of_timestamp=dt.datetime.now(dt.timezone.utc),
+            as_of_timestamp=dt.datetime.now(dt.UTC),
         )
         assert fs.insider_flow_score == 0.0
         assert fs.insider_flow_confidence == 0.0

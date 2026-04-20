@@ -518,7 +518,9 @@ class RiskEngineService:
             # stop/trailing pcts from ATR and family max_age_days.
             if atr_stops_on:
                 from services.risk_engine.family_params import (  # noqa: PLC0415
-                    resolve_family, compute_atr_stop_pct, compute_atr_trailing_pct,
+                    compute_atr_stop_pct,
+                    compute_atr_trailing_pct,
+                    resolve_family,
                 )
                 fam = resolve_family(getattr(position, "origin_strategy", ""))
                 _atr = (atr_by_ticker or {}).get(ticker)
