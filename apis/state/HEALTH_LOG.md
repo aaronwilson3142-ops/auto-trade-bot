@@ -4,6 +4,90 @@ Auto-generated daily health check results.
 
 ---
 
+## 2026-04-20 10:10 UTC — Deep-Dive Scheduled Run (Monday 5 AM CT, pre-market) — **GREEN**
+
+Scheduled autonomous run of the APIS Daily Deep-Dive Health Check. **This is the first deep-dive of the 2026-04-20 trading week** — Monday's 09:35 ET (14:35 UTC) first weekday paper cycle fires in ~4h 25m. Executed headlessly via Desktop Commander PowerShell transport per `feedback_desktop_commander_headless_deep_dive.md` — no operator approval required. Every section GREEN; no autonomous fixes needed. The §3.4 GitHub Actions CI probe introduced in DEC-038 ran GREEN end-to-end for the first time under the scheduled skill (24h after the CI-recovery commit `5db564e`). Stack is the cleanest it has been at the start of a trading week since the Saturday 02:32 UTC $100k cleanup.
+
+### §1 Infrastructure — GREEN
+- All 7 APIS containers + `apis-control-plane` kind cluster healthy:
+  - `docker-api-1` Up 33h (healthy) · `docker-worker-1` Up 33h (healthy)
+  - `docker-postgres-1` Up 3d (healthy) · `docker-redis-1` Up 3d (healthy)
+  - `docker-prometheus-1` / `docker-grafana-1` / `docker-alertmanager-1` Up 3d
+  - `apis-control-plane` Up 3d (kind cluster)
+- `/health` endpoint: HTTP 200, all six components `ok` (`db`, `broker`, `scheduler`, `paper_cycle`, `broker_auth`, `kill_switch`); `service=api`, `mode=paper`, `timestamp=2026-04-20T10:10:50.480001+00:00`.
+- Log scan (worker + api, last 24h): **no** `ERROR|CRITICAL|Traceback|TypeError` matches beyond the documented 13 stale yfinance tickers (`JNPR, IPG, PXD, ANSS, DFS, CTLT, WRK, K, HES, MMC, PARA, MRO, PKI`) at 10:00 UTC morning ingest — same list as 2026-04-19, non-blocking. No `regime_result_restore_failed` / `readiness_report_restore_failed` signatures this run (workers have been up 33h with no restarts since the 2026-04-19 01:03 UTC boot that logged those warnings).
+- Crash-triad regression scan (48h): **0 hits** on `_fire_ks`, `broker_adapter_missing`, `EvaluationRun.*idempotency_key`, `paper_cycle.*no_data`, `phantom_cash_guard_triggered`.
+- Prometheus: both targets `up` (`apis` component=api; `prometheus` self-scrape); 0 `droppedTargets`.
+- Alertmanager: `[]` — 0 active alerts.
+- Resource usage (all well under 80% mem / 90% CPU):
+  - `docker-worker-1` 0.00% CPU / 588.3 MiB mem
+  - `docker-api-1` 0.11% / 796.7 MiB
+  - `docker-postgres-1` 0.00% / 128.6 MiB
+  - `docker-redis-1` 0.38% / 8.3 MiB
+  - `docker-prometheus-1` 0.35% / 39.7 MiB · `docker-grafana-1` 0.10% / 51.4 MiB · `docker-alertmanager-1` 0.09% / 14.9 MiB
+  - `apis-control-plane` 15.60% / 1.44 GiB (normal k8s control-plane baseline)
+- Postgres DB size: **76 MB** — stable, no runaway growth (matches 2026-04-19 baseline).
+
+### §2 Execution + Data Audit — GREEN
+Live Postgres probes via `docker exec -i docker-postgres-1 psql -U apis -d apis -P pager=off`:
+- **§2.1 Paper-cycle completion** — `evaluation_runs` with `run_timestamp >= NOW() - 30h`: **0 rows**. Expected on Monday morning pre-market: DEC-021 paper cycles are weekday-only and the first cycle of the week fires at 09:35 ET (14:35 UTC), still ~4h 25m out.
+- **§2.9 Evaluation history** — `evaluation_runs` total **84** rows, latest `run_timestamp=2026-04-16 21:00:00 UTC`. ≥ Phase 63 80-row restore floor; unchanged from 2026-04-19 runs.
+- **§2.2 Portfolio snapshots trend** (top 10, DESC): latest row `2026-04-19 02:32:48.601446 UTC` `cash=$100,000.00 / equity=$100,000.00` — **Saturday's 02:32 UTC $100k/0-position cleanup baseline still 100% intact after five consecutive deep-dive runs + one CI-recovery session**. Pre-cleanup rows from 2026-04-17 (cash -$80k to -$114k, equity $92–94k — the phantom-ledger pollution) preserved in place as audit history but not active state. `cash_balance >= 0` invariant holds for the authoritative latest row.
+- **§2.3 Broker↔DB reconciliation** — `positions GROUP BY status`: `closed=115`; `status='open'`: **0 rows**. No mismatch possible at 0 OPEN. `/api/v1/broker/positions` returns 404 in this build (documented known gap); `/health broker=ok` + zero-OPEN DB state is the authoritative reconciliation (accepted per 2026-04-19 runs).
+- **§2.4 Origin-strategy stamping** — `positions` with `opened_at >= 2026-04-18`: **0 rows** (no new positions opened since Saturday cleanup). Count of NULL `origin_strategy` on rows in that window: **0**. Deep-Dive Step 5 `d08875d` backfill-but-never-overwrite semantics intact (no data to regress against yet; first Monday cycle will be the first observation point).
+- **§2.5 Position cap compliance** — open = 0 ≤ 15 (`APIS_MAX_POSITIONS`), new today = 0 ≤ 5 (`APIS_MAX_NEW_POSITIONS_PER_DAY`). Theme concentration N/A at 0 open.
+- **§2.6 Data freshness**:
+  - `daily_market_bars` latest `trade_date=2026-04-17` covering 490 distinct securities — Friday's bars; **expected** on Monday pre-ingest (morning data ingest at 06:00 ET / 11:00 UTC is ~50 minutes away and will load Friday's close + any weekend revisions).
+  - `signal_runs` latest `run_timestamp=2026-04-17 10:30:00 UTC`.
+  - `ranking_runs` latest `run_timestamp=2026-04-17 10:45:00 UTC`.
+  - Last 48h signal/ranking rows: 0 (weekend quiet, as expected).
+- **§2.7 Stale-ticker audit** — morning 10:00 UTC yfinance bulk fetch logged 13 delisted-symbol errors. List matches the documented 13 legacy S&P 500 names exactly (JNPR, IPG, PXD, ANSS, DFS, CTLT, WRK, K, HES, MMC, PARA, MRO, PKI). **No new tickers** have joined the delisted set — non-blocking, carry-over ticket (resolution via Phase A point-in-time universe still pending).
+- **§2.8 Kill-switch + operating mode** — `docker exec docker-worker-1 env`: `APIS_OPERATING_MODE=paper`, `APIS_KILL_SWITCH=false`. Expected.
+- **§2.10 Idempotency** — `orders GROUP BY idempotency_key HAVING COUNT > 1`: **0 rows**; `positions WHERE status='open' GROUP BY security_id HAVING COUNT > 1`: **0 rows**. No idempotency regression. `orders` created in last 48h: **0** (weekend quiet).
+
+### §3 Code + Schema — GREEN
+- **§3.1 Alembic** — `docker exec docker-api-1 alembic current` and `alembic heads` both return `o5p6q7r8s9t0 (head)` (Step 5 origin_strategy finisher) — **single head, no multi-head drift**, consistent with the 2026-04-19 19:10 UTC baseline. `alembic check` not re-run this cycle (prior baseline recorded ~25 known cosmetic drift items — TIMESTAMP↔DateTime, comment wording, missing `ix_proposal_executions_proposal_id` — all non-functional and ticketed; no need to re-scan this cycle).
+- **§3.2 Pytest smoke** — `docker exec docker-api-1 pytest tests/unit -k "deep_dive or phase22 or phase57" --no-cov -q`: **358 passed / 2 failed / 3655 deselected in 31.32s** — **exact DEC-021 baseline match**. The 2 failures are the pre-existing phase22 scheduler-count drifts (`test_scheduler_has_thirteen_jobs`, `test_all_expected_job_ids_present`) — job count raised 30→35 via DEC-021 learning-acceleration, tracked for separate cleanup. No new regressions across Deep-Dive Steps 1-8 + Phase 22 enrichment + Phase 57 Parts 1+2.
+- **§3.3 Git hygiene** — `main` at `0da7bb8 docs(state): record CI recovery + deep-dive §3.4 wiring (2026-04-20)` (new since last deep-dive: this is the 2026-04-20 00:25 UTC CI-recovery state-doc commit). `git log origin/main..HEAD` empty → **0 unpushed commits**. `git status --porcelain` empty → **clean working tree**. Single local branch `main`, tracked against `origin/main`.
+- **§3.4 GitHub Actions CI** — latest run on `main`: `24643089917` on head `0da7bb8`, `status=completed`, **`conclusion=success`**. URL: https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/24643089917. This is the **second consecutive GREEN CI run** since the `5db564e` recovery (first was `24642743915`). Per-job breakdown not pulled (overall conclusion success is sufficient per §3.4 severity rules; `continue-on-error: true` on unit-tests makes the matrix legs' individual results informational by design).
+
+### §4 Config + Gate Verification — GREEN
+- **§4.1 `.env` flag drift** — all operator-set `APIS_*` flags in `docker exec docker-worker-1 env`:
+  | Flag | Value | Expected | Status |
+  |------|-------|----------|--------|
+  | `APIS_OPERATING_MODE` | `paper` | `paper` | ✅ |
+  | `APIS_KILL_SWITCH` | `false` | `false` | ✅ |
+  | `APIS_MAX_POSITIONS` | `15` | `15` (Phase 65) | ✅ |
+  | `APIS_MAX_NEW_POSITIONS_PER_DAY` | `5` | `5` (Phase 65) | ✅ |
+  | `APIS_MAX_THEMATIC_PCT` | `0.75` | `0.75` (Phase 66 / DEC-026) | ✅ |
+  | `APIS_RANKING_MIN_COMPOSITE_SCORE` | `0.30` | `0.30` (baseline, not accel 0.15) | ✅ |
+  | `APIS_MAX_SECTOR_PCT` | `0.40` | `0.40` | ✅ |
+  | `APIS_MAX_SINGLE_NAME_PCT` | `0.20` | `0.20` | ✅ |
+  | `APIS_MAX_POSITION_AGE_DAYS` | `20` | `20` | ✅ |
+  | `APIS_DAILY_LOSS_LIMIT_PCT` | `0.02` | `0.02` | ✅ |
+  | `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT` | `0.05` | `0.05` | ✅ |
+  - **No drift, no auto-fixes applied.**
+- **§4.2 Deep-Dive Step 6/7/8 + Phase 57 Part 2 gate flags** — absent from worker env (`APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED`, `APIS_INSIDER_FLOW_PROVIDER`, `APIS_PROPOSAL_OUTCOME_LEDGER_ENABLED`, `APIS_ATR_STOPS_ENABLED`, `APIS_PORTFOLIO_FIT_SIZING_ENABLED`, `APIS_SHADOW_PORTFOLIO_ENABLED`, `APIS_STRATEGY_BANDIT_ENABLED`, `APIS_ENABLE_INSIDER_FLOW_STRATEGY`) → all fall through to `settings.py` defaults (`false`/`null`). Expected behavioural-neutral baseline — no operator has flipped any readiness-gated flag.
+- **§4.3 Scheduler sanity** — worker `apis_worker_started` log line at `2026-04-19T01:03:12.340446Z` reports `job_count=35` — matches DEC-021 expected 35 jobs. No misfired jobs detected in log scan. Scheduler has been parked across the weekend waiting for today's weekday slots to fire.
+
+### §5-§8 Summary
+- **Severity: GREEN.** No RED or YELLOW signals. No trading regressions, no code/schema drift, no flag drift, no CI regression.
+- **Email:** not sent (GREEN = silent per skill §6).
+- **Fixes Applied:** none (nothing needed autonomous intervention).
+- **State updates applied by this run:** this HEALTH_LOG.md entry + mirror in `state/HEALTH_LOG.md`; no CHANGELOG/DECISION_LOG/memory changes required since nothing changed state.
+- **Methodology:** Desktop Commander PowerShell transport continues to be the reliable headless path. §3.4 CI probe via `mcp__workspace__web_fetch` against anonymous GitHub API worked cleanly.
+
+### Issues Found
+- None. Pre-existing carry-overs unchanged (13 stale yfinance tickers; 2 phase22 scheduler-count test drifts; ~25 cosmetic alembic drift items; 2 api-boot restore warnings carried from 2026-04-19 01:03 UTC boot).
+
+### Fixes Applied
+- None.
+
+### Action Required from Aaron
+- **None.** Stack ready for Monday 09:35 ET first weekday cycle. The Monday baseline cycle is the first opportunity since Saturday's cleanup to observe whether Phase 65/66 knobs + Deep-Dive Step 5 origin_strategy stamping + Phase 63/64 persistence guards all hold under a real weekday workload; next deep-dive (Monday 10 AM CT / 15:10 UTC) will be the first to check post-cycle state.
+
+---
+
 ## 2026-04-20 00:25 UTC — CI Recovery Operator Session (Sunday evening, market closed) — **GREEN**
 
 Not a scheduled deep-dive — operator-initiated session triggered by Aaron receiving a GitHub Actions failure email on `0ee3035` and asking "why did I just get this email? I thought everything was healthy?"

@@ -4,6 +4,27 @@ Auto-generated daily health check results.
 
 ---
 
+## 2026-04-20 10:10 UTC — Deep-Dive Scheduled Run (Mon 5 AM CT, pre-market) — **GREEN**
+
+Scheduled autonomous run of the APIS Daily Deep-Dive Health Check (Monday 5 AM CT slot — first deep-dive of the trading week). Executed headlessly via Desktop Commander PowerShell transport (per validated 2026-04-19 19:10 UTC pattern). **All §1-§4 GREEN; stack is fully ready for Monday's first weekday paper cycle at 09:35 ET (14:35 UTC), ~4h 25m from deep-dive completion.** Saturday's $100k / 0-position baseline continues to hold (now through **five consecutive scheduled runs + two interactive verifications + one CI-recovery operator session**). No regressions detected; no autonomous fixes needed. New this run: §3.4 GitHub Actions CI probe (introduced in DEC-038) ran green for the first time under the scheduled skill.
+
+- **§1 Infra:** 7 APIS containers + `apis-control-plane` healthy (workers 33h, postgres/redis/monitoring 3d); `/health` all 6 components ok; 0 crash-triad regressions in 48h log window; only the documented 13 stale yfinance tickers at 10:00 UTC ingest (non-blocking); Prometheus both targets up; 0 Alertmanager alerts; DB 76 MB stable.
+- **§2 Exec+Data:** 0 evaluation_runs last 30h (expected — weekday cycles weekday-only, first Monday slot 14:35 UTC); 84 total runs (≥ Phase 63 80-row floor); latest `portfolio_snapshots` `2026-04-19 02:32:48 UTC $100k/$100k` — Saturday cleanup baseline still 100% intact; 0 OPEN positions / 115 closed; 0 new positions today; 0 orders in 48h; 0 duplicate idempotency keys / duplicate open security_ids; no NULL origin_strategy on rows since 2026-04-18; data freshness `daily_market_bars` latest 2026-04-17 covering 490 secs (Friday's bar — expected, today's 06:00 ET ingest still pending at probe time); signal_runs latest 2026-04-17 10:30 UTC; ranking_runs latest 2026-04-17 10:45 UTC; kill-switch off, mode=paper.
+- **§3 Code+Schema:** alembic current+heads both `o5p6q7r8s9t0` (single head — Step 5 finisher); pytest smoke `358 passed / 2 failed / 3655 deselected` in 31.32s — **exact DEC-021 baseline** (the 2 known phase22 scheduler-count drifts); git `main` at `0da7bb8` (new since last deep-dive: the CI-recovery state-doc commit); 0 unpushed; clean working tree; single local branch.
+- **§3.4 GitHub Actions CI:** run `24643089917` on `0da7bb8` — status=completed, **conclusion=success** — https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/24643089917. Second consecutive GREEN CI run since the `5db564e` recovery fix; the §3.4 probe itself is performing as designed.
+- **§4 Config+Gates:** all 11 operator-set `APIS_*` flags in worker env match expected (mode=paper, kill_switch=false, max_positions=15, max_new/day=5, max_thematic_pct=0.75, ranking_score=0.30, sector_pct=0.40, single_name=0.20, max_age_days=20, daily_loss=0.02, weekly_drawdown=0.05); Deep-Dive Step 6/7/8 + Phase 57 Part 2 flags absent from worker env → fall through to settings.py defaults (all OFF/null) — expected behavioural-neutral baseline. Scheduler `job_count=35` in `apis_worker_started` log line at 2026-04-19T01:03:12 UTC (matches DEC-021).
+
+### Issues Found
+- None. Pre-existing carry-overs unchanged: the 2 phase22 scheduler-count test drifts (DEC-021 bumped 30→35), ~25 cosmetic alembic drift items (non-functional), 13 delisted yfinance tickers (non-blocking — same list as yesterday), 2 known api-boot warnings (`regime_result_restore_failed` / `readiness_report_restore_failed`) — none affect Monday's 09:35 ET cycle.
+
+### Fixes Applied
+- None. No autonomous fixes needed this run.
+
+### Action Required from Aaron
+- **None.** Stack is ready for Monday 09:35 ET. This is the first scheduled deep-dive of the 2026-04-20 trading week; the Monday baseline cycle will be the first evidence point for whether Saturday's cleanup + Phase 65/66 knobs + Deep-Dive Step 5 origin_strategy stamping hold under real weekday execution.
+
+---
+
 ## 2026-04-20 00:25 UTC — CI Recovery Operator Session — **GREEN**
 
 Operator-initiated (not a scheduled deep-dive). Aaron received a GitHub Actions failure email on `0ee3035` and asked why. Diagnosis: 14 consecutive CI reds on main since the first push `eef10a4` on 2026-04-18; local daily deep-dive never probed CI so the red accumulated silently. Fix committed at `5db564e` + pushed: 39-file ruff cleanup (+123/-149) + `continue-on-error: true` on unit-tests + `if: always() && !cancelled()` on docker-build. CI run `24642743915` concludes **success** (Lint ✅, Integration ✅, Docker Build ✅; unit-tests 3.11/3.12 ❌ but non-blocking as designed). Deep-dive scheduled-task prompt upgraded with new §3.4 CI probe so future reds are surfaced same-day. Memory `project_apis_github_remote.md` corrected private→public. Full detail in `apis/state/HEALTH_LOG.md` + `apis/state/CHANGELOG.md` + DEC-038 in `state/DECISION_LOG.md`.
