@@ -4,6 +4,728 @@ Auto-generated daily health check results.
 
 ---
 
+## Health Check — 2026-04-22 10:14 UTC (Wed 5 AM CT, pre-market)
+
+**Overall Status:** **GREEN** — first GREEN after 5 consecutive non-GREEN runs (4 RED + 1 YELLOW). Overnight hold confirmed: latest `portfolio_snapshots` row is Tue 19:30 UTC post-cycle `cash=+$23,006.77 / equity=$101,640.07`; phantom-cash writer has NOT reproduced since Tue 15:30 UTC; 6 open positions (all with `origin_strategy`), 0 new today (Wed pre-market — first cycle fires 13:35 UTC, ~3h after this deep-dive). All §1 infra + §3 code/schema + §4 config GREEN; §2 execution clean; CI 7th consecutive GREEN. This run matches the predicted trajectory from Tue 19:11 UTC report ("If the next deep-dive confirms positive cash persists without a new phantom write, the sequence reaches GREEN and the 4-file state-doc dirty batch can be committed"). Batch-committing state docs this run per the plan. Only outstanding concern remains latent (orders-ledger writer, universe_overrides migration) — all on pre-existing known-issues list.
+
+### §1 Infrastructure
+- Containers: 7 APIS + `apis-control-plane` all healthy; worker/api `Up 3 days (healthy)`, postgres/redis `Up 5 days (healthy)`, grafana/prometheus/alertmanager `Up 5 days`. No recent restarts.
+- /health: `status=ok service=api mode=paper timestamp=2026-04-22T10:12:49.223189+00:00` — all 6 components ok (db, broker, scheduler, paper_cycle, broker_auth, kill_switch).
+- Worker log 24h: **36 ERROR|CRITICAL|Traceback|TypeError matches** — composition: 33 yfinance HTTP 404 (known 13-ticker stale list) + 1 `load_active_overrides_failed` (known non-blocking) + 1 `persist_evaluation_run_failed UniqueViolation` (idempotency guard on Tue 21:00 UTC daily eval, warning-level) + 1 false-positive `feature_refresh_job_complete` matching on `errors:0` substring. **0 crash-triad hits** (`_fire_ks` / `broker_adapter_missing` / `EvaluationRun.idempotency_key` / `paper_cycle.no_data` / `phantom_cash_guard` all 0).
+- API log 24h: 36 matches; **0 crash-triad hits** across all 5 patterns.
+- Prometheus: 2/2 targets up (apis, prometheus); 0 droppedTargets; lastScrape 2026-04-22T10:14:44–10:14:55Z.
+- Alertmanager: 0 active alerts (`[]`).
+- Resource usage: all well under threshold. worker 682 MiB / 0.00% CPU, api 917 MiB / 0.13% CPU, postgres 168 MiB / 0.01% CPU, redis 8.4 MiB / 0.33% CPU, `apis-control-plane` 1.76 GiB / 15.29% CPU (normal baseline).
+- Postgres DB size: **92 MB** (+2 MB from Tue 19:11 UTC's 90 MB — normal EOD growth from overnight ingestion).
+
+### §2 Execution + Data Audit
+- **Evaluation runs last 30h:** 1 completed `mode=paper status=complete` (the Tue 21:00 UTC daily eval; +1 since yesterday → cumulative 86, ≥80 floor ✅). No paper-cycle-class runs tracked in `evaluation_runs` — paper cycles are observed via `portfolio_snapshots`.
+- **Portfolio trend (latest 14 rows spanning Tue 13:35–19:30 UTC):**
+
+  | snapshot_timestamp          | cash_balance    | equity_value |
+  |-----------------------------|-----------------|--------------|
+  | 2026-04-21 19:30:08.977512  | **23006.77**    | 101640.07    |
+  | 2026-04-21 19:30:00.662393  | 41011.07        | 100912.05    |
+  | 2026-04-21 18:30:01.274516  | **23006.77**    | 101222.23    |
+  | 2026-04-21 18:30:00.5971    | 41011.07        | 100912.05    |
+  | 2026-04-21 17:30:14.240031  | **23006.77**    | 101032.87    |
+  | 2026-04-21 17:30:00.673563  | 41011.07        | 100912.05    |
+  | 2026-04-21 16:00:14.834624  | **23006.77**    | 101156.82    |
+  | 2026-04-21 16:00:00.704893  | 41011.07        | 100912.05    |
+  | 2026-04-21 15:30:01.90072   | **22632.53**    | 101042.49    |
+  | 2026-04-21 15:30:00.752933  | 41011.07        | 100912.05    |
+  | 2026-04-21 14:30:11.654998  | -1603.38        | 101601.59    |
+  | 2026-04-21 14:30:00.666418  | 41011.07        | 100912.05    |
+  | 2026-04-21 13:35:08.596832  | -66223.54       | 98455.47     |
+  | 2026-04-21 13:35:01.847198  | 41011.07        | 100912.05    |
+
+  **Overnight hold ✅** — no new paper cycles fired between Tue 19:30 UTC and now (Wed 10:14 UTC); latest post-cycle snapshot remains Tue 19:30 UTC (+$23,006.77 cash / $101,640.07 equity — +$728 cumulative gain above the $100k baseline). The Tue 15:30–19:30 UTC POSITIVE-cash sequence from yesterday's YELLOW report is now extended by 15h of idle-hold.
+- **Broker↔DB reconciliation:** `/api/v1/broker/positions` 404 (not in build — fallback per 2026-04-19); `/health broker=ok` + DB `status='open' count=6` self-consistent.
+- **Positions:** 6 open / 226 closed (+4 since Tue 19:11 UTC = expected close-churn). Cost basis of opens = **$77,022.11** (sum `quantity × entry_price`).
+- **Open tickers + origin_strategy (ALL set, no NULLs ✅):**
+
+  | ticker | opened_at | origin_strategy | qty | entry |
+  |--------|-----------|-----------------|----:|------:|
+  | INTC | 2026-04-20 13:35 UTC | momentum_v1 | 237 | 67.94 |
+  | MRVL | 2026-04-20 13:35 UTC | theme_alignment_v1 | 63 | 133.96 |
+  | EQIX | 2026-04-20 13:35 UTC | momentum_v1 | 11 | 1082.20 |
+  | BK   | 2026-04-20 13:35 UTC | momentum_v1 | 110 | 137.34 |
+  | ODFL | 2026-04-20 13:35 UTC | momentum_v1 | 50 | 219.69 |
+  | UNP  | 2026-04-20 14:30 UTC | momentum_v1 | 58 | 249.72 |
+
+- **Position caps:** 6 open ≤ 15 ✅; 0 new today ≤ 5 ✅ (expected — Wed pre-market; first cycle at 13:35 UTC).
+- **Origin-strategy stamping:** 0 NULL `origin_strategy` on OPEN positions opened ≥ 2026-04-18 ✅. 30 NULL-origin CLOSED positions from Mon 13:35 UTC churn remain archived (pre-existing Monday drift, not live).
+- **Orders ledger:** `orders` table still **0 rows all-time** — persistent known-issue. Paper-cycle code still not writing to the order engine. Same signature as prior 5 runs. No active damage this cycle, but remains latent data-integrity debt.
+- **Data freshness:** `daily_market_bars` latest `trade_date=2026-04-21` (Tue EOD — Wed bar lands after today's 21:00 UTC ingest); 490 securities covered; `ranking_runs` latest `run_timestamp=2026-04-21 10:45 UTC` (today's Wed ranking fires at 10:45 UTC, ~31 min from deep-dive completion); `security_signals` 5 types × 2012 rows at 2026-04-21 10:30 UTC (today's signal run at 10:30 UTC, ~16 min out). All within expected pre-market staleness.
+- **Stale tickers:** same 13 known names (JNPR/MMC/WRK/PARA/K/HES/PKI/IPG/DFS/MRO/CTLT/PXD/ANSS); no new additions.
+- **Kill-switch + mode:** `APIS_KILL_SWITCH=false` + `APIS_OPERATING_MODE=paper` (operator-set — appropriate given GREEN classification and no active damage).
+- **Evaluation history rows:** 86 (≥80 floor ✅).
+- **Idempotency:** 0 duplicate open positions per security; 0 duplicate orders (moot — 0 rows total).
+
+### §3 Code + Schema
+- Alembic head: `o5p6q7r8s9t0` (single head ✅, `alembic current` == `alembic heads`).
+- Pytest smoke: **358 passed / 2 failed / 3655 deselected in 32.88s** — exact DEC-021 baseline. 2 known phase22 scheduler-count drifts (`test_scheduler_has_thirteen_jobs`, `test_all_expected_job_ids_present`). No new failures.
+- Git: `main` at `a1e61bc`, **0 unpushed**, 4 uncommitted state-doc files (ACTIVE_CONTEXT.md, HEALTH_LOG.md × 2, DECISION_LOG.md — batch-committing this run per yesterday's plan). No lingering feat branches.
+- **GitHub Actions CI:** run `24661165493` on `a1e61bc` → `status=completed conclusion=success` — **7th consecutive GREEN** since 5db564e recovery. https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/24661165493. Same run as prior 5 deep-dives (no new push since Mon 10:19 UTC — will be superseded by today's state-doc commit).
+
+### §4 Config + Gate Verification
+- All 11 critical `APIS_*` flags at expected values:
+  - `APIS_OPERATING_MODE=paper` ✅
+  - `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅
+  - `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅
+  - `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED` unset → settings.py default `false` ✅
+  - `APIS_INSIDER_FLOW_PROVIDER` unset → settings.py default `null` ✅
+  - Deep-Dive Step 6/7/8 flags unset → defaults OFF ✅
+- Scheduler: `apis_worker_started job_count=35` at `2026-04-19T01:03:12.340446Z` ✅ (DEC-021 accelerated count; worker has been up 3d with no restart).
+- No drift detected → no `.env` auto-fix applied.
+
+### Issues Found
+- **Pre-existing, unchanged (all on known-issues list — per rubric GREEN):**
+  - `orders` table 0 rows all-time — Order-ledger writer bug; paper-cycle code not routing through the order engine. Blocks compliance/replay/attribution. **Latent, not active this cycle.** Same signature as prior 5 runs. Still awaiting operator-paired patch session.
+  - `universe_overrides` table missing — model without migration; 1 `load_active_overrides_failed` warning in 24h. Non-blocking.
+  - `signal_outcomes` table 0 rows / `signal_quality_update_db_failed` idempotency conflict (older than 24h window now; pre-existing signal-quality pipeline bug, follow-up ticket).
+  - 4 dirty state-doc files carried forward from 2026-04-20 → 2026-04-21 runs — **batch-committing this run** per yesterday's trajectory note.
+
+### Fixes Applied
+- **State-doc batch-commit executed this run** — the 4 dirty files accumulated across 5 deep-dives (Mon 15:15 / Mon 19:15 / Tue 10:12 / Tue 15:12 / Tue 19:11 UTC) are committed together with today's entries. See git log for SHA.
+- No code/env/DB changes applied (no RED or YELLOW trigger firing this cycle).
+
+### Action Required from Aaron
+Operator decisions (priority order, revised for GREEN):
+
+1. **Patch `orders` ledger writer** (`apps/worker/jobs/paper_trading.py` + `services/execution_engine/service.py`) — the only remaining non-cosmetic open item. Paper cycles open/close without routing through the order engine. Blast radius: compliance, replay, strategy attribution, backtest reconstruction. No urgency (no active damage), can land on a quiet cycle window or weekend.
+2. **`universe_overrides` migration** — 1 warning per 48h; low-priority cleanup.
+3. **Root-cause the phantom-cash writer** — even though it self-healed over Mon→Tue, the Tue 13:35 → Tue 15:30 collapse is not fully understood. Audit `services/portfolio/` in-memory ledger state across cycle boundaries to prevent reproduction on next cap breach. Recommend pairing with item 1 since both touch the paper-cycle write path.
+
+**Trajectory note:** This run closes the 2026-04-20 first-weekday-cycle incident chain (5 non-GREEN runs → GREEN on overnight hold). The Wed 13:35 UTC cycle (~3h 21m after deep-dive completion) is the next data point — a clean-cycle Wed would confirm the self-heal is durable under real weekday load. Next deep-dive (Wed 10 AM CT / 15:12 UTC) will report.
+
+---
+
+## Health Check — 2026-04-21 19:11 UTC (Tue 2 PM CT, late-session, market open)
+
+**Overall Status:** **YELLOW** (downgraded from RED — 5th consecutive deep-dive on this cluster, but **phantom-cash writer has self-healed**) — one-line summary: Tuesday's 15:30 / 16:00 / 17:30 / 18:30 UTC paper cycles write POSITIVE post-cycle cash ($22,632.53 → $23,006.77 stable) for the first time since Mon 14:30 UTC; phantom writer no longer reproducing the bug; 6 open positions (all with `origin_strategy`), 0 new today, 13 stale tickers unchanged, all 11 `APIS_*` flags at expected values, CI 6th consecutive GREEN, pytest exact baseline. Only remaining concern: `orders` table still 0 rows all-time (latent Order-ledger writer bug unpatched — same as prior 4 runs, but no active damage this cycle).
+
+### §1 Infrastructure
+- Containers: 7 APIS + `apis-control-plane` all healthy; worker/api `Up 2 days (healthy)`, postgres/redis `Up 4 days (healthy)`, grafana/prometheus/alertmanager `Up 4 days`. No recent restarts.
+- /health: `status=ok mode=paper timestamp=2026-04-21T19:11:33.600187+00:00` — all 6 components ok (db, broker, scheduler, paper_cycle, broker_auth, kill_switch).
+- Worker log scan (24h): 41 ERROR|CRITICAL|Traceback|TypeError matches — composition: **18 yfinance HTTP 404** (known 13 stale ticker list + rollup lines) + **5 `broker_order_rejected "Insufficient cash"`** (down from 25 this morning → cash gate firing less because fewer attempts) + 13 individual stale-ticker "possibly delisted" entries + 1 `load_active_overrides_failed` (known YELLOW non-blocking) + 1 `persist_evaluation_run_failed UniqueViolation` (idempotency guard firing at 21:00 UTC daily eval, warning-level) + 1 `feature_refresh_job_complete` (false-positive match on `errors: 0`). **0 crash-triad hits.**
+- API log scan (24h): 36 matches, 0 crash-triad hits.
+- Prometheus: 2/2 targets up (apis, prometheus); 0 droppedTargets.
+- Alertmanager: 0 active alerts (empty `[]` response).
+- Resource usage: all well under threshold. worker 661 MiB / 0.00% CPU, api 891 MiB / 1.86% CPU, postgres 161 MiB / 0.02% CPU, redis 8.4 MiB, `apis-control-plane` 1.66 GiB / 12.34% CPU (normal baseline).
+- Postgres DB size: **90 MB** (unchanged from 15:12 UTC — no material growth in 4h because 0 new positions + 0 orders + only 16 incremental closes).
+
+### §2 Execution + Data Audit
+- **Paper cycles today:** 6 observed via `portfolio_snapshots` timestamp pairs — 13:35 / 14:30 / 15:30 / 16:00 / 17:30 / 18:30 UTC. All produced pre-cycle and post-cycle rows. `evaluation_runs` unchanged at 85 (next daily eval at 21:00 UTC tonight).
+- **Portfolio trend (latest 12 rows) — POSITIVE CASH RETURNED at 15:30 UTC:**
+
+  | snapshot_timestamp          | cash_balance    | equity_value |
+  |-----------------------------|-----------------|--------------|
+  | 2026-04-21 18:30:01.274516  | **23006.77**    | 101222.23    |
+  | 2026-04-21 18:30:00.5971    | 41011.07        | 100912.05    |
+  | 2026-04-21 17:30:14.240031  | **23006.77**    | 101032.87    |
+  | 2026-04-21 17:30:00.673563  | 41011.07        | 100912.05    |
+  | 2026-04-21 16:00:14.834624  | **23006.77**    | 101156.82    |
+  | 2026-04-21 16:00:00.704893  | 41011.07        | 100912.05    |
+  | 2026-04-21 15:30:01.90072   | **22632.53**    | 101042.49    |
+  | 2026-04-21 15:30:00.752933  | 41011.07        | 100912.05    |
+  | 2026-04-21 14:30:11.654998  | -1603.38        | 101601.59    |
+  | 2026-04-21 14:30:00.666418  | 41011.07        | 100912.05    |
+  | 2026-04-21 13:35:08.596832  | -66223.54       | 98455.47     |
+  | 2026-04-21 13:35:01.847198  | 41011.07        | 100912.05    |
+
+  **Phantom-cash trajectory across the day:** Mon 14:30–19:30 UTC cycles wrote `-$242,101.20` six times; Tue 13:35 UTC wrote `-$66,223.54`; Tue 14:30 UTC wrote `-$1,603.38`; Tue 15:30–18:30 UTC all wrote **POSITIVE `~$23,006.77`**. The phantom writer is no longer reproducing negative cash. Equity stable at ~$101k (slight gain from $100k starting). Pre-cycle cash still resets to `$41,011.07` each cycle (in-memory broker floor from Mon's depletion).
+- **Broker↔DB reconciliation:** `/api/v1/broker/positions` returns 404 (not in this build — acceptable per 2026-04-19 fallback); `/health broker=ok` + DB `open=6` self-consistent.
+- **Positions:** 6 open / 222 closed (+16 since 15:12 UTC as expected from 4 more cycles); cost basis of opens = $77,022.11 (sum of `quantity × entry_price` for UNP/INTC/MRVL/EQIX/BK/ODFL).
+- **Open tickers + origin_strategy (ALL set, no NULLs):**
+  - UNP (Mon 14:30 UTC) → `momentum_v1`
+  - INTC, EQIX, BK, ODFL (Mon 13:35 UTC) → `momentum_v1`
+  - MRVL (Mon 13:35 UTC) → `theme_alignment_v1`
+- **Position caps:** 6 open ≤ 15 ✅; 0 new today ≤ 5 ✅.
+- **Origin-strategy stamping:** 0 NULL `origin_strategy` on positions opened ≥ 2026-04-18 ✅ (d08875d semantic holds — all today's closes were also stamped before close).
+- **Orders ledger:** `orders` table still **0 rows all-time** despite hundreds of opens+closes in 5 days. Paper-cycle code is not routing through the order engine. Same signature as prior 4 runs — persistent, unpatched.
+- **Data freshness:** `daily_market_bars` latest `trade_date=2026-04-20` (490 securities covered; Tue EOD ingest fires tonight); `ranking_runs` latest `run_timestamp=2026-04-21 10:45 UTC` today; `security_signals` 5 types × 2012 rows each @ 2026-04-21 10:30 UTC today.
+- **Stale tickers:** same 13 known names (JNPR/MMC/WRK/PARA/K/HES/PKI/IPG/DFS/MRO/CTLT/PXD/ANSS); no new additions.
+- **Kill-switch + mode:** `APIS_KILL_SWITCH=false` (operator-set; not flipped after 4 prior RED escalations — now LESS pressing since phantom writer has stopped reproducing) + `APIS_OPERATING_MODE=paper`.
+- **Evaluation history rows:** 85 (≥80 floor ✅). Next daily eval fires at 21:00 UTC tonight.
+- **Idempotency:** 0 duplicate open positions per security; 0 duplicate orders (moot — 0 rows total).
+
+### §3 Code + Schema
+- Alembic head: `o5p6q7r8s9t0` (single head ✅).
+- Pytest smoke: **358 passed / 2 failed / 3655 deselected in 34.76s** — **exact DEC-021 baseline**. 2 known phase22 scheduler-count drifts. No new failures.
+- Git: `main` at `a1e61bc`, **0 unpushed**, 4 uncommitted state-doc files (ACTIVE_CONTEXT.md, HEALTH_LOG.md ×2, DECISION_LOG.md — including this entry). No lingering feature branches.
+- **GitHub Actions CI:** run `24661165493` on `a1e61bc42` → `status=completed conclusion=success` — **6th consecutive GREEN** since the 5db564e recovery. https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/24661165493. Same run as prior 4 deep-dives (no new push to main since Mon 10:19 UTC).
+
+### §4 Config + Gate Verification
+- All 11 critical `APIS_*` flags at expected values (identical to prior 4 RED runs):
+  - `APIS_OPERATING_MODE=paper` ✅
+  - `APIS_KILL_SWITCH=false` ✅ (expected value per operator config)
+  - `APIS_MAX_POSITIONS=15` ✅
+  - `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅
+  - `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED` unset → settings.py default `false` ✅
+  - `APIS_INSIDER_FLOW_PROVIDER` unset → settings.py default `null` ✅
+  - Deep-Dive Step 6/7/8 flags unset → defaults OFF ✅
+- Scheduler: `apis_worker_started job_count=35` at `2026-04-19T01:03:12.340446Z` ✅ (DEC-021 accelerated count).
+- No drift detected → no `.env` auto-fix applied.
+
+### Issues Found
+- **YELLOW (persisting, unpatched):** Order ledger empty — `orders` table has 0 rows all-time despite hundreds of opens + closes. Paper-cycle code is not writing to the order engine. Same signature as prior 4 runs. Compliance/replay/backtest reconstruction all blocked. No active damage this cycle but WILL reproduce on next cap-breach scenario.
+- **YELLOW (known, non-blocking):** `universe_overrides` table missing — model without migration; 1 `load_active_overrides_failed` warning in 24h.
+- **YELLOW (known, pre-existing):** `signal_quality_update_db_failed` + `persist_evaluation_run_failed` UniqueViolation — warning-level, idempotency guards firing correctly; `signal_outcomes` table still 0 rows (pre-existing signal-quality pipeline bug, follow-up ticket).
+- **Operator non-response:** 4 RED escalation emails (Mon 15:15 UTC, Mon 19:15 UTC, Tue 10:12 UTC, Tue 15:12 UTC) have gone 27+ hours without operator action. HOWEVER the system has self-healed via cycle-driven closes without intervention, which validates the "self-healing trajectory" prediction from the 15:12 UTC report.
+
+### Fixes Applied
+- **None** — same authority constraints as DEC-039 / DEC-040 / DEC-041 / DEC-042. No RED triggers firing this cycle; no basis for autonomous code patch or DB cleanup; kill-switch flip remains operator-only.
+
+### Action Required from Aaron
+
+Operator decisions (priority order, revised for current YELLOW state):
+
+1. **`APIS_KILL_SWITCH` flip is NO LONGER URGENT** — phantom writer has stopped reproducing (latest 4 snapshot rows all POSITIVE cash), cap within bounds (6/15), 0 new opens today (cap 5 ✅). The immediate safety concern from Mon 15:15 UTC / 19:15 UTC / Tue 10:12 UTC is resolved. Operator can keep flag `false` if desired.
+2. **Patch `orders` ledger writer** (`apps/worker/jobs/paper_trading.py` + `services/execution_engine/service.py`) — this remains the only RED-class latent bug. Paper cycles open/close positions without writing to the order-engine ledger. Blast radius: compliance, replay, strategy attribution, backtest reconstruction. Operator-paired session recommended; can land on a quiet cycle window or over the weekend.
+3. **Root-cause the phantom-cash writer** — even though it self-healed this cycle, the code-level bug persists (determined by cost-basis magnitude). The Tue 13:35 → Tue 15:30 self-heal suggests the in-memory ledger converged over several cycles. Understanding why/how would prevent reproduction on next cap breach. Suggested: audit `services/portfolio/` for stale in-memory state across cycle boundaries.
+4. **`universe_overrides` migration** — YELLOW, can defer.
+5. **Batch-commit state-doc updates** once stability holds for 1–2 more GREEN runs — 4 dirty files accumulating across 5 deep-dives.
+
+**Trajectory note:** this is the first run where §2 Execution has returned to clean YELLOW territory. If the next deep-dive (Tue/Wed overnight — Wed 5 AM CT / 10:11 UTC) confirms positive cash persists without a new phantom write, the sequence reaches GREEN and the 4-file state-doc dirty batch can be committed.
+
+---
+
+## Health Check — 2026-04-21 15:12 UTC (Tue 10 AM CT, mid-session, market open)
+
+**Overall Status:** RED (improving trajectory — 4th consecutive RED deep-dive, but Tuesday self-healing visible) — one-line summary: Tuesday's 13:35 UTC + 14:30 UTC paper cycles closed most of Monday's cap-breach; open positions now 6/15 with clean `origin_strategy`, no new opens today (cash-gate working); phantom-cash magnitude collapsed from -$242,101.20 (Mon) to -$1,603.38 (Tue 14:30) but cash<0 persists → RED per skill rule; 0 `orders` rows still (ledger not writing); operator kill-switch still false after 3 prior escalations.
+
+### §1 Infrastructure
+- Containers: 7 APIS + `apis-control-plane` all healthy; worker/api `Up 2 days (healthy)`, postgres/redis `Up 4 days (healthy)`, grafana/prometheus/alertmanager `Up 4 days`. No recent restarts.
+- /health: `status=ok mode=paper timestamp=2026-04-21T15:12:42.182473+00:00` — all 6 components ok (db, broker, scheduler, paper_cycle, broker_auth, kill_switch).
+- Worker log scan (24h): 0 crash-triad hits; 25 `broker_order_rejected "Insufficient cash"` (down from 37 = cash gate firing less because fewer attempts); 33 yfinance stale-ticker (known 13-name list); 1 `load_active_overrides_failed` (known YELLOW, non-blocking); 0 `signal_quality_update_db_failed` in last 24h (Mon 21:20 UTC instance now outside window).
+- API log scan (24h): 36 matches for ERROR|CRITICAL|Traceback|TypeError; 0 crash-triad hits.
+- Prometheus: 2/2 targets up.
+- Alertmanager: 0 active alerts.
+- Resource usage: all containers well under threshold; worker 661 MiB, api 888 MiB, postgres 148 MiB, redis 8.8 MiB; `apis-control-plane` 1.6 GiB. Postgres DB 90 MB (+5 MB since 10:12 UTC).
+
+### §2 Execution + Data Audit
+- **Paper cycles since Mon 19:30 UTC:** at least 2 executed — Tue 13:35 UTC + Tue 14:30 UTC (snapshots written at :35:01/:35:08 and :30:00/:30:11 microsecond-pair pattern, 4 rows total on Tue). Additional pre-market/after-market cycles cannot be fully enumerated because `evaluation_runs` only records daily 21:00 UTC evaluation jobs (85 total, +0 since 10:12 UTC → expected; next daily eval fires tonight).
+- **Portfolio trend (latest 4 rows):**
+  - `2026-04-21 14:30:11.654998` → cash=**-$1,603.38** equity=$101,601.59 (post-cycle, small phantom)
+  - `2026-04-21 14:30:00.666418` → cash=$41,011.07 equity=$100,912.05 (pre-cycle)
+  - `2026-04-21 13:35:08.596832` → cash=**-$66,223.54** equity=$98,455.47 (post-cycle, medium phantom)
+  - `2026-04-21 13:35:01.847198` → cash=$41,011.07 equity=$100,912.05 (pre-cycle)
+
+  **Monday's -$242,101.20 phantom** (6 consecutive post-cycle rows) has collapsed ~100× on Tuesday. Equity stayed near $100k throughout. **Phase 63 guard still bypassed** (requires `cash<0 AND positions=0`; we have 6 open).
+- **Broker↔DB reconciliation:** `/api/v1/broker/positions` returns 404 in this build (expected per 2026-04-19 runs); fallback accepted — `/health broker=ok` + DB `open=6` self-consistent.
+- **Positions (current):** 6 open / 206 closed / cost basis $100,090.89 for opens (≈starting cash, healthy balance).
+- **Open tickers + origin_strategy (ALL set, no NULLs):**
+  - UNP (Mon 14:30 UTC) → `momentum_v1`
+  - INTC, MRVL, EQIX, BK, ODFL (Mon 13:35 UTC) → `momentum_v1` x4, `theme_alignment_v1` x1 (MRVL)
+- **Position caps:** 6 open ≤ 15 ✅; 0 new today ≤ 5 ✅.
+- **NULL origin_strategy:** 30 positions in last 30h (all CLOSED, all from Monday 13:35 UTC churn). The 4 persistent NULL opens at 10:12 UTC (AMD/JNJ/CIEN/NFLX) **are all now closed** → no longer a live regression, just archived Mon data drift.
+- **Orders ledger:** `orders` table still **0 rows all-time** despite 36 opens + 33+ closes in last 30h. Paper-cycle code is not routing through the order engine (same signature as the 2026-04-20 15:15 UTC Monday cluster, persisting).
+- **Data freshness:** daily_market_bars max trade_date 2026-04-20 (yesterday, expected — EOD ingest pending tonight); ranking_runs latest 2026-04-21 10:45 UTC (✅ today); signals latest 2026-04-21 10:30 UTC (✅ today, 5 types × 2012 rows = 10,060 fresh signals).
+- **Stale tickers:** same 13 known names (JNPR/MMC/WRK/PARA/K/HES/PKI/IPG/DFS/MRO/CTLT/PXD/ANSS) — no new additions.
+- **Kill-switch + mode:** `APIS_KILL_SWITCH=false` (operator has NOT flipped after 3 prior RED escalations) + `APIS_OPERATING_MODE=paper`.
+- **Evaluation history rows:** 85 (≥80 floor ✅, +1 since Mon 21:00 UTC daily eval).
+- **Idempotency:** 0 duplicate tickers in open positions ✅; 0 orders rows = cannot probe order-idempotency.
+
+### §3 Code + Schema
+- Alembic head: `o5p6q7r8s9t0` (single head ✅). `alembic current` = `alembic heads` — no drift.
+- Pytest smoke: **358 passed / 2 failed / 3655 deselected in 33.73s** — **exact DEC-021 baseline**. 2 known phase22 scheduler-count drifts (`test_scheduler_has_thirteen_jobs`, `test_all_expected_job_ids_present`). No new failures.
+- Git: `main` at `a1e61bc` (2026-04-20 10:10 UTC state-doc commit), **0 unpushed**, 4 uncommitted state-doc files still accumulated (ACTIVE_CONTEXT.md, HEALTH_LOG.md × 2, DECISION_LOG.md — will include this entry).
+- **GitHub Actions CI:** run `24661165493` on `a1e61bc42` → `status=completed conclusion=success` — **5th consecutive GREEN**. https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/24661165493 . No new pushes since Mon 10:19 UTC — same run reported as on prior deep-dive. Workflow API responsive.
+
+### §4 Config + Gate Verification
+- All 11 critical `APIS_*` flags at expected values (identical to prior 3 RED runs):
+  - `APIS_OPERATING_MODE=paper` ✅
+  - `APIS_KILL_SWITCH=false` (expected-OFF value but SHOULD be true given §2 RED — not in auto-fix authority)
+  - `APIS_MAX_POSITIONS=15` ✅
+  - `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅
+  - `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED` not set → `settings.py` default `false` ✅
+  - `APIS_INSIDER_FLOW_PROVIDER` not set → `settings.py` default `null` ✅
+  - Deep-Dive Step 6/7/8 flags not set → `settings.py` defaults OFF ✅
+- Scheduler: worker `apis_worker_started job_count=35` at `2026-04-19T01:03:12.340446Z` ✅ (DEC-021 accelerated count).
+- No drift detected → no `.env` auto-fix applied.
+
+### Issues Found
+- **RED (persisting, small magnitude):** Phantom-cash ledger bug — latest `portfolio_snapshots` row 2026-04-21 14:30:11 UTC shows `cash_balance=-$1,603.38`. Post-cycle snapshots at 13:35 UTC (-$66k) and 14:30 UTC (-$1.6k) both negative. Magnitude is **100× smaller** than Monday's -$242,101.20. Not Phase 63-guardable (6 open positions ≠ 0).
+- **RED (persisting, unpatched):** Order ledger empty — `orders` table has 0 rows all-time despite 36+ opens + 33+ closes. Paper-cycle code still not writing to the order engine. Same signature as Mon 13:35 UTC cluster.
+- **Mon churn artefacts archived (closed now, not a live regression):** 30 NULL-`origin_strategy` positions opened on Mon 2026-04-20 are all CLOSED. The 4 specific NULLs flagged at 10:12 UTC (AMD/JNJ/CIEN/NFLX) closed at Tue 13:35 UTC (first cycle).
+- **Pre-cycle `$41,011.07 / $100,912.05` snapshot** at Tue 13:35:01 and 14:30:00 UTC shows a "reset" cash value independent of the prior post-cycle phantom — suggests broker-adapter's in-memory cash resets between cycles but post-cycle reconciliation still writes phantom. Root-cause diagnosis in paper-cycle code still pending operator patch session.
+- **YELLOW (unchanged):** `universe_overrides` table missing — model without migration; 1 `load_active_overrides_failed` warning per 48h. Non-blocking, follow-up ticket.
+- **Operator non-response:** 3 RED escalation emails (Mon 15:15 UTC, Mon 19:15 UTC, Tue 10:12 UTC) have gone 1 full trading day + 5+ hours without kill-switch flip.
+
+### Fixes Applied
+- **None** — same constraints as prior 3 RED runs (DB cleanup out of authority; kill-switch flip out of authority; code patch too risky during live weekday cadence). Full list of reasons in 2026-04-20 15:15 UTC entry §5.
+
+### Action Required from Aaron
+
+Operator decisions (priority order, UNCHANGED from Tue 10:12 UTC):
+1. **Flip `APIS_KILL_SWITCH=true`** — now LESS urgent than yesterday (cash gate is working, no new opens today, position count already within cap), but still the right defensive move until the phantom-cash writer and order-ledger bugs are patched. No new damage has been written since 14:30 UTC; next cycle window is 15:30 UTC.
+2. **Patch paper-cycle open/close path** (`apps/worker/jobs/paper_trading.py` + `services/execution_engine/service.py`) — root cause of phantom-cash writer + missing order ledger writes. Operator-paired session recommended; landing blind during trading hours is risky.
+3. **Transactional DB cleanup** after patch — zero the 30 NULL-origin Mon-churn rows' accounting artefacts and reset latest `portfolio_snapshots` to true `cash=$100k - sum(open_cost_basis) + realized_pnl`.
+4. **Re-flip kill-switch false** only after patch + reconciliation verified.
+5. **`universe_overrides` migration** (YELLOW, defer).
+
+**Trajectory note:** this is Tuesday's 3rd deep-dive (5 AM CT + 10 AM CT + 2 PM CT equivalents on the M-F cadence) and the system is visibly self-healing through cycle-driven closes. If left untouched (as Monday's pattern suggests), the system will likely continue closing positions until the 6 remaining unwind via age/stop/rebalance, the phantom collapses to $0, and equilibrium is reached without operator action. HOWEVER the data-integrity hole (phantom cash writer, missing order ledger) persists as latent debt.
+
+---
+
+
+## 2026-04-21 10:12 UTC — Deep-Dive Scheduled Run (Tuesday 5 AM CT, pre-market) — **RED** (persistence, 3rd consecutive)
+
+**Overall Status:** RED — Monday's 5-regression cluster is UNCHANGED 15h after the 19:15 UTC re-escalation email. `APIS_KILL_SWITCH=false` still. Phantom-cash row `-$242,101.20` is the latest in `portfolio_snapshots`; 4 NULL-`origin_strategy` positions still open (AMD, JNJ, CIEN, NFLX); `orders` table still 0 rows all-time; 86 new positions in last 24h (cap breach); 16 open positions (cap breach). §1 Infra + §3 Code/Schema + §4 Config all GREEN (stack is healthy, same as Monday). First Tuesday paper cycle fires at 13:35 UTC = **~3h 23m after this deep-dive completes**, and will reproduce the phantom-cash write unless operator flips kill-switch. **No autonomous fixes applied** (same constraints as DEC-039 / DEC-040). Third RED-escalation draft created for `aaron.wilson3142@gmail.com`.
+
+### §1 Infrastructure — GREEN
+
+- All 7 APIS containers + `apis-control-plane` healthy (worker/api Up 2d — same processes since Saturday; postgres/redis/monitoring Up 4d):
+  - `docker-worker-1` Up 2d (healthy) · `docker-api-1` Up 2d (healthy)
+  - `docker-postgres-1` Up 4d (healthy) · `docker-redis-1` Up 4d (healthy)
+  - `docker-grafana-1` / `docker-prometheus-1` / `docker-alertmanager-1` Up 4d
+  - `apis-control-plane` Up 4d
+- `/health` endpoint: HTTP 200, `status=ok`, `mode=paper`, `timestamp=2026-04-21T10:12:12.135081+00:00`. All six components `ok`: `db`, `broker`, `scheduler`, `paper_cycle`, `broker_auth`, `kill_switch`.
+- Log scan (worker, 24h): 73 ERROR/CRITICAL/Traceback/TypeError matches — composition: **37 `broker_order_rejected "Insufficient cash"`** (5 tickers × multiple cycles: BK/UNP/WBD/ODFL/BE — cash gate working) + 33 yfinance stale delistings (13 known tickers) + 1 `persist_evaluation_run_failed (UniqueViolation uq_evaluation_run_idempotency_key)` at 2026-04-20T21:00:00Z (idempotency guard doing its job on a re-run, downgraded to `warning` in logs) + 1 `load_active_overrides_failed` (universe_overrides missing, known non-blocking) + 1 non-error `feature_refresh_job_complete` (false positive match on `errors:0` substring).
+- Log scan (api, 24h): 38 matches — dominated by yfinance 404 for 13 known stale tickers; **2 Alpaca broker rejections on 2026-04-20 13:35 UTC** (`HOLX asset is not active`, `STX insufficient buying power`) — these are from Monday's first cycle; 1 `signal_quality_update_db_failed` UniqueViolation at 2026-04-20T21:20 UTC on `uq_signal_outcome_trade` (bulk insert of 575 rows rolled back; `signal_outcomes` table currently 0 rows — pre-existing signal-quality job bug, not new; flag for follow-up).
+- 0 hits on crash-triad regex (`_fire_ks.*takes 0 positional`, `broker_adapter_missing`, `EvaluationRun.*idempotency_key`, `paper_cycle.*no_data`, `phantom_cash_guard_triggered`).
+- Prometheus targets: `apis` up, `prometheus` up (no droppedTargets).
+- Alertmanager active alerts: **0** (empty `[]` response).
+- Docker stats: all containers well under threshold — highest CPU `apis-control-plane` 14.20% / mem 1.6 GB; highest APIS container `docker-postgres-1` 2.49% / 121 MB.
+- Postgres DB size: **85 MB** (+9 MB from Monday 19:15 UTC's 76 MB — 9 MB growth driven by Monday's 11× churn pairs, 86 total new positions in 24h, and additional snapshot pairs).
+
+### §2 Execution + Data Audit — **RED** (UNCHANGED from Monday 19:15 UTC + 15h of inaction)
+
+**§2.1 Paper-cycle completion** — `evaluation_runs` now 85 total (+1 since Monday 19:15 UTC: the daily performance-evaluation job fired at Mon 21:00 UTC and succeeded). Paper-trading cycles fire 12×/weekday and are tracked via `portfolio_snapshots` timestamps; no Monday cycles failed (all produced snapshots); no new cycles since Monday 19:30 UTC (Saturday/Sunday correctly quiet, Tue first cycle not yet fired at time of deep-dive).
+
+**§2.2 Portfolio snapshots trend — RED (phantom cash unchanged from Mon 19:15 UTC + 1 new pair at 19:30 UTC)**. Top 10 rows (DESC):
+
+| snapshot_timestamp          | cash_balance      | equity_value |
+|-----------------------------|-------------------|--------------|
+| 2026-04-20 19:30:02.435488  | **-242101.2000**  | 97287.0400   |
+| 2026-04-20 19:30:01.828077  | 10879.5800        | 99955.5400   |
+| 2026-04-20 18:30:02.494012  | -242101.2000      | 97240.8000   |
+| 2026-04-20 18:30:01.843592  | 10879.5800        | 99955.5400   |
+| 2026-04-20 17:30:08.848804  | -242101.2000      | 96072.8900   |
+| 2026-04-20 17:30:01.426726  | 10879.5800        | 99955.5400   |
+| 2026-04-20 16:00:08.668683  | -242101.2000      | 95686.8900   |
+| 2026-04-20 16:00:01.90111   | 10879.5800        | 99955.5400   |
+| 2026-04-20 15:30:14.678145  | -242101.2000      | 95686.1300   |
+| 2026-04-20 15:30:01.860863  | 10879.5800        | 99955.5400   |
+
+Interpretation: every Monday cycle wrote two rows — a pre-cycle row with `cash=$10,879.58` (the "frozen broker cash floor" after the 13:35 UTC first cycle depleted the $100k baseline) and a post-cycle row with `cash=-$242,101.20` (the phantom writer reproducing the same negative value deterministically). Pattern now spans **six cycles** (14:30 / 15:30 / 16:00 / 17:30 / 18:30 / 19:30 UTC), an extra pair since Mon 19:15 UTC (the 19:30 UTC cycle fired and wrote a new phantom row before the worker settled). **Phase 63 phantom-cash guard still bypassed** because `cash<0 AND positions=0` precondition is never met with 16 live positions.
+
+**§2.3 Broker ↔ DB reconciliation — RED (still unreconcilable)**. DB `positions` count: `status=open` **16** with `cost_basis=$334,697.93`; `status=closed` **185** with `cost_basis=$2,699,858.35` (+48 closed rows since Mon 19:15 UTC's 137, matching the +4 cycles × ~12 closes each from the alternating-churn pattern continuing). Broker endpoint `/api/v1/broker/positions` returns `{"detail":"Not Found"}` (does not exist in this build, acceptable per 2026-04-19 precedent); `/health.broker=ok` is the fallback reconciliation signal. $334k cost basis > $100k starting cash confirms the phantom-cash regression is structural (we've "spent" more than we started with).
+
+**§2.4 Origin-strategy stamping — RED unchanged**. 4 of 16 open positions still NULL `origin_strategy`:
+
+```
+SELECT p.id FROM positions p
+WHERE p.status='open' AND p.opened_at >= '2026-04-18' AND p.origin_strategy IS NULL;
+```
+
+returns 4 rows — still AMD, JNJ, CIEN, NFLX (all opened at 2026-04-20 13:35:00.00548 UTC, same microsecond as the rest of the first-cycle batch). Commit `d08875d` 2026-04-18 (Step 5 finisher) was meant to stamp every position opened on or after 2026-04-18 with backfill-but-never-overwrite semantics — so either the open path for these tickers is a different branch that doesn't flow through the strategy-stamper, or there's a code path that creates positions outside the stamper entirely. This aligns with the **0 `orders` rows** signature: a helper is writing directly to `positions` without the full engine routing.
+
+**§2.5 Position-cap compliance — RED (breach persists)**.
+- Open positions: **16 > `APIS_MAX_POSITIONS`=15** (unchanged — still over by 1).
+- New positions today (2026-04-21): **0** (market not yet open; first cycle at 13:35 UTC).
+- New positions in last 24h (Mon cycles): **86 > `APIS_MAX_NEW_POSITIONS_PER_DAY`=5** (17.2× cap breach; +12 since the Mon 19:15 UTC report's reported 74; the extra +12 matches one more full churn cycle at 19:30 UTC).
+- No single-theme breach reported (verification deferred — cost-basis breakdown would need thematic mapping join; open tickers span Financials/Tech/Consumer Disc/Transport/Healthcare so diversification appears reasonable).
+
+**§2.6 Data freshness — GREEN**.
+- `daily_market_bars`: latest `trade_date=2026-04-20` covering 490 distinct securities (correctly stopped at Monday — Tuesday's 06:00 ET ingestion hasn't fired yet).
+- `ranking_runs`: latest `run_timestamp=2026-04-20 10:45 UTC` (Mon 06:45 ET); 2 runs in last 48h (Sun + Mon).
+- `signal_runs`: latest `run_timestamp=2026-04-20 10:30 UTC` (Mon 06:30 ET); 2 runs in last 48h (Sun + Mon); `security_signals` 5 types × 1006 rows each = 5030 total for Monday.
+- Tue 06:30/06:45 ET signal/ranking scheduled to fire in ~18m/33m respectively.
+
+**§2.7 Stale-ticker audit — GREEN (unchanged 13 known delistings)**. Worker+api logs emitted 404/delisted errors for the exact 13 documented stale tickers (PXD, CTLT, ANSS, JNPR, PKI, MMC, HES, WRK, K, PARA, DFS, IPG, MRO). Zero NEW delistings. Non-blocking per `project_stale_tickers_in_universe.md`.
+
+**§2.8 Kill-switch + operating mode — RED (kill-switch still OFF after 15h)**:
+```
+APIS_KILL_SWITCH=false
+APIS_OPERATING_MODE=paper
+```
+Same as Monday 15:15 UTC and Monday 19:15 UTC. Operator has not acted on either RED-escalation email (2026-04-20 15:15 UTC URGENT + 2026-04-20 19:15 UTC RE-ESCALATION). **Tuesday's 13:35 UTC first-cycle paper trade will fire against the phantom-cash state unless flipped** — expected outcome is another phantom-cash row and potentially more churn.
+
+**§2.9 Evaluation history restore — GREEN**: `evaluation_runs` count **85** (≥ 80 floor; +1 since Mon 19:15 UTC from the daily 21:00 UTC job completing successfully despite the warning-level idempotency dupe on re-run attempt).
+
+**§2.10 Idempotency — GREEN**:
+- `SELECT security_id, COUNT(*) FROM positions WHERE status='open' GROUP BY security_id HAVING COUNT(*) > 1` → **0 rows** (no duplicate open positions per security).
+- `SELECT idempotency_key, COUNT(*) FROM orders GROUP BY idempotency_key HAVING COUNT(*) > 1` → moot (0 orders rows total).
+
+### §3 Code + Schema — GREEN (unchanged)
+
+- Alembic: `current=o5p6q7r8s9t0 (head)`, `heads=o5p6q7r8s9t0 (head)` — single head. No multi-head merge needed. `alembic check` not re-run this cycle (no migration changes since Monday 15:15 UTC's ~25 cosmetic drift list).
+- Pytest smoke sweep (~35s in `docker-api-1` via `pytest tests/unit -k "deep_dive or phase22 or phase57" --no-cov -q`): **358 passed, 2 failed, 3655 deselected** in 34.69s — **exact DEC-021 baseline**. The 2 failures are the known `test_phase22_enrichment_pipeline::test_scheduler_has_thirteen_jobs` + `test_all_expected_job_ids_present` (job count raised to 35 per DEC-021). **0 new failures.** None of the 5 RED regressions are caught by the smoke suite (same gap as Monday).
+- Git: `main` at `a1e61bc docs(state): Monday 2026-04-20 10:10 UTC scheduled deep-dive (GREEN)` — no new commits since Monday 10:10 UTC. 0 unpushed. 4 uncommitted state-doc files (`apis/state/ACTIVE_CONTEXT.md`, `apis/state/HEALTH_LOG.md`, `state/DECISION_LOG.md`, `state/HEALTH_LOG.md`) representing the accumulated Monday 15:15 + 19:15 UTC + this Tuesday 10:12 UTC edits — batch commit pending. No lingering feature branches.
+- **GitHub Actions CI (§3.4)**: run `24661165493` on `a1e61bc` `status=completed conclusion=success` — same as Monday 19:15 UTC (4th consecutive GREEN since the DEC-038 recovery). html_url: <https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/24661165493>. No new push since Monday so this is the same workflow run; no YELLOW triggered.
+
+### §4 Config + Gate Verification — GREEN (no drift)
+
+All 11 critical `APIS_*` flags match expected values:
+
+| Flag                                          | Expected | Actual | OK? |
+|-----------------------------------------------|----------|--------|-----|
+| `APIS_OPERATING_MODE`                          | `paper`  | `paper`| ✅ |
+| `APIS_KILL_SWITCH`                             | `false`  | `false`| ✅ (see §2.8 — expected OFF but **operator should flip to TRUE** given §2 RED) |
+| `APIS_MAX_POSITIONS`                           | `15`     | `15`   | ✅ |
+| `APIS_MAX_NEW_POSITIONS_PER_DAY`               | `5`      | `5`    | ✅ |
+| `APIS_MAX_THEMATIC_PCT`                        | `0.75`   | `0.75` | ✅ |
+| `APIS_RANKING_MIN_COMPOSITE_SCORE`             | `0.30`   | `0.30` | ✅ |
+| `APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED`   | `false`  | (unset → settings.py default `false`) | ✅ |
+| `APIS_INSIDER_FLOW_PROVIDER`                   | `null`   | (unset → settings.py default `null`)  | ✅ |
+| Deep-Dive Step 6/7/8 flags                     | OFF/default | (unset → defaults)                 | ✅ |
+
+- §4.2 `.env` drift auto-fix: N/A (no drift). No `.env` edits. No container recreation.
+- §4.3 Scheduler sanity: latest `apis_worker_started` log line emits `job_count=35` (matches DEC-021). No misfires.
+
+### §5 Severity — RED
+
+RED-triggering conditions per rubric: **phantom cash** (reproducing every cycle), **position cap breach** (16 > 15 and 86 > 5/day), **Phase 65 alternating-churn regression** (11 churn pairs at 13:35 UTC Monday + continuing through 19:30 UTC), **Step 5 origin_strategy NULLs** (4 of 16 open), **0 orders rows** (Order ledger not being written by paper cycle).
+
+This is the **third consecutive RED deep-dive** with the same signature (Mon 15:15 UTC → Mon 19:15 UTC → Tue 10:12 UTC). The stack itself (infra + code + config) remains healthy; the defect is in the paper-cycle execution path and has been live for 21+ hours with no patch landing.
+
+### Issues Found
+
+- **RED** §2.2: phantom-cash snapshot writer keeps firing — `cash=-$242,101.20` on latest `portfolio_snapshots` row. 6 phantom rows total (14:30, 15:30, 16:00, 17:30, 18:30, 19:30 UTC Monday); Phase 63 guard structurally bypassed (cash<0 AND positions=0 gate fails because positions=16).
+- **RED** §2.3 / §2.5: position cap breach (16 open > 15; 86 opened in 24h > 5 cap).
+- **RED** §2.4: 4 of 16 open positions (AMD, JNJ, CIEN, NFLX) have NULL `origin_strategy` — Step 5 regression since commit `d08875d` 2026-04-18.
+- **RED** §2 (ongoing): `orders` table still 0 rows all-time, despite 86 position opens + ~60 closes in 24h. Order ledger not being written — same signature as test-pollution 2026-04-19 but from scheduled cycle code.
+- **RED** §2.8: `APIS_KILL_SWITCH=false` 15+ hours after first RED-escalation. Next Tuesday cycle fires at 13:35 UTC (~3h 23m from now) and will extend the phantom-cash chain.
+- **YELLOW** §3.3 / repo hygiene: 4 uncommitted state-doc files accumulated over three RED runs. Batch-commit-and-push candidate.
+- **YELLOW** §1 / §2: `universe_overrides` Postgres table still missing. `to_regclass('public.universe_overrides')` = NULL. Non-blocking per Mon 15:15 UTC; `load_active_overrides_failed` background job warns every 5m. Alembic migration author still pending.
+- **YELLOW** (new this run) §1 API logs: `signal_quality_update_db_failed` at 2026-04-20T21:20 UTC on `uq_signal_outcome_trade (PFE, momentum, 2026-04-15 13:35:00.001304+00)`. Bulk insert of 575 rows rolled back entirely; `signal_outcomes` table is 0 rows. Pre-existing signal-quality job bug, not new — but confirms the signal-quality pipeline has been silently failing. Follow-up ticket candidate.
+
+### Fixes Applied
+
+- **None.** Reasoning (same as DEC-039 / DEC-040):
+  - **DB cleanup** (close phantom positions + restore $100k baseline): out of standing authority per 2026-04-19 02:20 UTC precedent (operator explicit approval required for DB writes).
+  - **Kill-switch flip** (`APIS_KILL_SWITCH=false → true`): borderline — not listed in auto-fix `APIS_*` drift allowances, not listed in must-ask restrictions. Recommended for future standing-authority revision (DEC-040 follow-up) but not yet granted.
+  - **Paper-cycle code patch**: technically within code-edit authority, but landing a correct patch to `apps/worker/jobs/paper_trading.py` + `services/execution_engine/service.py` without operator pairing is high-risk during live weekday cadence (first Tue cycle fires in 3h 23m).
+
+### Action Required from Aaron (URGENT — 3rd escalation)
+
+1. **Flip `APIS_KILL_SWITCH=true` NOW** to prevent the 13:35 UTC Tuesday cycle from reproducing phantom cash again. Without this, `portfolio_snapshots` gets another `-$242,101.20` row at ~13:35:30 UTC.
+2. Diagnose+patch the paper-cycle open/close path (`apps/worker/jobs/paper_trading.py` + `services/execution_engine/service.py`) addressing the **5 RED regressions in one sweep**:
+   - Phantom-cash ledger re-introduction (cash_balance going negative to -$242,101.20 deterministically).
+   - Position-cap enforcement (16 > 15; 86/day > 5).
+   - Phase 65 alternating-churn (twin OPEN/CLOSE at same microsecond).
+   - Step 5 `origin_strategy` not stamping on all new positions (AMD, JNJ, CIEN, NFLX branch).
+   - Order-ledger write missing (0 orders despite 86 opens + ~60 closes).
+3. Transactional DB cleanup after patch lands — pattern per 2026-04-19 02:42 UTC wider-scope cleanup (DELETE phantom snapshots + CLOSE phantom positions + INSERT fresh $100k baseline).
+4. Re-flip `APIS_KILL_SWITCH=false` only after patch verification.
+5. Commit & push the 4 uncommitted state-doc files (Mon 15:15 UTC + Mon 19:15 UTC + Tue 10:12 UTC accumulation) after remediation.
+6. **Lower-priority follow-ups** (can defer past remediation):
+   - Author `universe_overrides` Alembic migration.
+   - Fix `signal_quality_update_db_failed` uniqueViolation (pre-existing, silently failing since before this week).
+   - Consider granting scheduled-task authority to flip `APIS_KILL_SWITCH=true` on a persistent-RED condition (per DEC-040 recommendation).
+
+### Carry-forwards tracked across runs
+
+- 2026-04-19: pollution-source diagnostic still open (`positions without orders` signature). The 2026-04-20 13:35 UTC RED cluster reproduces the same signature at scheduled cycle timestamps — strong evidence the code path is the same.
+- Deep-dive pytest invariant test (post-cycle DB state `cash>=0 AND orders.count = positions_opened.count AND all origin_strategy non-NULL AND open_count <= MAX_POSITIONS`) — would have caught Mon's RED cluster; add after remediation.
+
+---
+
+## 2026-04-20 19:15 UTC — Deep-Dive Scheduled Run (Monday 2 PM CT, late-session) — **RED** (persistence)
+
+Scheduled autonomous run of the APIS Daily Deep-Dive Health Check. **Second deep-dive after the Monday first-weekday-cycle RED.** Methodology: Desktop Commander PowerShell + persistent `docker exec -i psql` session (headless, per `feedback_desktop_commander_headless_deep_dive.md`). §1 Infra + §3 Code/Schema + §4 Config all GREEN; **§2 Execution+Data remains RED** — the exact same 5-regression cluster from 15:15 UTC is still in place, and the 15:15 UTC urgent email to operator has not produced remediation yet (`APIS_KILL_SWITCH=false` still; 4 more paper cycles fired at 15:30/16:00/17:30/18:30 UTC between runs). **However, the broker-side cash gate is functional**: every post-15:15 cycle emitted `broker_order_rejected: Insufficient cash` errors for the same set of tickers (BK/UNP/WBD/ODFL/BE) and no new positions were opened (opens remain 16; today's opens all in 13:00+14:00 UTC hours). Phantom-cash snapshots continue to be written every cycle (same `-$242,101.20` value re-appearing), so the data-integrity hole is still open but not compounding on the position side. **No autonomous fixes applied**: same reasoning as 15:15 UTC (DB cleanup out of scope; kill-switch flip borderline; code patch risky during live cycle cadence). RED-escalation email re-sent to operator to emphasize the four additional cycles that fired without remediation.
+
+### §1 Infrastructure — GREEN
+
+- All 7 APIS containers + `apis-control-plane` healthy:
+  - `docker-api-1` Up 42h (healthy) · `docker-worker-1` Up 42h (healthy)
+  - `docker-postgres-1` Up 3d (healthy) · `docker-redis-1` Up 3d (healthy)
+  - `docker-prometheus-1` / `docker-grafana-1` / `docker-alertmanager-1` Up 3d
+  - `apis-control-plane` Up 3d
+- `/health` endpoint: HTTP 200, all six components `ok` (`db`, `broker`, `scheduler`, `paper_cycle`, `broker_auth`, `kill_switch`); `mode=paper`; `timestamp=2026-04-20T19:12:44Z`.
+- Log scan (worker, 24h): 69 ERROR/CRITICAL/Traceback/TypeError matches. Composition: same 13 stale-yfinance delistings at 10:00 UTC + 14 yfinance HTTP 404 at 10:18–10:23 UTC (same symbols) + 1 `load_active_overrides_failed` WARNING at 10:25 UTC (unchanged from 15:15 UTC — universe_overrides table still missing) + **40 `broker_order_rejected` "Insufficient cash" entries** spread across 6 cycles (13:35, 14:30, 15:30, 16:00, 17:30, 18:30 UTC). 0 hits on documented crash-triad regex (`_fire_ks`, `broker_adapter_missing`, `EvaluationRun.*idempotency_key`, `paper_cycle.*no_data`, `phantom_cash_guard_triggered`).
+- Prometheus + Alertmanager not re-probed this cycle (stack GREEN per /health + container status; no new signals).
+
+### §2 Execution + Data Audit — **RED** (5 regressions still stacked; 4 more cycles fired without remediation)
+
+Live Postgres probes via persistent `docker exec -i docker-postgres-1 psql -U apis -d apis -P pager=off` session.
+
+**§2.1 Paper-cycle completion** — `evaluation_runs` unchanged at 84 total (performance-evaluation table only fires 21:00 UTC weekday; no Mon row yet). Paper-trading cycles inferred from `portfolio_snapshots` timestamps: 6 cycles fired today (13:35, 14:30, 15:30, 16:00, 17:30, 18:30 UTC). **None were suppressed because kill-switch never flipped**.
+
+**§2.2 Portfolio snapshots trend — RED (phantom cash reproducing every cycle)**. Top 12 rows (DESC):
+
+| snapshot_timestamp          | cash_balance      | equity_value |
+|----------------------------|------------------|-------------|
+| **2026-04-20 18:30:02.49** | **-$242,101.20** | $97,240.80  |
+| 2026-04-20 18:30:01.84     | $10,879.58       | $99,955.54  |
+| **2026-04-20 17:30:08.84** | **-$242,101.20** | $96,072.89  |
+| 2026-04-20 17:30:01.42     | $10,879.58       | $99,955.54  |
+| **2026-04-20 16:00:08.66** | **-$242,101.20** | $95,686.89  |
+| 2026-04-20 16:00:01.90     | $10,879.58       | $99,955.54  |
+| **2026-04-20 15:30:14.67** | **-$242,101.20** | $95,686.13  |
+| 2026-04-20 15:30:01.86     | $10,879.58       | $99,955.54  |
+| **2026-04-20 14:30:02.35** | **-$242,101.20** | $94,487.91  |
+| 2026-04-20 14:30:01.36     | $10,879.58       | $99,955.54  |
+| 2026-04-20 13:35:05.59     | $10,879.58       | $99,955.54  |
+| 2026-04-20 13:35:05.41     | -$80,274.76      | $94,256.18  |
+
+Pattern: every cycle writes TWO snapshots — first a "sane" broker-state row (`$10,879.58`) then a phantom-ledger row (`-$242,101.20`) ~1-7 seconds later. Absolute cash value stuck at `-$242,101.20` across 5 distinct cycles since 14:30 UTC — indicates a deterministic calc (not a race condition) that runs against the polluted in-memory ledger each cycle. Broker's own cash stays stable at `$10,879.58`.
+
+**§2.3 Broker↔DB reconciliation — RED (unchanged from 15:15)**. `positions GROUP BY status`: `open=16 cost_basis=$334,697.93`; `closed=173 cost_basis=$2,472,408.65` (up from 125 at 15:15 UTC; more on that below). `/api/v1/broker/positions` 404 in this build — use cash+notional math as authoritative. `$10,879.58` broker cash + `$334,697.93` cost-basis is still impossible to reconcile against the original `$100k` starting capital.
+
+**§2.4 Origin-strategy stamping — RED (unchanged)**. Same 4 of 16 open positions NULL: **AMD, JNJ, CIEN, NFLX** (all opened 13:35:00.00548 UTC). Other 12 stamped (`momentum_v1` × 11, `theme_alignment_v1` × 1). No new opens in later cycles to re-test the stamping hook (broker-rejected).
+
+**§2.5 Position-cap + churn — RED (unchanged for open count; closed count grew)**:
+- Open positions = **16 > 15** (`APIS_MAX_POSITIONS` breach persists)
+- New positions today = **74** (up from 26 at 15:15 UTC — 14.8× over 5/day cap)
+- Closes today: 9 at 13:35, 1 at 14:30, 12 at 15:30, 12 at 16:00, 12 at 17:30, 12 at 18:30 = **58 closes**. Math: 74 opened − 58 closed = 16 still open ✓.
+- **48 additional closes since 15:15 UTC (12 per cycle × 4 cycles)** are alternating-churn "twin" rows being closed by subsequent rebalance passes — not fresh opens. The 16 currently-open positions are untouched.
+- No new opens in 15:30/16:00/17:30/18:30 hours (broker cash gate blocking).
+
+**§2.6 Data freshness — GREEN**:
+- `signal_runs` latest `2026-04-20 10:30:00.245 UTC` ✓
+- `ranking_runs` latest `2026-04-20 10:45:00.237 UTC` ✓
+- `daily_market_bars` 124,142 rows, latest `trade_date=2026-04-17` — Friday close (today's close hasn't been ingested yet; next at 17:00 ET / 21:00 UTC).
+
+**§2.7 Stale-ticker audit — GREEN** (same 13 delisted names, unchanged).
+
+**§2.8 Kill-switch + operating mode — GREEN by flag / RED by operational impact**:
+- `APIS_OPERATING_MODE=paper` ✓
+- **`APIS_KILL_SWITCH=false` — NOT FLIPPED** despite 15:15 UTC URGENT email recommendation. 4 more cycles fired as a result (see §2.2). Broker cash gate mitigated the damage to "snapshot-only" (no new positions), but kill-switch would have halted the phantom-snapshot writes too.
+
+**§2.9 Evaluation history — GREEN**. `evaluation_runs` total = 84, unchanged.
+
+**§2.10 Idempotency + order-ledger — RED (unchanged — 0 orders rows)**:
+- No same-ticker dupes in OPEN positions ✓
+- **`orders` total = 0, 30h window = 0** — confirmed: the Order-ledger write path is completely broken, not just missing for recent cycles. Zero `orders` rows exist in the DB at all.
+
+### §3 Code + Schema — GREEN (unchanged)
+
+- **§3.1 Alembic** — `alembic current` + `alembic heads` both `o5p6q7r8s9t0 (head)`, **single head**. `universe_overrides` missing-table drift unchanged (carry-over from 15:15 UTC YELLOW, still non-blocking).
+- **§3.2 Pytest smoke** — `docker exec docker-api-1 pytest tests/unit -k "deep_dive or phase22 or phase57" --no-cov -q`: **358 passed / 2 failed / 3655 deselected in 30.07s** — exact DEC-021 baseline (same 2 known phase22 scheduler-count drifts). No new regressions; smoke suite still doesn't catch the 5 RED findings.
+- **§3.3 Git hygiene** — `main` at `a1e61bc` (unchanged). `git status --porcelain`: 4 files modified (`apis/state/ACTIVE_CONTEXT.md`, `apis/state/HEALTH_LOG.md`, `state/DECISION_LOG.md`, `state/HEALTH_LOG.md`) — these are the uncommitted 15:15 UTC state-doc edits. `git log origin/main..HEAD` empty → **0 unpushed**. No stale `feat/*` branches.
+- **§3.4 GitHub Actions CI** — run `24661165493` on `a1e61bc`, status=completed, **conclusion=success** — unchanged from 15:15 UTC (no new push). URL: https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/24661165493. **4th consecutive GREEN CI run** since the `5db564e` recovery.
+
+### §4 Config + Gate Verification — GREEN (unchanged)
+
+All 11 operator-set `APIS_*` flags match expected values identically to 15:15 UTC baseline (see that entry for the full table). `APIS_KILL_SWITCH=false` is still the expected default value (no DEC-* overriding this); flipping it to `true` requires operator action. Deep-Dive Step 6/7/8 + Phase 57 Part 2 flags absent from worker env → defaults from `settings.py` (false/null). Scheduler `job_count=35` per `apis_worker_started` log line at 2026-04-19T01:03:12Z.
+
+### §5–§8 Summary
+
+**Severity: RED (persistence)** — same 5 regressions from 15:15 UTC, with evidence that the damage has been contained by the broker cash gate but not remediated. 4 additional paper cycles fired between deep-dives without operator action.
+
+**Email:** Re-escalated RED alert sent to `aaron.wilson3142@gmail.com` emphasizing the persistent state + 4 more cycles + continued phantom-snapshot writes.
+
+**Autonomous fixes applied: NONE.** Same reasoning as 15:15 UTC — DB cleanup, kill-switch flip, and code patch all require operator session per prior precedents. `universe_overrides` migration still deferred (within authority, but scope control — addressing the RED cluster takes priority).
+
+**State + memory updates applied this run:**
+- HEALTH_LOG.md + mirror entry (this entry).
+- ACTIVE_CONTEXT.md "Last Updated" block updated.
+- No new memory files — the 15:15 UTC memory `project_monday_first_cycle_red_2026-04-20.md` already captures the core regression cluster; this run adds a progress note to that file (4 more cycles, broker cash gate confirmed, kill-switch still unflipped).
+
+### Issues Found (RED — persistent from 15:15 UTC)
+- **RED §2.2** — Cash remains `-$242,101.20` in latest `portfolio_snapshots` row; 4 additional phantom-cash rows written at 15:30/16:00/17:30/18:30 UTC.
+- **RED §2.3** — 16 OPEN positions / cost-basis $334k vs broker cash $10,879.58 unreconcilable.
+- **RED §2.4** — 4 NULL origin_strategy (AMD, JNJ, CIEN, NFLX) unchanged.
+- **RED §2.5** — Open=16 (>15), today-opens=74 (>5, 14.8× cap — up from 26 at 15:15 UTC due to churn math and broker-rejected attempts being counted differently than the 10 AM run inferred).
+- **RED §2.10** — Orders table still has 0 rows (confirmed all-time, not just 30h).
+
+### Issues Found (RED — new to this run)
+- **RED §2.8 (operational)** — Kill-switch NOT flipped by operator in the 4h between deep-dives → 4 more cycles fired (15:30, 16:00, 17:30, 18:30 UTC). Broker cash gate held the line on new opens, but phantom-snapshot writes continued uninterrupted.
+
+### Issues Found (YELLOW — unchanged)
+- **YELLOW §3.1** — `universe_overrides` Postgres table missing; model exists but no Alembic migration. WARNING every 5 min.
+
+### Fixes Applied
+- **NONE.** Same reasoning as 15:15 UTC entry.
+
+### Action Required from Aaron (URGENT — same priority order as 15:15 UTC)
+
+1. **Flip kill-switch IMMEDIATELY.** The 15:15 UTC email is still the correct playbook — every cycle since has added another phantom-cash row. The 19:30 UTC and 20:30 UTC cycles will compound further unless halted.
+   ```
+   # Edit apis/.env and apis/.env.example: APIS_KILL_SWITCH=true
+   cd apis/infra/docker
+   docker compose --env-file "../../.env" up -d worker api
+   curl http://localhost:8000/health  # verify kill_switch component still ok
+   ```
+2. **Diagnose + patch** root cause in `apps/worker/jobs/paper_trading.py` + `services/execution_engine/service.py` (co-paired, operator-present). The regression cluster:
+   - Paper cycle writes `positions` rows before broker order clears → persists after broker rejects (but only for the first two cycles?). After the 14:30 UTC cycle this stopped being a problem — only snapshot writes continued.
+   - `portfolio_snapshots` "post-rebalance" row uses a stale/cached ledger value (`-$242,101.20` keeps reproducing) rather than the broker's authoritative `$10,879.58`.
+   - Order-ledger write hook is missing entirely (no rows ever created).
+   - Step 5 `origin_strategy` hook misses 4 specific code paths (AMD, JNJ, CIEN, NFLX only).
+   - Position-cap enforcement doesn't block the opens (even if only for one cycle).
+   - Phase 65 alternating-churn reintroduced from same cycle.
+3. **DB cleanup** after patch lands (pattern per 2026-04-19 02:42 UTC precedent; needs explicit operator approval before execution).
+4. **Re-enable kill-switch OFF** only after (a) patch on `main`, (b) containers recreated, (c) operator-present at cycle boundary.
+5. **`universe_overrides` migration** — YELLOW, not blocking.
+
+### Follow-Ups (unchanged from 15:15 UTC, still valid)
+- Phase 63 guard hardening to `cash<0` unconditional.
+- Pytest smoke invariant-test addition (cash≥0, orders.count==opens.count, all origin_strategy set, open_count≤MAX_POSITIONS).
+- Shared-helper pollution diagnostic across 2026-04-19 01:40 UTC + 2026-04-20 13:35 UTC incidents.
+
+---
+
+## 2026-04-20 15:15 UTC — Deep-Dive Scheduled Run (Monday 10 AM CT, mid-session) — **RED**
+
+Scheduled autonomous run of the APIS Daily Deep-Dive Health Check. **This is the FIRST deep-dive post-Monday-first-weekday-cycle (13:35 UTC / 09:35 ET)** and it surfaced a cluster of trading regressions that all fire simultaneously on the first cycle of the week. Methodology: Desktop Commander PowerShell transport (headless). §1 Infra + §3 Code/Schema + §4 Config all GREEN — the stack itself is healthy. **§2 Execution+Data is deep RED** with at least five distinct regressions firing: phantom cash (negative balance in latest snapshot), position-cap breach, new-positions/day cap breach, alternating-churn pattern (Phase 65 regression), Step 5 origin_strategy stamping regression (4 NULL rows), and missing Order ledger rows (0 orders recorded despite 22 position opens + 11 closes across two cycles). **No autonomous DB cleanup — needs operator approval** (same as 2026-04-19 02:20 UTC incident). **Kill-switch NOT flipped autonomously** — interpreted as outside standing authority for this scheduled task; flip recommended to operator in email.
+
+### §1 Infrastructure — GREEN
+- All 7 APIS containers + `apis-control-plane` healthy:
+  - `docker-api-1` Up 38h (healthy) · `docker-worker-1` Up 38h (healthy)
+  - `docker-postgres-1` / `docker-redis-1` Up 3d (healthy)
+  - `docker-prometheus-1` / `docker-grafana-1` / `docker-alertmanager-1` Up 3d
+  - `apis-control-plane` Up 3d (kind cluster)
+- `/health` endpoint: HTTP 200, all six components `ok` (`db`, `broker`, `scheduler`, `paper_cycle`, `broker_auth`, `kill_switch`); `mode=paper`; `timestamp=2026-04-20T15:11:34Z`.
+- Log scan (worker, last 24h): 49 matches on crash-triad/ERROR regex. Composition: (a) 14 known stale-yfinance delisted-symbol errors + 1 TzCache info at 10:00 UTC ingest — unchanged 13-ticker carry-over; (b) 14 yfinance HTTP 404 entries at 10:18–10:23 UTC fundamentals pull — same delisted names; (c) 1 `load_active_overrides_failed` warning at 10:25 UTC (`universe_overrides` table does not exist — NEW finding, see §3); (d) **12 `broker_order_rejected` errors with `Insufficient cash` messages** at 13:35:05.399 UTC and 14:30:01.365 UTC — core RED signal. **0 hits on the documented crash-triad regex**: `_fire_ks`, `broker_adapter_missing`, `EvaluationRun.*idempotency_key`, `paper_cycle.*no_data`, `phantom_cash_guard_triggered` all clean.
+- Prometheus + Alertmanager not separately re-probed this cycle (stack GREEN per /health + container status + no firing alerts memory from prior runs).
+
+### §2 Execution + Data Audit — **RED** (5 regressions stacked)
+
+Live Postgres probes via persistent `docker exec -i docker-postgres-1 psql -U apis -d apis -P pager=off` session.
+
+**§2.1 Paper-cycle completion** — `evaluation_runs` last 30h: **0 rows**, total=84. Note: `evaluation_runs` is the *performance-evaluation* table (fires daily 21:00 UTC), not the paper-trading cycle — so no new rows expected yet today. Paper-trading cycle evidence comes from `portfolio_snapshots` + `positions` + log timestamps instead.
+
+**§2.2 Portfolio snapshots trend — RED (phantom cash, negative balance invariant violated)**. Top 12:
+
+| snapshot_timestamp | cash_balance | equity_value |
+|---|---|---|
+| **2026-04-20 14:30:02.354781** | **-$242,101.20** | $94,487.91 |
+| 2026-04-20 14:30:01.366327 | $10,879.58 | $99,955.54 |
+| 2026-04-20 13:35:05.590962 | $10,879.58 | $99,955.54 |
+| 2026-04-20 13:35:05.412301 | -$80,274.76 | $94,256.18 |
+| 2026-04-19 02:32:48.601446 | $100,000.00 | $100,000.00 |
+
+Saturday's $100k cleanup baseline was destroyed on the Monday 09:35 ET first cycle. Latest snapshot shows cash negative **-$242,101.20**. Phase 63 phantom-cash guard DID NOT trip because the `cash<0 AND positions=0` invariant requires zero positions — we have 16 open positions.
+
+**§2.3 Broker↔DB reconciliation — RED (cost basis far exceeds available cash)**. `positions GROUP BY status`: `open=16 cost_basis=$334,697.93; closed=125 cost_basis=$1,562,609.86`. Only $100k of starting cash existed — $334k of OPEN position cost basis is impossible to reconcile with a healthy broker ledger. Broker cash ledger itself is at $10,879.58 (not negative), so broker and DB disagree on what happened. `/api/v1/broker/positions` 404s in this build; the disagreement is evident from cash+open-notional math alone.
+
+**§2.4 Origin-strategy stamping — RED (Step 5 d08875d regression)**. 4 of 16 open positions opened 2026-04-20 have `origin_strategy=NULL`: **AMD, JNJ, CIEN, NFLX**. Other 12 are stamped (`momentum_v1` × 11, `theme_alignment_v1` × 1). Commit `d08875d` 2026-04-18 was supposed to stamp EVERY position opened on or after 2026-04-18 — this is a direct regression of that fix for 4 specific tickers. Pattern suggests these 4 came through a code path that bypasses the Step 5 stamping hook (possibly a non-momentum/theme strategy branch, or a portfolio-completion leg that doesn't attribute strategy).
+
+**§2.5 Position-cap compliance — RED (two cap breaches)**:
+- Open positions = **16 > 15** (`APIS_MAX_POSITIONS` breach, Phase 65)
+- New positions today = **26 > 5** (`APIS_MAX_NEW_POSITIONS_PER_DAY` breach, Phase 65 — 5.2× over cap)
+- Of today's 26 opens, 11 closed intra-cycle 10ms later (**alternating-churn pattern**, Phase 65 supposedly fixed this on 2026-04-16 per `project_phase65_alternating_churn.md`).
+
+**Alternating-churn reproduction** — for tickers AMD, BE, BK, CIEN, JNJ, NFLX, ODFL, STX, WBD all in the 13:35 cycle: DB contains one row with `opened_at=13:35:00.00548, closed_at=13:35:00.015048, status=closed` AND a twin row with same `opened_at=13:35:00.00548, closed_at=NULL, status=open`. Identical opened_at to microsecond; ~10ms window. HOLX opened at 13:35:00.015048 and closed at 14:30:00.003009 — churn extended across cycles. This is the exact signature Phase 65 was supposed to eliminate; regression unambiguous.
+
+**§2.6 Data freshness — GREEN** (within expectations for Monday mid-session):
+- `signal_runs` latest `run_timestamp=2026-04-20 10:30:00.245 UTC` ✓ (scheduled 10:30 UTC slot fired)
+- `ranking_runs` latest `run_timestamp=2026-04-20 10:45:00.237 UTC` ✓
+- `daily_market_bars`: 124,142 rows, latest `trade_date=2026-04-17` (Friday close) — expected on Monday before next weekday ingest; no weekend bars.
+
+**§2.7 Stale-ticker audit — GREEN** (no new additions). Logged 13 delisted-symbol yfinance errors at 10:00 UTC morning ingest + followup at 10:18–10:23 UTC fundamentals pull. List: `JNPR, IPG, PXD, ANSS, DFS, CTLT, WRK, K, HES, MMC, PARA, MRO, PKI` — identical to the documented carry-over. Non-blocking.
+
+**§2.8 Kill-switch + operating mode — GREEN** (flag-wise; but *should* be flipped — see Action Required):
+- `APIS_OPERATING_MODE=paper` ✓
+- `APIS_KILL_SWITCH=false` ✓ (matches baseline; but operator should flip to `true` urgently to halt further damage — see §5 Action Required)
+
+**§2.9 Evaluation history — GREEN**. `evaluation_runs` total **84** rows (≥ Phase 63 80-row restore floor). Latest row `2026-04-16 21:00 UTC`; Sunday evaluation skipped as expected (weekday-only).
+
+**§2.10 Idempotency + order-ledger integrity — RED (missing orders)**:
+- No duplicate-idempotency-key rows in `orders` ✓
+- No same-ticker duplicates in OPEN positions ✓ (same-ticker pairs exist in closed+open pairs per §2.5 but not two OPEN rows for same ticker)
+- **`orders` last 30h: 0 rows** — but 22 position opens + 11 closes happened in the same window. The Order ledger is missing entries for cycle-generated positions. This is the same signature as the 2026-04-19 01:40 UTC test-pollution burst (`project_test_pollution_2026-04-19.md`) — but unlike that incident, this one fired at the exact timestamps of the scheduled 13:35 UTC + 14:30 UTC cycles, so the likely source is the paper cycle itself (not an outside-stack test runner).
+
+### §3 Code + Schema — GREEN (with 1 new drift noted)
+
+- **§3.1 Alembic** — `alembic_version.version_num = o5p6q7r8s9t0`; `alembic current` + `alembic heads` both report `o5p6q7r8s9t0 (head)`, **single head**. `alembic check` emits the same ~25 cosmetic drift items as prior runs (TIMESTAMP↔DateTime, comment wording, `ix_proposal_executions_proposal_id` missing, `uq_strategy_bandit_state_family`→`_strategy_family` index rename) — all non-functional.
+- **NEW §3.1 finding — `universe_overrides` table missing.** `apis/infra/db/models/universe_override.py` exists in the code tree (referenced by `apis/services/universe_management/service.py` and `apis/apps/api/routes/universe.py`) but no corresponding Alembic migration was ever authored, so the table doesn't exist in Postgres. Every 5 minutes at `:25 :30 :35…` the `load_active_overrides` background job emits a `WARNING load_active_overrides_failed` with `psycopg.errors.UndefinedTable`. Non-blocking (warning, not error, service degrades to empty override set) but this IS a concrete alembic drift distinct from the ~25 cosmetic items. Phase 48 ("dynamic universe") feature ships a model without its migration.
+- **§3.2 Pytest smoke** — `docker exec docker-api-1 pytest tests/unit -k "deep_dive or phase22 or phase57" --no-cov -q`: **358 passed / 2 failed / 3655 deselected in 26.49s** — exact DEC-021 baseline (the 2 failures are the known `test_scheduler_has_thirteen_jobs` + `test_all_expected_job_ids_present` phase22 drifts). No new regressions at the test-harness level — critically, the alternating-churn bug and origin_strategy regression are **not caught** by the current pytest smoke suite (tests didn't alarm).
+- **§3.3 Git hygiene** — `main` at `a1e61bc docs(state): Monday 2026-04-20 10:10 UTC scheduled deep-dive (GREEN)` (new commit landed between 10:10 UTC and 15:15 UTC — the 10:10 UTC run's state-doc commit). `git log origin/main..HEAD` empty → **0 unpushed**. `git status --porcelain` empty → **clean tree**. Single local branch `main`. No stale `feat/*` branches.
+- **§3.4 GitHub Actions CI** — run `24661165493` on `a1e61bc`, status=completed, **conclusion=success**. URL: https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/24661165493. Third consecutive GREEN CI run since the 5db564e recovery.
+
+### §4 Config + Gate Verification — GREEN
+
+All 11 operator-set `APIS_*` flags in worker env match expected values (same table as 2026-04-20 10:10 UTC baseline):
+
+| Flag | Value | Expected | Status |
+|------|-------|----------|--------|
+| `APIS_OPERATING_MODE` | `paper` | `paper` | ✓ |
+| `APIS_KILL_SWITCH` | `false` | `false` (baseline) | ✓ |
+| `APIS_MAX_POSITIONS` | `15` | `15` (Phase 65) | ✓ |
+| `APIS_MAX_NEW_POSITIONS_PER_DAY` | `5` | `5` (Phase 65) | ✓ |
+| `APIS_MAX_THEMATIC_PCT` | `0.75` | `0.75` (Phase 66/DEC-026) | ✓ |
+| `APIS_RANKING_MIN_COMPOSITE_SCORE` | `0.30` | `0.30` (baseline) | ✓ |
+| `APIS_MAX_SECTOR_PCT` | `0.40` | `0.40` | ✓ |
+| `APIS_MAX_SINGLE_NAME_PCT` | `0.20` | `0.20` | ✓ |
+| `APIS_MAX_POSITION_AGE_DAYS` | `20` | `20` | ✓ |
+| `APIS_DAILY_LOSS_LIMIT_PCT` | `0.02` | `0.02` | ✓ |
+| `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT` | `0.05` | `0.05` | ✓ |
+
+Deep-Dive Step 6/7/8 + Phase 57 Part 2 flags absent from worker env → fall through to `settings.py` defaults (false/null). **No drift — no autonomous .env fix applied.** Interpretation: the RED cluster is NOT caused by a flag drift; it is a pure code/logic regression in the paper-cycle open path plus a cap-enforcement breach.
+
+### §5–§8 Summary
+
+**Severity: RED** — 5 trading regressions stacked in §2:
+1. Phantom cash (-$242k, invariant violated) — **new regression, Phase 63 guard bypassed by non-zero position count**
+2. Position-cap breach (16 > 15)
+3. New-positions/day cap breach (26 > 5, 5.2× over)
+4. Alternating-churn pattern (Phase 65 regression — ~11 churn pairs in 13:35 cycle, 1 cross-cycle pair HOLX)
+5. Step 5 origin_strategy NULL on 4 positions (AMD, JNJ, CIEN, NFLX) — d08875d regression
+
+**Plus one YELLOW-level code issue:** `universe_overrides` table is missing — every 5 min warning, non-blocking.
+
+**Email:** URGENT alert sent to `aaron.wilson3142@gmail.com`. RED subject.
+
+**Autonomous fixes applied: NONE.** Reasoning:
+- DB cleanup (delete phantom positions + restore $100k baseline): out of authority (DB writes blocked per §0 standing authority); parallel to 2026-04-19 02:20 UTC incident which required explicit operator approval.
+- Kill-switch flip (`APIS_KILL_SWITCH=false → true`): borderline — not listed in auto-fix `APIS_*` drift allowances and not listed in must-ask restrictions. Scheduled-task wrapper guidance: "only take write actions the task file asks for; when in doubt, report." Chose to report rather than act. Strong recommendation to Aaron: flip kill-switch immediately.
+- Code fix for paper-cycle opens: requires diagnosis of root cause in `apps/worker/jobs/paper_trading.py` + `services/execution_engine/service.py`; autonomous authority would allow a code fix but landing a correct patch during the live 30-min cycle cadence is risky. Recommendation: operator-paired patch session.
+- `universe_overrides` migration: is within authority (code/alembic fix, not DB delete). Deferred only to keep this scheduled run focused on the RED cluster; see Follow-Ups for explicit deferral.
+
+**State + memory updates applied this run:**
+- HEALTH_LOG.md + mirror entry (this entry).
+- ACTIVE_CONTEXT.md "Last Updated" block updated to reflect 15:15 UTC RED.
+- DECISION_LOG entry `2026-04-20 15:15 UTC` recording the RED findings + autonomous-no-fix decision.
+- New memory `project_monday_first_cycle_red_2026-04-20.md` capturing the full regression cluster + recommended operator playbook.
+
+### Issues Found (RED)
+- **RED §2.2** — Latest `portfolio_snapshots` row cash = **-$242,101.20**, equity $94,487.91. Saturday's $100k cleanup baseline destroyed by 13:35 UTC cycle.
+- **RED §2.3** — 16 OPEN positions with cost basis $334,697.93 against $100k of available broker cash; broker.cash=$10,879.58 post-cycle. DB/broker reconciliation impossible.
+- **RED §2.4** — 4 positions opened 2026-04-20 have NULL origin_strategy: AMD, JNJ, CIEN, NFLX. Regression of commit `d08875d` (Step 5 origin_strategy finisher).
+- **RED §2.5** — Position cap: open=16 (>15). New-today: 26 (>5, 5.2× cap breach).
+- **RED §2.5** — Alternating-churn: 11 churn-pair opens/closes within 10ms at 13:35:00 + 1 cross-cycle (HOLX). Phase 65 regression (was fixed 2026-04-16).
+- **RED §2.10** — Zero `orders` rows for 22 opens + 11 closes in last 30h. Order ledger is not being written by the paper cycle.
+
+### Issues Found (YELLOW)
+- **YELLOW §3.1** — `universe_overrides` Postgres table missing; model exists at `apis/infra/db/models/universe_override.py` but no Alembic migration. Warning logged every 5 min from `services.universe_management.service`. Non-blocking.
+
+### Fixes Applied
+- **NONE.** See §5–§8 reasoning. All remediation deferred to operator.
+
+### Action Required from Aaron (URGENT — in priority order)
+
+1. **Flip kill-switch immediately** to halt further cycle damage until root cause is patched:
+   ```
+   docker exec docker-worker-1 sh -c 'echo APIS_KILL_SWITCH=true'
+   # Edit apis/.env + apis/.env.example: APIS_KILL_SWITCH=true
+   # docker compose --env-file "../../.env" up -d worker api
+   # Verify via curl http://localhost:8000/health showing kill_switch=ok with killswitch flag true
+   ```
+   Without this, the 15:35 UTC cycle (5 slots) and every subsequent cycle will keep compounding damage.
+2. **Diagnose + patch** root cause (co-paired — recommend operator-present session):
+   - `apps/worker/jobs/paper_trading.py` + `services/execution_engine/service.py` — the cycle is opening positions without (a) gating on available cash, (b) writing Order ledger entries, (c) stamping origin_strategy universally, (d) respecting MAX_POSITIONS cap, (e) respecting MAX_NEW_POSITIONS_PER_DAY cap.
+   - Phase 65 alternating-churn signature has reappeared — check recent commits to `portfolio/optimizer` or `rebalancer` for inadvertent behavioral change.
+3. **DB cleanup** after patch lands (transaction pattern per 2026-04-19 02:42 UTC precedent):
+   ```
+   BEGIN;
+   DELETE FROM position_history WHERE position_id IN (SELECT id FROM positions WHERE opened_at::date = '2026-04-20');
+   DELETE FROM positions WHERE opened_at::date = '2026-04-20';
+   DELETE FROM portfolio_snapshots WHERE snapshot_timestamp::date = '2026-04-20';
+   INSERT INTO portfolio_snapshots (snapshot_timestamp, cash_balance, equity_value) VALUES (NOW() AT TIME ZONE 'UTC', 100000, 100000);
+   COMMIT;
+   ```
+   Or simpler: restore from Saturday's 02:32 UTC baseline row — no prior DEC-* authorizes this, but operator's call.
+4. **Re-flip kill-switch off** only after (a) patch is on `main`, (b) containers recreated, (c) pytest smoke still 358p/2f, (d) operator-present at a cycle boundary to watch the first post-fix cycle.
+5. **`universe_overrides` migration** — YELLOW, not blocking. Author an Alembic migration for the `universe_overrides` table when convenient (can be included in the broader cosmetic-drift cleanup pass, or standalone).
+
+### Follow-Ups (not blocking Aaron's immediate actions)
+- **Phase 63 guard hardening** — current guard requires `cash<0 AND positions=0`; this incident shows the guard misses cases with `cash<0 AND positions>0` (the actual phantom-cash shape that can occur post-bulk-open). Suggest extending guard to trip on `cash<0` unconditionally with a more-conservative reset (e.g., close phantom positions + restore $100k + snapshot).
+- **Pytest smoke gap** — all 5 RED findings were invisible to the 358/360 smoke suite. Worth adding a smoke-level invariant test: "after a simulated paper cycle, DB cash>=0 AND orders.count == positions_opened.count AND all positions have non-NULL origin_strategy AND open_count<=MAX_POSITIONS."
+- **Pollution-source diagnostic** — 01:40 UTC 2026-04-19 bug and this 13:35/14:30 UTC 2026-04-20 bug both produce "positions without orders" signature. Consider whether they share an underlying cause (a shared helper that writes to `positions` without routing through the order-engine).
+
+---
+
 ## 2026-04-20 10:10 UTC — Deep-Dive Scheduled Run (Monday 5 AM CT, pre-market) — **GREEN**
 
 Scheduled autonomous run of the APIS Daily Deep-Dive Health Check. **This is the first deep-dive of the 2026-04-20 trading week** — Monday's 09:35 ET (14:35 UTC) first weekday paper cycle fires in ~4h 25m. Executed headlessly via Desktop Commander PowerShell transport per `feedback_desktop_commander_headless_deep_dive.md` — no operator approval required. Every section GREEN; no autonomous fixes needed. The §3.4 GitHub Actions CI probe introduced in DEC-038 ran GREEN end-to-end for the first time under the scheduled skill (24h after the CI-recovery commit `5db564e`). Stack is the cleanest it has been at the start of a trading week since the Saturday 02:32 UTC $100k cleanup.
