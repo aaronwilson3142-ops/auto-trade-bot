@@ -4,6 +4,67 @@ Auto-generated daily health check results.
 
 ---
 
+## 2026-04-22 15:16 UTC — Deep-Dive Scheduled Run (Wed 10 AM CT, mid-session) — **YELLOW** (downgrade from morning GREEN; 3 new-to-this-run regressions)
+
+**Overall Status:** **YELLOW** — downgrade from morning 10:14 UTC GREEN. Three new-to-this-run regressions on first two Wed cycles (13:35 + 14:30 UTC): (1) **phantom-equity writer** at 13:35 UTC — yfinance DNS failure (`Could not resolve host: query2.finance.yahoo.com`) on all 4 held tickers (INTC/MRVL/EQIX/HOLX) → mark-to-market fell to ~zero → snapshot wrote `equity=$28,296.77` (actual ≈ $101K: cash $23,006.77 + cost basis $59,930.51). Risk engine fired fake stop-losses (`pnl=-99.08/-85.27/-93.23/-86.85%`) correctly blocked by `daily_loss_limit`. 14:30 UTC cycle recovered (`equity=$101,623.76`). (2) **Broker↔DB position drift** — `broker_health_position_drift` warning firing every cycle since **Tue 17:30 UTC** (5 hits over 22h incl. the morning-GREEN window). Broker stuck at Monday's `[UNP, ODFL, EQIX, MRVL, BK, INTC]`; DB now `[INTC, MRVL, EQIX, HOLX]`. Morning deep-dive missed this. (3) **Phase 65 Alternating Churn regression** — BK/ODFL/UNP/HOLX each have 14–15 CLOSED position rows with identical `opened_at` but different `closed_at` (signature of `project_phase65_alternating_churn.md` which memory says was fixed 2026-04-16; regressed). ~20 more tickers with 4–8 dupe rows. No dupe OPENs (idempotency ✅). 0 crash-triad hits, 0 phantom-cash guard, CI 8th consecutive GREEN, pytest exact baseline. Not RED (cash positive, caps respected, cycles complete, `/health=ok`).
+
+### §1 Infrastructure — GREEN
+- 7 APIS + `apis-control-plane` all healthy; no restarts (worker/api Up 3d, postgres/redis Up 5d).
+- `/health` HTTP 200, `timestamp=2026-04-22T15:11:12Z`, all 6 components ok.
+- Worker log 24h: **40 matches**, 0 crash-triad — 33 known yfinance stale + 4 NEW transient DNS fails on current holdings + 1 `load_active_overrides_failed` + 1 `persist_evaluation_run_failed UniqueViolation` (warning) + 1 false-positive `feature_refresh_job_complete errors:0`. **0 `broker_order_rejected`**.
+- API log 24h: 45 matches, 0 crash-triad.
+- Prometheus 2/2 up; Alertmanager 0 alerts; resource usage clean (worker 681 MiB, api 918 MiB, control-plane 14.47% CPU baseline).
+- Postgres DB: **97 MB** (+5 MB from morning 92 MB — growth from today's cycles + dupe position rows).
+
+### §2 Execution + Data Audit — YELLOW (phantom-equity + broker drift + Phase 65 regression)
+- Wed paper cycles observed: 13:35 UTC (`proposed=4 approved=0 executed=0`) + 14:30 UTC (`proposed=0 approved=0 executed=0`). paper_cycle_count=16.
+- **Phantom-equity**: 2026-04-22 13:35:00.075017 snapshot `cash=23,006.77 / equity=28,296.77` (should be ~$101K). Next cycle 14:30 UTC recovered `equity=101,623.76`. Bad row remains in DB — data integrity issue for backtest/replay consumers.
+- **Broker↔DB reconciliation: DRIFT ⚠️** — `broker_health_position_drift` at Wed 13:35 + 14:30 UTC; also Tue 17:30 / 18:30 / 19:30 UTC (missed by morning deep-dive). Broker tickers `[UNP, ODFL, EQIX, MRVL, BK, INTC]`; DB `status='open'` tickers `[INTC, MRVL, EQIX, HOLX]`. `/health broker=ok` doesn't reflect this.
+- Positions: 4 open / 233 closed (+7 closes since morning — BK/ODFL/UNP each closed twice, HOLX closed once+reopen). Cost basis of opens = $59,930.51.
+- Open tickers all `origin_strategy` set ✅: INTC (momentum_v1, qty 223 @ 67.89), MRVL (theme_alignment_v1, qty 100 @ 147.66), EQIX (momentum_v1, qty 14 @ 1090.81), HOLX (momentum_v1, qty 194 @ 76.05). MRVL qty jumped 63→100 and HOLX replaced UNP — Phase 65 churn signature.
+- Position caps: 4/15 ✅; 0 new today /5 ✅ (no `opened_at >= 2026-04-22` rows).
+- Orders ledger: still **0 rows all-time** — known latent issue.
+- **Phase 65 regression ⚠️**: BK=15, ODFL=15, HOLX=15, UNP=14 CLOSED rows with identical `opened_at` and different `closed_at`; NFLX/BE/CIEN=8; STX/JNJ/WBD/AMD=7; +~20 tickers with 4–6 dupes. 2026-04-16 fix regressed. No dupe OPENs (functional preservation).
+- Data freshness: bars 2026-04-21, rankings Wed 10:45 UTC ✅, signals Wed 10:30 UTC ✅ — all intra-day runs fired as scheduled.
+- Stale tickers: same 13 known + 4 NEW transient (current holdings from DNS fail — not legit delisted).
+- Kill-switch=false, mode=paper (appropriate — no active damage, phantom-equity self-healed).
+- eval_runs=86 (≥80 floor ✅).
+- Idempotency: 0 duplicate OPEN positions ✅; 0 orders → moot.
+
+### §3 Code + Schema — GREEN
+- Alembic single head `o5p6q7r8s9t0` ✅. Cosmetic drift on Step 7/8 tables (TIMESTAMP-with-tz ↔ DateTime, NOT NULL, index shape) — pre-existing, non-blocking.
+- Pytest: **358p / 2f / 3655d in 31.45s** — exact DEC-021 baseline. 2 known phase22 scheduler-count drifts.
+- Git: `main@c0a0580` (morning GREEN commit), 0 unpushed, clean tree.
+- **GitHub Actions CI:** run `24773406253` on `c0a0580` → `conclusion=success` — **8th consecutive GREEN**. https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/24773406253.
+
+### §4 Config + Gate Verification — GREEN
+- All 11 critical `APIS_*` flags match expected values; no drift; no `.env` auto-fix applied.
+- Scheduler `job_count=35` ✅ (DEC-021 accelerated count).
+
+### Issues Found
+- YELLOW (new): **Phantom-equity writer** at Wed 13:35 UTC — yfinance DNS failure caused mark-to-market zero fallback; bad snapshot row remains in DB.
+- YELLOW (pre-existing, missed by morning): **Broker↔DB drift** — 22+ hours stale broker state; morning deep-dive missed because `/health broker=ok` doesn't surface the invariant.
+- YELLOW (new regression): **Phase 65 Alternating Churn** — 2026-04-16 fix regressed; 14–15 dupe CLOSED rows per core ticker.
+- YELLOW (carried forward): `orders` ledger 0 rows all-time.
+- YELLOW (carried forward): `universe_overrides` missing; 1 `load_active_overrides_failed` warning.
+- YELLOW (cosmetic): alembic Step 7/8 schema drift (non-blocking).
+
+### Fixes Applied
+- **None this run.** All 3 new findings require operator review / code patching. No flag drift detected.
+
+### Action Required from Aaron
+1. **HIGH**: Investigate phantom-equity root cause — Docker DNS config? Yahoo Finance provider drift? Patch mark-to-market fallback to preserve prior-close rather than zero.
+2. **MEDIUM-HIGH**: Audit `services/portfolio/` for broker↔DB drift root cause (likely tied to Phase 65 regression).
+3. **MEDIUM**: Re-verify Phase 65 2026-04-16 fix in `apps/worker/jobs/paper_trading.py` + `services/portfolio/`.
+4. **LOW (carry forward)**: `orders` ledger writer patch.
+5. **LOW (carry forward)**: `universe_overrides` migration.
+6. **PROCESS**: Update deep-dive §2.3 reconciliation to add a log-based `broker_health_position_drift` check — morning run missed this because it only queried DB.
+
+### Trajectory
+Morning 10:14 UTC GREEN classification was optimistic. Next deep-dive (Wed 19:16 UTC / 2 PM CT) should verify: (a) no repeat phantom-equity, (b) broker drift warning continues firing (expected until patch), (c) no new duplicate-row proliferation. Baseline: YELLOW class → email sent to operator.
+
+---
+
 ## 2026-04-22 10:14 UTC — Deep-Dive Scheduled Run (Wed 5 AM CT, pre-market) — **GREEN** (first GREEN after 4 RED + 1 YELLOW; incident chain closed)
 
 **Overall Status:** **GREEN** — overnight hold clean (no paper cycles Tue 19:30 UTC → Wed 10:14 UTC); latest `portfolio_snapshots` row stable POSITIVE `cash=$23,006.77 / equity=$101,640.07`; 6 open positions (all origin_strategy stamped); 0 new today (pre-market); all §1–§4 sections clean; CI 7th consecutive GREEN; pytest exact DEC-021 baseline; all 11 `APIS_*` flags match expected. Remaining latent issues (`orders` ledger empty, `universe_overrides` migration) are on the pre-existing known-issues list. **State-doc batch from 2026-04-20 → 2026-04-21 committed this run** per yesterday's trajectory plan. Wed 13:35 UTC first cycle is the next data point (~3h after deep-dive).
