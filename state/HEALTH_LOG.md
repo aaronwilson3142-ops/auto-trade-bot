@@ -4,6 +4,24 @@ Auto-generated daily health check results.
 
 ---
 
+## Health Check — 2026-04-23 10:15 UTC (Thursday 5 AM CT, pre-market — VALIDATION DAY)
+
+**Overall Status:** GREEN — pre-cycle baseline clean. Sprint fixes from 2026-04-22 22:30 UTC committed + pushed (`25c3ea4`). First paper cycle at 13:35 UTC will be the real validation. Orders/fills tables now have data (21/20 rows). No crash-triad, no phantom-cash, no new errors since worker restart 12h ago.
+
+### Summary
+- §1 Infra: all GREEN. 7+1 containers healthy. /health all ok. 0 errors beyond known 13 delisted. DB 103 MB.
+- §2 Exec: 0 paper cycles today (first 13:35 UTC). Cash=$49,797 positive ✅. 1 OPEN (NVDA). **Orders=21, Fills=20 — first-ever non-zero (sprint fix confirmed).** Phantom-equity row deleted. universe_overrides migration applied. Phase 65 TTL fix pending validation. Eval history 88 ≥80. Idempotency clean.
+- §3 Code: Alembic `p6q7r8s9t0u1` single head. Pytest 358/360 exact baseline. Git clean at `25c3ea4` (sprint committed+pushed by this run). CI run `24798808859` success = 10th consecutive GREEN.
+- §4 Config: All 11 APIS_* flags correct. No drift. Scheduler 35 jobs.
+
+### Fixes Applied
+- Committed + pushed uncommitted sprint fixes: `25c3ea4` (8 files, +427/−6).
+
+### Action Required from Aaron
+- None. Monitor 10 AM CT deep-dive for post-cycle validation.
+
+---
+
 ## 2026-04-22 19:13 UTC — Deep-Dive Scheduled Run (Wed 2 PM CT, late-session) — **YELLOW** (carry-forward from 15:16; Phase 65 churn **actively worsening**)
 
 **Overall Status:** **YELLOW** — carry-forward of morning 15:16 UTC YELLOW plus new signal that Phase 65 churn is **actively worsening**, not self-healing. 6 Wed paper cycles fired (13:35 / 14:30 / 15:30 / 16:00 / 17:30 / 18:30 UTC); next at 19:30 UTC (~17 min after this deep-dive). Cash stable positive ~$23,006 all cycles; equity recovered cleanly from 13:35 UTC phantom-equity row (101,131–101,624 across 5 subsequent snapshots). 6 open positions reverted to Monday-6 baseline `[UNP/INTC/MRVL/EQIX/BK/ODFL]` all with `origin_strategy`; cap 6/15 ✅, 0 new today (reusing old opened_at rows). **Phase 65 dupe counts grew 15→18 on ODFL/BK/HOLX and 14→17 on UNP over 4 cycles (+3 each)** — this is active damage accumulation, not a static legacy. `broker_health_position_drift` still firing every cycle (7 hits over 24h; 15:30 UTC flip to `[HOLX, MRVL, INTC, EQIX]` proves the broker is oscillating). Phantom-equity snapshot row from 13:35 UTC persists in DB. §1 + §3 + §4 GREEN (0 crash-triad, single alembic head `o5p6q7r8s9t0`, pytest `358p/2f/3655d in 27.52s` exact baseline, CI run `24787345541` conclusion=success = **9th consecutive GREEN** on commit `5061475`, git clean 0 unpushed, all 11 `APIS_*` flags correct). Not RED — no cap breach, no crash-triad, no phantom-cash guard, no cycle failures, `/health=ok`.

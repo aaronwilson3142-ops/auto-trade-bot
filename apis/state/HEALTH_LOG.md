@@ -4,6 +4,70 @@ Auto-generated daily health check results.
 
 ---
 
+## Health Check — 2026-04-23 10:15 UTC (Thursday 5 AM CT, pre-market — VALIDATION DAY)
+
+**Overall Status:** GREEN — pre-cycle baseline clean. Sprint fixes from 2026-04-22 22:30 UTC are committed + pushed (`25c3ea4`). First paper cycle at 13:35 UTC (09:35 ET) will be the real validation. Orders/fills tables now have data (21/20 rows). No crash-triad, no phantom-cash, no new errors since worker restart 12h ago.
+
+### §1 Infrastructure
+- Containers: 7 APIS + `apis-control-plane` all healthy. Worker Up 12h (restarted 2026-04-22 22:24 UTC with TTL fix), API Up 4d, postgres/redis Up 6d (healthy), grafana/prometheus/alertmanager Up 6d.
+- /health: `status=ok service=api mode=paper timestamp=2026-04-23T10:11:32+00:00` — all 6 components ok (db, broker, scheduler, paper_cycle, broker_auth, kill_switch).
+- Worker log scan (since restart): **0 ERROR/CRITICAL/Traceback/TypeError** beyond known 13 yfinance delisted tickers (PARA, MMC, MRO, K, ANSS, DFS, HES, IPG, JNPR, CTLT, PXD, PKI, WRK). **0 crash-triad hits** (`_fire_ks` / `broker_adapter_missing` / `EvaluationRun.idempotency_key` / `paper_cycle.no_data` / `phantom_cash_guard` all 0). **0 `broker_health_position_drift`** since restart (no paper cycles have fired yet).
+- API log 24h: 0 ERROR/CRITICAL hits.
+- Prometheus: 2/2 targets up (apis, prometheus); 0 droppedTargets.
+- Alertmanager: 0 active alerts.
+- Resource usage: all well under threshold. Worker 636 MiB / 0.00% CPU, API 941 MiB / 0.12% CPU, Postgres 140 MiB, Redis 8 MiB. `apis-control-plane` 1.92 GiB / 18.90% CPU (normal baseline).
+- Postgres DB size: **103 MB** (+6 MB from Wed 97 MB — sprint migrations + restart snapshot writes).
+
+### §2 Execution + Data Audit
+- **Paper cycles last 30h:** 0 today (first at 13:35 UTC). Last: Wed 2026-04-22 21:00 daily eval (complete, mode=paper) + 2026-04-22 22:27 research eval from restart.
+- **Portfolio trend (latest snapshot):** `cash=$49,797.10 / equity=$53,644.60` at 2026-04-22 22:28 UTC (worker restart burst). Cash positive ✅. Equity ≈ cash + NVDA cost basis ($3,849) = $53,646 — matches within $2 ✅.
+- **Open positions: 1** (NVDA, 19 shares @ $202.60, opened 2026-04-22 22:28 UTC during restart). **origin_strategy = empty** — opened by startup catch-up, not a paper cycle. Prior Monday-6 (UNP/INTC/MRVL/EQIX/BK/ODFL) all closed during restart.
+- **Broker↔DB reconciliation:** `/health broker=ok` ✅. Broker positions endpoint 404s (expected for this build). DB has 1 OPEN (NVDA). No `broker_health_position_drift` warnings since restart.
+- **VALIDATION: Orders + Fills tables:** `orders` = **21 rows**, `fills` = **20 rows** — first-ever non-zero! All from 22:28 UTC restart burst (buy-NVDA/sell-AAPL cycle_id-keyed pairs). **Sprint fix confirmed working.** 0 duplicate idempotency_keys ✅.
+- **VALIDATION: Phantom-equity row deleted:** The bad 13:35 UTC phantom row (`equity=$28,296.77`) is GONE from `portfolio_snapshots`. Confirmed clean.
+- **VALIDATION: universe_overrides migration:** Alembic head now `p6q7r8s9t0u1` (up from `o5p6q7r8s9t0`). Table exists.
+- **Phase 65 churn (pre-validation):** Duplicate position counts: BK 21, ODFL 21, HOLX 19, UNP 19 (+3/+3/+1/+2 from Wed 19:13 UTC — from Wed 19:30 cycle + restart burst). **True validation requires today's first paper cycle** — if TTL fix (3600→43200s) works, no new dupes should appear at 13:35 UTC.
+- **Position caps:** 1 open ≤ 15 ✅; 0 new today ≤ 5 ✅.
+- **Data freshness:** `daily_market_bars` latest `trade_date=2026-04-22` (490 tickers); `ranking_runs` latest `2026-04-22 22:38 UTC`; `security_signals` latest `2026-04-22 22:38 UTC` × 5 types (3018 each). Thu ingestion ran at 10:00 UTC (503 tickers, 122,969 bars, status=partial — 13 known delisted).
+- **Stale tickers:** Known 13, no new additions.
+- **Kill-switch + mode:** `APIS_KILL_SWITCH=false`, `APIS_OPERATING_MODE=paper` ✅.
+- **Evaluation history rows:** 88 (≥80 floor ✅).
+- **Idempotency:** 0 duplicate orders ✅; 0 duplicate open positions ✅.
+
+### §3 Code + Schema
+- Alembic head: `p6q7r8s9t0u1` (single head ✅). Current matches heads.
+- Pytest smoke: **358 passed / 2 failed / 3655 deselected** — **exact DEC-021 baseline**. 2 known phase22 failures. No new failures.
+- Git: `main` at `25c3ea4` (sprint commit just pushed), **0 unpushed**, **clean tree** (was dirty — sprint fixes committed + pushed by this deep-dive). Single branch `main`.
+- **GitHub Actions CI:** run `24798808859` on `235c9b6` → `status=completed conclusion=success` — **10th consecutive GREEN**. https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/24798808859. New commit `25c3ea4` CI run pending (will verify at next deep-dive).
+
+### §4 Config + Gate Verification
+- All critical `APIS_*` flags at expected values ✅:
+  - `APIS_OPERATING_MODE=paper` ✅
+  - `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅
+  - `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅
+  - `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED` unset → default `false` ✅
+  - `APIS_INSIDER_FLOW_PROVIDER` unset → default `null` ✅
+  - Deep-Dive Step 6/7/8 flags unset → defaults OFF ✅
+- Scheduler: `apis_worker_started job_count=35` at `2026-04-22T22:24:56Z` ✅.
+- No drift detected → no `.env` auto-fix applied.
+
+### Issues Found
+- **INFO (pending validation):** Phase 65 TTL fix (3600→43200s) deployed but untested — first paper cycle at 13:35 UTC will confirm whether rebalance targets survive the 06:26→09:35 ET gap. 10 AM CT deep-dive should verify.
+- **INFO (pending validation):** Phantom-equity `_fetch_price_strict` guard deployed but untested — no paper cycle has exercised the MTM loop since restart.
+- **YELLOW (minor):** NVDA position opened at 22:28 UTC during restart has empty `origin_strategy` — startup catch-up path doesn't stamp origin. Non-blocking (1 position, will be stamped by next paper cycle if re-opened, or will close with empty origin).
+- **YELLOW (pre-existing, cosmetic):** Alembic check drift on Deep-Dive Step 7/8 tables (non-blocking).
+
+### Fixes Applied
+- **Committed + pushed sprint fixes** from 2026-04-22 22:30 UTC session that were sitting uncommitted in working tree: `25c3ea4` on `main` → `origin/main`. Contains: Phase 65 TTL 3600→43200s, phantom-equity `_fetch_price_strict`, orders/fills ledger writer, universe_overrides migration `p6q7r8s9t0u1`, test update. 8 files, +427/−6.
+
+### Action Required from Aaron
+- **None immediate.** Monitor the 10 AM CT (15:16 UTC) deep-dive for Phase 65 + phantom-equity validation results after the 13:35 UTC first paper cycle.
+
+---
+
 ## 2026-04-22 22:30 UTC — Five-Concern Operator Sprint (GREEN code-side, awaiting Thu 2026-04-23 validation)
 
 **Classification:** GREEN (code-side) — four code-level bugs from the 15:16 / 19:13 UTC deep-dives are patched and deployed. Validation pending Thu 2026-04-23 09:35 ET first paper cycle.
