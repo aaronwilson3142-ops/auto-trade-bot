@@ -244,6 +244,147 @@ def _persist_positions(
         logger.warning("persist_positions_failed", error=str(exc))
 
 
+def _persist_orders_and_fills(
+    approved_requests: list,
+    execution_results: list,
+    run_at: Any,
+    cycle_id: str | None = None,
+) -> None:
+    """Authoritative ``orders`` + ``fills`` ledger writer.
+
+    Writes one ``Order`` row per ``ExecutionRequest`` (success or failure) and
+    one ``Fill`` row per ``ExecutionResult`` with status == FILLED.  Was
+    missing from the paper cycle entirely — the tables contained **zero rows**
+    despite hundreds of executions, leaving the system with no queryable audit
+    trail and no per-order P&L attribution basis.
+
+    Idempotency: ``orders.idempotency_key = f"{cycle_id}:{ticker}:{side}"`` so
+    a replayed cycle upserts rather than duplicating.  Matches the pattern used
+    for ``portfolio_snapshots`` (``{cycle_id}:portfolio_snapshot``).
+
+    Fire-and-forget: never raises — DB failures are logged at WARNING level,
+    just like ``_persist_positions`` and ``_persist_portfolio_snapshot``.
+    """
+    try:
+        from decimal import Decimal as _Decimal
+
+        from sqlalchemy import select as _select
+
+        from infra.db.models import Security as _Security
+        from infra.db.models.portfolio import Fill as _DBFill
+        from infra.db.models.portfolio import Order as _DBOrder
+        from infra.db.models.portfolio import Position as _DBPosition
+        from infra.db.session import db_session as _db_session
+        from services.execution_engine.models import ExecutionStatus as _ExecStatus
+        from services.portfolio_engine.models import ActionType as _ActionType
+
+        if not approved_requests:
+            return
+
+        _cid = cycle_id or "unknown"
+
+        with _db_session() as db:
+            # Resolve ticker -> security_id once for every touched ticker
+            tickers = sorted({req.action.ticker for req in approved_requests})
+            sec_rows = db.execute(
+                _select(_Security).where(_Security.ticker.in_(tickers))
+            ).scalars().all()
+            sec_by_ticker = {s.ticker: s.id for s in sec_rows}
+
+            for req, res in zip(approved_requests, execution_results):
+                ticker = req.action.ticker
+                sec_id = sec_by_ticker.get(ticker)
+                if sec_id is None:
+                    logger.warning(
+                        "persist_orders_missing_security",
+                        ticker=ticker,
+                    )
+                    continue
+
+                # BUY for OPEN; SELL for CLOSE and TRIM
+                side = (
+                    "buy" if req.action.action_type == _ActionType.OPEN else "sell"
+                )
+                order_status = res.status.value  # "filled" | "rejected" | ...
+                qty = req.action.target_quantity or res.fill_quantity
+                qty_d = _Decimal(str(qty)) if qty else None
+                notional = req.action.target_notional
+                notional_d = _Decimal(str(notional)) if notional else None
+
+                idem = f"{_cid}:{ticker}:{side}"
+
+                existing = db.execute(
+                    _select(_DBOrder).where(_DBOrder.idempotency_key == idem).limit(1)
+                ).scalar_one_or_none()
+
+                # Look up the current open Position row so the Order can link
+                # back to it (nullable — CLOSE on an already-closed position
+                # rejects in execution engine, so position_id may be None for
+                # REJECTED/BLOCKED rows).
+                pos_row = db.execute(
+                    _select(_DBPosition)
+                    .where(_DBPosition.security_id == sec_id)
+                    .where(_DBPosition.status == "open")
+                    .order_by(_DBPosition.opened_at.desc())
+                    .limit(1)
+                ).scalar_one_or_none()
+                pos_id = pos_row.id if pos_row is not None else None
+
+                if existing is None:
+                    order_row = _DBOrder(
+                        broker_order_ref=res.broker_order_id,
+                        security_id=sec_id,
+                        position_id=pos_id,
+                        order_timestamp=run_at,
+                        order_type="market",
+                        side=side,
+                        quantity=qty_d,
+                        notional_amount=notional_d,
+                        limit_price=None,
+                        stop_price=None,
+                        status=order_status,
+                        idempotency_key=idem,
+                        decision_snapshot_json={
+                            "action_type": req.action.action_type.value,
+                            "reason": req.action.reason or "",
+                            "expected_price": str(req.current_price),
+                            "error_message": res.error_message,
+                            "cycle_id": _cid,
+                        },
+                    )
+                    db.add(order_row)
+                    db.flush()
+                    order_id = order_row.id
+                else:
+                    existing.status = order_status
+                    existing.broker_order_ref = res.broker_order_id or existing.broker_order_ref
+                    existing.quantity = qty_d or existing.quantity
+                    existing.notional_amount = notional_d or existing.notional_amount
+                    existing.position_id = pos_id or existing.position_id
+                    order_id = existing.id
+
+                # Emit a Fill row for any FILLED result
+                if (
+                    res.status == _ExecStatus.FILLED
+                    and res.fill_price is not None
+                    and res.fill_quantity is not None
+                ):
+                    fill_existing = db.execute(
+                        _select(_DBFill).where(_DBFill.order_id == order_id).limit(1)
+                    ).scalar_one_or_none()
+                    if fill_existing is None:
+                        db.add(_DBFill(
+                            order_id=order_id,
+                            fill_timestamp=res.filled_at or run_at,
+                            fill_quantity=_Decimal(str(res.fill_quantity)),
+                            fill_price=_Decimal(str(res.fill_price)),
+                            fees=_Decimal(str(res.fees or 0)),
+                            liquidity_flag=None,
+                        ))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("persist_orders_fills_failed", error=str(exc))
+
+
 def _shadow_enabled(cfg: Any) -> bool:
     """Deep-Dive Step 7: single place that resolves the shadow-portfolio flag.
 
@@ -1134,11 +1275,39 @@ def run_paper_trading_cycle(
             logger.warning("drawdown_recovery_failed", error=str(_dd_exc))
 
         # ── Evaluate exit triggers for held positions ─────────────────────────
-        # Refresh current prices for all held tickers so stop-loss calc is fresh
+        # Refresh current prices for all held tickers so stop-loss calc is fresh.
+        #
+        # Phantom-equity writer fix (2026-04-22): previously we used
+        # ``_fetch_price(ticker, Decimal("1000"), …)`` here, which on yfinance
+        # failure would silently return the synthetic ``1000/100 = $10``
+        # fallback and overwrite every held-ticker's real current_price.  That
+        # collapsed gross_exposure and produced phantom portfolio snapshots
+        # (equity ≈ cash + 0.25 × cost_basis) plus fake -90% stop-loss signals.
+        # We now use the strict fetch and preserve the prior price on failure,
+        # surfacing the staleness via ``mark_to_market_stale_price_preserved``.
+        _mtm_stale: list[str] = []
         for ticker in list(portfolio_state.positions):
-            fresh_price = _fetch_price(ticker, Decimal("1000"), _market_data_svc, errors)
-            if fresh_price > Decimal("0"):
+            fresh_price = _fetch_price_strict(ticker, _market_data_svc)
+            if fresh_price is not None:
                 portfolio_state.positions[ticker].current_price = fresh_price
+            else:
+                _prev = portfolio_state.positions[ticker].current_price
+                _mtm_stale.append(ticker)
+                logger.warning(
+                    "mark_to_market_stale_price_preserved",
+                    ticker=ticker,
+                    preserved_price=str(_prev),
+                )
+        if _mtm_stale:
+            logger.warning(
+                "phantom_equity_guard_active",
+                stale_tickers=_mtm_stale,
+                stale_count=len(_mtm_stale),
+                note="prior-close price preserved; investigate data provider",
+            )
+            errors.append(
+                f"mtm_stale_prices: {len(_mtm_stale)} ticker(s) preserved prior-close"
+            )
 
         ranked_scores = {
             r.ticker: (r.composite_score or Decimal("0")) for r in rankings
@@ -1418,6 +1587,20 @@ def run_paper_trading_cycle(
         execution_results = _execution_svc.execute_approved_actions(approved_requests)
         executed_count = sum(
             1 for r in execution_results if r.status.value == "filled"
+        )
+
+        # ── Persist orders + fills ledger (2026-04-22 latent-bug fix) ─────────
+        # Prior to this patch, the ``orders`` and ``fills`` tables contained
+        # zero rows despite hundreds of executions — there was no production
+        # code path writing them.  That left the system with no queryable
+        # audit trail and no per-order basis for P&L attribution.  Mirrors the
+        # Phase 64 ``_persist_positions`` contract: fire-and-forget, failures
+        # logged at WARN, idempotency keyed on ``{cycle_id}:{ticker}:{side}``.
+        _persist_orders_and_fills(
+            approved_requests,
+            execution_results,
+            run_at,
+            cycle_id=cycle_id,
         )
 
         # ── Phase 52: Capture fill quality records ────────────────────────────
@@ -1912,3 +2095,37 @@ def _fetch_price(
     # floor at $1.00 so quantity math stays plausible.
     fallback = (target_notional / Decimal("100")).quantize(Decimal("0.01"))
     return max(fallback, Decimal("1.00"))
+
+
+def _fetch_price_strict(
+    ticker: str,
+    market_data_svc: Any,
+) -> Decimal | None:
+    """Fetch latest price for *ticker* — returns ``None`` on any failure.
+
+    Strict variant for mark-to-market paths where ``_fetch_price``'s
+    synthetic ``target_notional / 100`` fallback would corrupt
+    ``gross_exposure`` and produce phantom portfolio snapshots.  Caller
+    is expected to preserve the prior ``current_price`` when ``None`` is
+    returned and log a WARN so the staleness is observable.
+
+    Phantom-equity writer fix (2026-04-22):
+    yfinance DNS failures on current holdings silently caused the
+    mark-to-market loop to overwrite real prices with ``$10/share``
+    (``target_notional=1000 → 1000/100 = 10``).  That produced
+    ``equity ≈ cash + 0.25 × cost_basis`` snapshots, and with a
+    simultaneously-weak daily_loss_limit gate could have executed fake
+    stop-losses on all holdings.
+    """
+    try:
+        snapshot = market_data_svc.get_snapshot(ticker)
+        price = snapshot.latest_price
+        if price and price > Decimal("0"):
+            return Decimal(str(price))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "price_fetch_strict_failed",
+            ticker=ticker,
+            error=str(exc),
+        )
+    return None

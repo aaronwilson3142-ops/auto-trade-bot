@@ -3,6 +3,53 @@ Format: timestamp | decision | alternatives considered | rationale | consequence
 
 ---
 
+## [2026-04-22] Five-Concern Operator Sprint
+
+### DEC-037: Phase 65 Alternating Churn — fix via `rebalance_target_ttl_seconds` 3600 → 43200, not by modifying the suppression logic
+- **Decision:** Raise the TTL for cached rebalance targets from 1h to 12h (12 × 3600 = 43200 s). Leave the Phase 65 PaperBrokerAdapter persistence and the rebalance-close suppression branch in `paper_trading.py` untouched.
+- **Alternatives considered:**
+  - (a) Add a second persistence layer on top of the 2026-04-16 fixes. Rejected — the original fixes were still intact; dupes were NOT from the persistence path regressing.
+  - (b) Shorten the rebalance_check → first-paper-cycle gap by moving the cron. Rejected — the 06:26 ET cadence is shared with other jobs; moving it risks cascading schedule drift.
+  - (c) Tie rebalance target lifetime to a session boundary (expire at next 06:26 ET). Rejected as overengineered — a 12h TTL falls naturally before the next 06:26 ET rebalance overwrites the cache anyway.
+- **Rationale:** Root cause analysis showed the 2026-04-22 re-emergence of +1 dupe CLOSED row per ticker per cycle was driven by targets aging out between the 06:26 ET rebalance_check and the 09:35 ET first paper cycle (3h9m gap > 1h TTL). Once a target is `None`, the rebalance-close suppression branch correctly returns early — but so does the rebalance logic itself, which then re-enters via the default CLOSE path. Fixing the TTL preserves the original Phase 65 fix invariants and introduces no new branches.
+- **Consequence:** Targets persist through the full trading day (06:26 ET → 18:26 ET) and expire before the next daily rebalance_check overwrites them. Validation: first Thu 2026-04-23 09:35 ET paper cycle should emit zero new duplicate CLOSED rows. If that assertion holds through a 2-day observation window, the churn regression is closed.
+
+### DEC-038: Phantom-equity mark-to-market — add `_fetch_price_strict` helper, preserve prior-close on yfinance failure, emit WARN
+- **Decision:** Introduce `_fetch_price_strict(ticker, market_data_svc) -> Decimal | None` as a new helper in `paper_trading.py` and call it from the MTM loop. On `None` result, preserve the prior-close price from the open Position row and log `mark_to_market_stale_price_preserved` at WARN. Separately log `phantom_equity_guard_active` at WARN when the guard runs.
+- **Alternatives considered:**
+  - (a) Modify `_fetch_price` in-place to return `None` on failure instead of defaulting to `$1000/qty`. Rejected — `_fetch_price` is also used by sizing paths where the `$1000/qty` nominal fallback is intentional (OPEN sizing needs a shape even with stale data); changing that behaviour risks a second-order regression elsewhere.
+  - (b) Skip the MTM snapshot entirely on any failure. Rejected — blanking the equity curve is worse for observability than preserving the last-good value plus a WARN.
+- **Rationale:** Root cause was `_fetch_price` returning `$1000/qty` on yfinance DNS failure, overwriting real prior prices in the mark-to-market loop and collapsing gross exposure to ~$5K. Strict variant separates "sizing default" vs. "valuation truth" semantics. Prior-close preservation keeps the equity curve monotonic across transient network failures.
+- **Consequence:** Any future yfinance outage produces a flat-equity snapshot rather than a phantom-zero snapshot. The WARN pair (`mark_to_market_stale_price_preserved`, `phantom_equity_guard_active`) is a new observability signal — deep-dive §2 should grep worker logs for these going forward.
+
+### DEC-039: Orders + Fills ledger writer — land `_persist_orders_and_fills` with `{cycle_id}:{ticker}:{side}` idempotency key
+- **Decision:** Add `_persist_orders_and_fills(approved_requests, execution_results, run_at, cycle_id)` helper in `paper_trading.py`, wired immediately after `_execution_svc.execute_approved_actions()`. One `Order` row per `ExecutionRequest` (success OR failure), one `Fill` row per FILLED result. Idempotency key: `{cycle_id}:{ticker}:{side}`. Fire-and-forget: logs `persist_orders_fills_failed` at WARN on any exception, never raises.
+- **Alternatives considered:**
+  - (a) Key by `execution_request.id` alone. Rejected — request IDs are not guaranteed stable across a replay, but `cycle_id` + ticker + side is.
+  - (b) Key by `cycle_id` + `request.id`. Rejected — too verbose, and tracks an internal detail (request.id) that deep-dive reconciliation shouldn't need.
+  - (c) Only persist FILLED rows (skip REJECTED/BLOCKED). Rejected — the whole point is a per-order audit trail; REJECTED/BLOCKED rows are the most valuable ones for the self-improvement engine.
+  - (d) Raise on failure instead of WARN-and-continue. Rejected — every other persistence path in paper_trading.py is fire-and-forget (see `_persist_positions`), and paper cycles must not crash on ledger write failures.
+- **Rationale:** `orders` and `fills` tables had zero rows ever despite hundreds of executions — no production writer existed. Mirror the Phase 64 Position persistence pattern exactly. The `{cycle_id}:{ticker}:{side}` key allows UPSERT on cycle replay without duplicating rows.
+- **Consequence:** First Thu 2026-04-23 09:35 ET paper cycle should produce non-zero `orders` and `fills` rows. Deep-dive §2 gains a new cross-check: `orders`/`fills`/`closed_trades`/`positions` should reconcile. Idempotency test: re-running a cycle with the same `cycle_id` must not duplicate rows.
+
+### DEC-040: universe_overrides — land Alembic migration even though the table was never missed in production
+- **Decision:** Add `p6q7r8s9t0u1_add_universe_overrides.py` migration matching the `UniverseOverride` ORM exactly. down_revision = `o5p6q7r8s9t0` (Deep-Dive Step 8 strategy_bandit_state). Apply immediately via `docker exec docker-api-1 alembic upgrade head`.
+- **Alternatives considered:**
+  - (a) Keep the gap — the ORM exists but no production code path depends on the table today (the `UniverseManagementService` DB load path silently skips when the table is absent). Rejected — deep-dive §3 flags it every run as alembic-drift, and POST/DELETE on `/api/v1/universe/overrides` routes return 500 on any write attempt.
+  - (b) Delete the ORM model instead. Rejected — the service + route code would also need ripping out, and operator intent for Phase 48 was to have this override path available.
+- **Rationale:** A table that exists in the ORM but not in any migration is always drift; the question is only when it bites. Closing the gap now costs one migration file + one index trio, and aligns the Alembic head with the ORM model set.
+- **Consequence:** Alembic head advances to `p6q7r8s9t0u1`. Deep-dive §3 should now see a clean head state. Universe override routes no longer 503; they still 401 in unit tests due to operator-auth env drift — that is a separate pre-existing issue unrelated to this migration. Rollback path if needed: `alembic downgrade o5p6q7r8s9t0`.
+
+### DEC-041: Phantom-equity snapshot 2026-04-22 13:35:00.075017 — DB-side DELETE now, do not wait for self-heal
+- **Decision:** DELETE the one phantom row (`id = '4e6421e1-27c6-4dc4-851b-2cca0ed57274'`) from `portfolio_snapshots` via direct psql. Scope the delete with a belt-and-braces `AND equity_value < 30000` so only the phantom row can match.
+- **Alternatives considered:**
+  - (a) Let the next cycle self-heal the equity curve and leave the phantom row in place as a historical artifact. Rejected — the deep-dive daily report aggregates over `portfolio_snapshots` for the equity curve; leaving a $0-ish row in would skew every chart that spans 2026-04-22.
+  - (b) Archive the row to a `portfolio_snapshots_quarantine` table. Rejected — we already have the phantom-equity post-mortem documented in `project_phantom_equity_writer_2026-04-22.md` and `HEALTH_LOG.md`; a DB-side copy adds no value.
+- **Rationale:** One-off data hygiene op with a narrow predicate. The fix in DEC-038 prevents future phantom rows; this cleanup removes the single bad row already on disk.
+- **Consequence:** 1 row deleted; verification SELECT confirmed 0 remaining. Equity curve across 2026-04-22 is now monotonic. If a similar event recurs before DEC-038's fix has fully propagated (shouldn't happen — the code is already deployed), the same narrow DELETE pattern is repeatable.
+
+---
+
 ## [2026-04-18] Phase 57 Part 2 — Insider Flow Providers Land Default-OFF
 
 ### DEC-036: Land Phase 57 Part 2 (QuiverQuant + SEC EDGAR adapters + enrichment wiring) straight to `main` behind default-OFF credential gates

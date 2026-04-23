@@ -39,7 +39,10 @@ class TestStep1Defaults:
 
     def test_rebalance_target_ttl_seconds_default(self):
         s = Settings()
-        assert s.rebalance_target_ttl_seconds == 3600
+        # Phase 65 regression fix 2026-04-22: raised 3600→43200 (1h→12h) to
+        # keep rebalance targets fresh across the 3h9m gap between the
+        # 06:26 ET rebalance_check and the first 09:35 ET paper cycle.
+        assert s.rebalance_target_ttl_seconds == 43200
 
     def test_ai_ranking_bonus_map_default(self):
         s = Settings()

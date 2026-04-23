@@ -3,6 +3,31 @@ Format: [YYYY-MM-DD] | file/module | description
 
 ---
 
+## [2026-04-22] Five-Concern Operator Sprint — Phase 65 + Phantom-Equity + Orders Ledger + universe_overrides
+
+**Context:** Wed 2 PM CT deep-dive (19:13 UTC) flagged four code-level latent bugs. Operator sprint at 22:30 UTC closes all four and deletes the phantom snapshot row.
+
+**Files touched:**
+
+- `apis/config/settings.py` — `rebalance_target_ttl_seconds` default raised from `3600` (1 h) to `43200` (12 h) with inline comment explaining the 06:26 ET / 09:35 ET rebalance-target window. Resolves the Phase 65 Alternating Churn regression (true root cause, not the 2026-04-16 surface fixes).
+- `apis/tests/unit/test_deep_dive_step1_constants.py` — `test_rebalance_target_ttl_seconds_default` assertion updated from `3600` to `43200`. 24/24 pass.
+- `apis/apps/worker/jobs/paper_trading.py` —
+  - Added `_fetch_price_strict(ticker, market_data_svc) -> Decimal | None` helper. Returns `None` on yfinance failure with `price_fetch_strict_failed` WARN. Caller preserves prior-close.
+  - MTM loop (post-rankings, pre-exit-eval) now uses `_fetch_price_strict`. On `None`, emits `mark_to_market_stale_price_preserved` per ticker and `phantom_equity_guard_active` per cycle; appends `mtm_stale_prices: N ticker(s)` to `errors`. Replaces the prior `_fetch_price(ticker, Decimal("1000"), ...)` call whose synthetic `$10/share` fallback produced phantom snapshots on yfinance DNS outages.
+  - Added `_persist_orders_and_fills(approved_requests, execution_results, run_at, cycle_id)` helper. Writes one `orders` row per ExecutionRequest (idempotent on `{cycle_id}:{ticker}:{side}`), one `fills` row per FILLED result. Links `position_id` to latest open Position for the security. Fire-and-forget: logs `persist_orders_fills_failed` on any exception.
+  - Wired `_persist_orders_and_fills` call immediately after `_execution_svc.execute_approved_actions()`.
+- `apis/infra/db/versions/p6q7r8s9t0u1_add_universe_overrides.py` — new Alembic migration. down_revision = `o5p6q7r8s9t0`. Creates `universe_overrides` table matching the Phase 48 `UniverseOverride` ORM exactly (varchar(36) id, varchar(16) ticker, varchar(8) action with CHECK IN ('ADD','REMOVE'), text reason, varchar(128) operator_id, boolean active DEFAULT true, timestamptz expires_at, timestamp created_at/updated_at DEFAULT now()). Indexes on ticker, active, action.
+- DB cleanup: `DELETE FROM portfolio_snapshots WHERE id = '4e6421e1-27c6-4dc4-851b-2cca0ed57274'` (phantom row, equity=$28,296.77 at 2026-04-22 13:35:00.075017). 1 row removed.
+
+**Deploy:**
+
+- Applied migration via `docker exec docker-api-1 alembic upgrade head` → `o5p6q7r8s9t0 → p6q7r8s9t0u1`.
+- Restarted `docker-worker-1` at 22:24:56 UTC. 35 jobs registered. Next paper cycle Thu 2026-04-23 09:35 ET.
+
+**Tests touching patched paths:** 158/158 pass. Pre-existing env-drift failures (universe route auth, scheduler job count) unchanged — orthogonal to this sprint.
+
+---
+
 ## [2026-04-20] CI Recovery — Ruff Cleanup + Unit-Tests Gate Relax (commit `5db564e`)
 
 Restored GitHub Actions CI to overall GREEN after 14 consecutive red runs on main since the inaugural push on 2026-04-18 (`eef10a4`). Two distinct fixes bundled in one commit because they are both CI-hygiene, not runtime changes.

@@ -4,6 +4,39 @@ Auto-generated daily health check results.
 
 ---
 
+## 2026-04-22 22:30 UTC — Five-Concern Operator Sprint (GREEN code-side, awaiting Thu 2026-04-23 validation)
+
+**Classification:** GREEN (code-side) — four code-level bugs from the 15:16 / 19:13 UTC deep-dives are patched and deployed. Validation pending Thu 2026-04-23 09:35 ET first paper cycle.
+
+**Concerns addressed:**
+
+1. **Phase 65 Alternating Churn regression — RESOLVED.** True root cause identified: `rebalance_target_ttl_seconds` default was `3600` (1 h). `rebalance_check` job runs at 06:26 ET daily; first paper cycle runs at 09:35 ET — a 3 h 9 m gap. TTL expired targets before any paper cycle could consume them, bypassing the Phase 65 rebalance-close suppression branch. Both original 2026-04-16 fixes (broker persistence + suppression log) were still intact. Fix: raised TTL to `43200` (12 h) in `apis/config/settings.py`; test `test_rebalance_target_ttl_seconds_default` updated to 43200. Worker restarted 22:24:56 UTC.
+
+2. **Phantom-Equity Writer 2026-04-22 — RESOLVED.** Root cause: MTM loop at `apps/worker/jobs/paper_trading.py` line ~1138 called `_fetch_price(ticker, Decimal("1000"), ...)` which on yfinance failure returned `max(1000/100, 1.00) = $10/share` and overwrote every held ticker's real current_price, collapsing gross exposure to ~$5K and producing phantom equity snapshots. Fix: added `_fetch_price_strict(ticker, market_data_svc) -> Decimal | None` helper that returns `None` on failure; MTM loop now preserves prior-close and emits `mark_to_market_stale_price_preserved` (per-ticker) + `phantom_equity_guard_active` (per-cycle) WARNs.
+
+3. **DB cleanup — Phantom snapshot deleted.** Row `4e6421e1-27c6-4dc4-851b-2cca0ed57274` at `2026-04-22 13:35:00.075017` (cash=$23,006.77, gross_exposure=$5,290.00, equity_value=$28,296.77) removed. Verified 0 remaining. 13:35 cycle now has only the healthy pre-snapshot.
+
+4. **Orders + Fills ledger writer landed.** `orders` and `fills` tables had zero rows ever — no production writer existed. Added `_persist_orders_and_fills(approved_requests, execution_results, run_at, cycle_id)` in `apps/worker/jobs/paper_trading.py`, wired immediately after `_execution_svc.execute_approved_actions()`. One Order row per ExecutionRequest (idempotent on `{cycle_id}:{ticker}:{side}`), one Fill row per FILLED result. Mirrors Phase 64 `_persist_positions` fire-and-forget contract.
+
+5. **universe_overrides migration landed.** Alembic revision `p6q7r8s9t0u1_add_universe_overrides.py` created and applied. Table schema matches `UniverseOverride` ORM exactly; 3 indexes + 1 check constraint. Alembic head now `p6q7r8s9t0u1`.
+
+**Container state after sprint:**
+
+- docker-worker-1 restarted 2026-04-22 22:24:56 UTC, 35 jobs registered, next paper cycle Thu 2026-04-23 09:35 ET.
+- docker-api-1 ran `alembic upgrade head` successfully.
+- All 8 APIS containers healthy.
+
+**Unit tests touching patched paths:** 158/158 pass (step1-constants, paper_broker, execution_engine, paper_trading, phase64, phase48, phase49, worker_jobs, portfolio_engine, deep_dive_step2_idempotency). Pre-existing env-drift failures (22) in operator-auth-dependent route tests and scheduler-count assertions are unchanged — orthogonal to this sprint.
+
+**Validation required Thu 2026-04-23:**
+
+- No new duplicate CLOSED rows for current holdings after first paper cycle.
+- Non-zero writes to `orders` and `fills` tables.
+- `broker_health_position_drift` WARNs clear within 1-2 cycles.
+- Deep-dive §2.3 reconciliation equity ≈ cash + cost_basis (±5%).
+
+---
+
 ## Health Check — 2026-04-22 19:13 UTC (Wed 2 PM CT, late-session)
 
 **Overall Status:** **YELLOW** — carry-forward of morning 15:16 UTC YELLOW plus new signal that Phase 65 churn is **actively worsening**, not self-healing. 6 Wed paper cycles fired (13:35 / 14:30 / 15:30 / 16:00 / 17:30 / 18:30 UTC); next at 19:30 UTC (~17 min after this deep-dive). Cash stable positive ~$23,006 all cycles; equity recovered cleanly from 13:35 UTC phantom-equity row (101,131–101,624 across 5 subsequent snapshots). 6 open positions reverted to Monday-6 baseline [UNP/INTC/MRVL/EQIX/BK/ODFL] all with `origin_strategy`; cap 6/15 ✅, 0 new today (reusing old opened_at rows). BUT: (1) Phase 65 duplicate CLOSED rows grew **15→18 on ODFL/BK/HOLX and 14→17 on UNP** (+3 each in ~4h — churn is accumulating damage not stopping); (2) `broker_health_position_drift` warning still firing every cycle since Tue 17:30 UTC (now 7 hits over 24h including a new set `[HOLX,MRVL,INTC,EQIX]` at 15:30 UTC before reverting); (3) phantom-equity snapshot row from morning 13:35 UTC remains in DB. §1 Infra + §3 Code/Schema + §4 Config all GREEN (0 crash-triad, single alembic head, pytest `358p/2f/3655d in 27.52s` exact baseline, CI run `24787345541` on `5061475` conclusion=success = **9th consecutive GREEN**, git clean 0 unpushed, all 11 `APIS_*` flags correct). Not RED — no cap breach, no crash-triad, no phantom-cash guard, no cycle failures, health endpoint `status=ok` on all components.

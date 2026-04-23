@@ -175,7 +175,14 @@ class Settings(BaseSettings):
     ai_theme_bonus_map: dict[str, float] = Field(
         default_factory=lambda: dict(_DEFAULT_AI_THEME_BONUS_MAP)
     )
-    rebalance_target_ttl_seconds: int = Field(default=3600, ge=0)
+    # Phase 65 regression fix 2026-04-22: rebalance_check runs at 06:26 ET daily;
+    # first paper cycle runs at 09:35 ET (3h9m gap). Previous 3600s (1h) TTL
+    # expired targets before any paper cycle could use them, bypassing the
+    # Phase 65 rebalance-close suppression and causing alternating churn (dupe
+    # CLOSED rows every cycle). 43200s (12h) keeps targets fresh for the full
+    # trading day (06:26 ET → 18:26 ET) and naturally expires before the next
+    # day's 06:26 ET rebalance_check overwrites them.
+    rebalance_target_ttl_seconds: int = Field(default=43200, ge=0)
 
     # -- Deep-Dive Plan Step 2 (2026-04-16) Stability Invariants ---------
     # Two safety-only invariants; default ON.
