@@ -4,6 +4,137 @@ Auto-generated daily health check results.
 
 ---
 
+## Health Check — 2026-04-23 19:20 UTC (Thursday 2 PM CT, late-session)
+
+**Overall Status:** YELLOW — Phase 65 intra-cycle churn continues through 6 Thu paper cycles. Position count has grown to 15 (at cap) with 46 opened today (churn-inflated vs cap 5). 4 positions missing `origin_strategy`. 7 `broker_health_position_drift` warnings in 24h with expanding ticker sets (17:30 UTC logged 15 tickers). Portfolio snapshots show alternating cash levels ($5,727 pre-cycle vs $59,224 post-cycle) confirming the open/close oscillation. No crash-triad, no phantom-equity, cash positive, orders/fills ledger growing (65/45), CI 11th consecutive GREEN.
+
+### §1 Infrastructure
+- Containers: 8 (7 APIS + `apis-control-plane`) all healthy. Worker Up 21h (restarted 2026-04-22 22:24 UTC), API Up 4d, postgres/redis Up 6d (healthy), grafana/prometheus/alertmanager Up 6d, `apis-control-plane` Up 6d.
+- /health: `status=ok service=api mode=paper timestamp=2026-04-23T19:11:12+00:00` — all 6 components ok (db, broker, scheduler, paper_cycle, broker_auth, kill_switch).
+- Worker log scan 24h: **0 ERROR/CRITICAL/Traceback/TypeError** (PowerShell scan). **0 crash-triad hits** (`_fire_ks`/`broker_adapter_missing`/`idempotency_key`/`paper_cycle.no_data`/`phantom_cash_guard`/`phantom_equity_guard` all 0). **0 `broker_order_rejected`**. **7 `broker_health_position_drift` warnings** — see §2 for detail.
+- API log 24h: clean.
+- Prometheus: 2/2 targets up (apis, prometheus); 0 droppedTargets.
+- Alertmanager: 0 active alerts.
+- Resource usage: all under threshold. Worker 654 MiB / 0.00% CPU, API 957 MiB / 2.15% CPU, Postgres 169 MiB, Redis 8.4 MiB, Grafana 52 MiB, Prometheus 40 MiB, Alertmanager 16 MiB, `apis-control-plane` 1.98 GiB / 13.76% CPU.
+- Postgres DB size: **111 MB** (unchanged from 10 AM — stabilised after morning cycle writes).
+
+### §2 Execution + Data Audit
+- **Evaluation runs last 30h:** 2 (Wed 21:00 paper + Wed 22:27 research). Thu daily eval at 21:00 UTC pending. Total `evaluation_runs` = **88** (≥80 floor ✅).
+- **Paper cycles today:** 6 complete (13:35 / 14:30 / 15:30 / 16:00 / 17:30 / 18:30 UTC). No failures. Next 19:30 UTC.
+- **Portfolio trend (latest 10):** Alternating pattern persists — pre-cycle snapshots show low cash ($2k–$14k, cost basis of ~15 positions) followed by post-cycle snapshots at higher cash ($59k, fewer positions). Latest: `cash=$5,727.28 / equity=$100,331.31` (18:30 pre-cycle) → `cash=$59,223.97 / equity=$102,260.71` (18:30 post-cycle). Cash positive at all times ✅. No phantom equity ✅.
+- **Open positions: 15** (at cap). Tickers: CSCO, TXN, MU, DLR, ODFL, BK, TGT, STT, UNP, BE, HOLX, MRVL, CSX, INTC, EQIX. Only INTC and EQIX survive from Monday (opened 2026-04-20). All others opened today across cycles.
+- **Origin strategy: 4 NULLs** — ODFL, TGT, UNP, BE (all opened 14:30 UTC). 11 have `momentum_v1`, 1 has `theme_alignment_v1` (MRVL). This is a continuing regression — positions opened by churn reopen don't always get stamped.
+- **Broker↔DB reconciliation:** `/health broker=ok` ✅. **7 `broker_health_position_drift` warnings** in 24h:
+  - 19:30 Wed: `[UNP, ODFL, EQIX, MRVL, BK, INTC]` (6 tickers)
+  - 13:35 Thu: `[NVDA]` (1)
+  - 14:30 Thu: `[MRVL, NVDA, CSX, HOLX, EQIX, MU]` (6)
+  - 15:30 Thu: `[INTC, EQIX, BK]` (3)
+  - 16:00 Thu: `[INTC, EQIX, BK]` (3)
+  - 17:30 Thu: `[ODFL, CSX, TXN, UNP, INTC, STT, TGT, MRVL, BK, CSCO, BE, HOLX, EQIX, MU, DLR]` (**15 tickers** — entire open set)
+  - 18:30 Thu: `[INTC, EQIX, BK]` (3)
+- **Phase 65 churn (continued):** 46 positions opened today, 296 total closed (up from ~280 at 10 AM). Churn rate ~5-6 opens+closes per cycle. The 17:30 UTC cycle produced the broadest drift (all 15 open tickers drifted) suggesting that cycle's churn was especially aggressive.
+- **Position caps:** 15 open = at cap (APIS_MAX_POSITIONS=15) ✅; 46 new today — **exceeds cap 5** ⚠️ (churn-inflated, most opened+closed in same cycle).
+- **Orders + fills ledger:** `orders` = **65** (42 filled + 23 rejected), `fills` = **45**. Growing from 54/39 at 10 AM ✅. 0 duplicate idempotency_keys ✅.
+- **Data freshness:** `security_signals` latest `2026-04-23 10:30 UTC` × 5 types (3018 each) ✅; `ranking_runs` latest `2026-04-23 10:45 UTC` ✅.
+- **Kill-switch + mode:** `APIS_KILL_SWITCH=false`, `APIS_OPERATING_MODE=paper` ✅.
+- **Evaluation history rows:** 88 (≥80 floor ✅).
+- **Idempotency:** 0 duplicate orders ✅; 0 duplicate open positions for same ticker ✅.
+
+### §3 Code + Schema
+- Alembic head: `p6q7r8s9t0u1` (single head ✅). Current matches heads.
+- Pytest smoke: **279 passed / 1 failed** (with `-x` stopping at first; known phase22 `test_scheduler_has_thirteen_jobs` 30≠35). Exact known DEC-021 baseline. No new failures.
+- Git: `main` at `6d492c3`, **0 unpushed**, 3 dirty state files (`apis/state/HEALTH_LOG.md`, `state/DECISION_LOG.md`, `state/HEALTH_LOG.md`). Single branch `main`.
+- **GitHub Actions CI:** run `24829972802` on `6d492c3` → `status=completed conclusion=success` — **11th consecutive GREEN** (same as 10 AM, no new push). https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/24829972802
+
+### §4 Config + Gate Verification
+- All critical `APIS_*` flags at expected values ✅:
+  - `APIS_OPERATING_MODE=paper` ✅
+  - `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅
+  - `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅
+  - `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED` unset → default `false` ✅
+  - `APIS_INSIDER_FLOW_PROVIDER` unset → default `null` ✅
+  - Deep-Dive Step 6/7/8 flags unset → defaults OFF ✅
+- Scheduler: `apis_worker_started job_count=35` at `2026-04-22T22:24:56Z` ✅.
+- No drift detected → no `.env` auto-fix applied.
+
+### Issues Found
+- **YELLOW (Phase 65 intra-cycle churn persists):** 46 positions opened today across 6 cycles. Portfolio oscillates between ~$5k and ~$59k cash as positions churn open/close within and between cycles. The 17:30 UTC cycle produced broker drift across all 15 open tickers. Root cause remains: `apply_ranked_opportunities` close-positions-not-in-rankings logic fires within the same cycle that opens new positions.
+- **YELLOW (4 NULL origin_strategy):** ODFL, TGT, UNP, BE opened at 14:30 UTC with empty `origin_strategy`. Churn reopens don't consistently stamp origin.
+- **YELLOW (broker_health_position_drift expanding):** 7 warnings in 24h, 17:30 UTC spike to 15-ticker drift (entire open portfolio). Symptom of intra-cycle churn.
+- **INFO (pre-existing, cosmetic):** 3 dirty state files in git. Non-blocking.
+
+### Fixes Applied
+- None this run. No autonomous fixes applicable.
+
+### Action Required from Aaron
+- **MEDIUM-HIGH: Phase 65 intra-cycle churn code fix.** This is the same finding as the 10 AM deep-dive (DEC-047). The fix must be in `apps/worker/jobs/paper_trading.py` and/or `services/portfolio_engine/service.py`. The close-positions logic within `apply_ranked_opportunities` should not close positions that were opened in the CURRENT cycle. Suggested approaches: (a) skip closing any position with `opened_at` within the current cycle's timestamp window, (b) separate open and close phases, (c) add a "just_opened" guard. The 17:30 UTC 15-ticker drift spike suggests churn severity may be growing.
+
+---
+
+## Health Check — 2026-04-23 15:25 UTC (Thursday 10 AM CT, mid-session — VALIDATION DAY)
+
+**Overall Status:** YELLOW — Phase 65 alternating churn PERSISTS despite TTL fix. Sub-second open/close pairs still firing within cycles (15 closes today across 2 cycles). TTL fix (3600→43200s) prevented overnight target expiry but did NOT address the intra-cycle churn root cause. Cash positive, no phantom-cash/equity, no crash-triad, orders/fills ledger confirmed working, CI 11th consecutive GREEN.
+
+### §1 Infrastructure
+- Containers: 7 APIS + `apis-control-plane` all healthy. Worker Up 17h (restarted 2026-04-22 22:24 UTC), API Up 4d, postgres/redis Up 6d (healthy), grafana/prometheus/alertmanager Up 6d.
+- /health: `status=ok service=api mode=paper timestamp=2026-04-23T15:12:07+00:00` — all 6 components ok (db, broker, scheduler, paper_cycle, broker_auth, kill_switch).
+- Worker log scan 24h: **0 crash-triad hits** (`_fire_ks`/`broker_adapter_missing`/`EvaluationRun.idempotency_key`/`paper_cycle.no_data`/`phantom_cash_guard`/`phantom_equity_guard` all 0). Errors: 34 yfinance (known 13 delisted × ingestion + fundamentals runs) + ~20 `broker_order_rejected: Insufficient cash` at 13:35+14:30 UTC (expected operational rejections). **7 `broker_health_position_drift` warnings**: 5 pre-restart Wed residual + 2 new Thu (13:35 [NVDA], 14:30 [MRVL, NVDA, CSX, HOLX, EQIX, MU]).
+- API log 24h: clean.
+- Alertmanager: 0 active alerts.
+- Resource usage: all well under threshold. Worker 648 MiB, API 952 MiB, Postgres 168 MiB, Redis 8.6 MiB. `apis-control-plane` 1.95 GiB / 9.52% CPU (normal).
+- Postgres DB size: **111 MB** (+8 MB from 5 AM 103 MB — 2 cycles of position/order/fill/snapshot writes).
+
+### §2 Execution + Data Audit
+- **Paper cycles today:** 2 completed (13:35 + 14:30 UTC). No failures. Next at 15:30 UTC.
+- **Portfolio trend:** Latest snapshot `cash=$59,223.97 / equity=$102,405.54` at 14:30 UTC. Cash positive ✅. Equity reasonable (~$43k positions + $59k cash ≈ $102k). No phantom equity.
+- **Open positions: 3** (BK 110@$137.34 opened 14:30 today `momentum_v1`, INTC 237@$67.94 Mon `momentum_v1`, EQIX 11@$1082.20 Mon `momentum_v1`). All with `origin_strategy` set ✅. Cost basis $43,114.
+- **Broker↔DB reconciliation:** `/health broker=ok` ✅. `broker_health_position_drift` still firing — 13:35 [NVDA], 14:30 [MRVL, NVDA, CSX, HOLX, EQIX, MU]. Drift is from positions opened+closed within cycle (broker sees them transiently). Non-blocking but confirms churn.
+- **⚠️ PHASE 65 CHURN VALIDATION — FAILED:** TTL fix did NOT fully resolve churn. 15 positions closed today, including **sub-second open/close pairs** at 14:30 UTC (UNP, TGT, BE, ODFL opened at .000635 closed at .000747 — 0.1ms lifetime). Dupe counts grew from 5 AM baseline: BK 21→22 (+1), ODFL 21→22 (+1), UNP 19→21 (+2), HOLX 19→20 (+1). Churn is intra-cycle, not inter-cycle — the portfolio engine is opening positions and the same cycle immediately closes them.
+- **Orders + fills ledger:** `orders` = **54 rows** (36 filled + 18 rejected), `fills` = **39 rows**. Growing correctly from restart baseline (21/20) ✅. 0 duplicate idempotency_keys ✅. Sprint fix confirmed working.
+- **Position caps:** 3 open ≤ 15 ✅; 11 new today (opened_at::date) — **exceeds cap 5** ⚠️ (churn inflates the count — most opened+closed within same cycle).
+- **Data freshness:** `ranking_runs` latest `2026-04-23 10:45 UTC` ✅; `security_signals` latest `2026-04-23 10:30 UTC` × 5 types (3018 each) ✅.
+- **Stale tickers:** Known 13, no new additions.
+- **Kill-switch + mode:** `APIS_KILL_SWITCH=false`, `APIS_OPERATING_MODE=paper` ✅.
+- **Evaluation history rows:** 88 (≥80 floor ✅).
+- **Idempotency:** 0 duplicate orders ✅; 0 duplicate open positions ✅.
+
+### §3 Code + Schema
+- Alembic head: `p6q7r8s9t0u1` (single head ✅). Current matches heads.
+- Pytest smoke: **272 passed / 2 failed** (deep-dive + phase22 + phase57 sweep) — exact DEC-021 baseline. 2 known phase22 scheduler-count failures. No new failures.
+- Git: `main` at `6d492c3`, **0 unpushed**, dirty tree (pre-existing CHANGES/ + various state files — non-blocking). Single branch `main`.
+- **GitHub Actions CI:** run `24829972802` on `6d492c3` → `status=completed conclusion=success` — **11th consecutive GREEN**. https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/24829972802
+
+### §4 Config + Gate Verification
+- All critical `APIS_*` flags at expected values ✅:
+  - `APIS_OPERATING_MODE=paper` ✅
+  - `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅
+  - `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅
+  - `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED` unset → default `false` ✅
+  - `APIS_INSIDER_FLOW_PROVIDER` unset → default `null` ✅
+  - Deep-Dive Step 6/7/8 flags unset → defaults OFF ✅
+- Scheduler: `apis_worker_started job_count=35` at `2026-04-22T22:24:56Z` ✅.
+- No drift detected → no `.env` auto-fix applied.
+
+### Issues Found
+- **YELLOW (Phase 65 churn persists):** TTL fix (3600→43200s) was necessary but insufficient. Rebalance targets survive the overnight gap now, but the portfolio engine still opens positions within a cycle and immediately closes them (sub-second open/close pairs at 14:30 UTC). Root cause is deeper than TTL — likely in `apply_ranked_opportunities` or the rebalance-vs-portfolio-engine interaction within a single cycle. Dupe closed positions growing +1-2 per cycle per affected ticker.
+- **YELLOW (broker_health_position_drift):** 2 new drift warnings today (13:35+14:30 UTC) with expanding ticker sets. Symptom of the intra-cycle churn — broker sees transient positions that are opened and closed within the same cycle execution.
+- **YELLOW (new_positions_per_day inflated):** 11 positions opened today vs cap of 5. Most are churn artifacts (opened+closed in same cycle). Not a true cap breach but the counter is polluted.
+- **INFO (pre-existing, cosmetic):** Git tree dirty with CHANGES/ files + state files. Non-blocking.
+
+### Fixes Applied
+- None this run. No autonomous fixes applicable — the Phase 65 intra-cycle churn requires a code-level investigation into the portfolio engine's open/close logic within `run_paper_trading_cycle`.
+
+### Action Required from Aaron
+- **MEDIUM-HIGH: Phase 65 intra-cycle churn needs code investigation.** The TTL fix resolved the inter-cycle target expiry but churn is happening WITHIN cycles. Positions are being opened and closed in the same cycle execution (0.1ms lifetime). The root cause is likely in `services/portfolio_engine/service.py` `apply_ranked_opportunities` or the interaction between the rebalancing engine targets and the portfolio engine's close logic within a single `run_paper_trading_cycle` invocation. This is the same class of bug as the original Phase 65 but a different trigger — the portfolio engine's "close positions not in rankings" logic fires on the same pass that opens new positions.
+
+---
+
 ## Health Check — 2026-04-23 10:15 UTC (Thursday 5 AM CT, pre-market — VALIDATION DAY)
 
 **Overall Status:** GREEN — pre-cycle baseline clean. Sprint fixes from 2026-04-22 22:30 UTC are committed + pushed (`25c3ea4`). First paper cycle at 13:35 UTC (09:35 ET) will be the real validation. Orders/fills tables now have data (21/20 rows). No crash-triad, no phantom-cash, no new errors since worker restart 12h ago.

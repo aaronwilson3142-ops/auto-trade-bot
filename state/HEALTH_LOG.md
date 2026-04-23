@@ -4,6 +4,44 @@ Auto-generated daily health check results.
 
 ---
 
+## Health Check — 2026-04-23 19:20 UTC (Thursday 2 PM CT, late-session)
+
+**Overall Status:** YELLOW — Phase 65 intra-cycle churn continues through 6 Thu paper cycles. 15 open positions (at cap), 46 opened today (churn-inflated), 4 missing `origin_strategy`, 7 broker drift warnings (17:30 UTC spike to 15-ticker drift). Cash positive, no crash-triad, no phantom-equity, orders/fills growing (65/45), CI 11th GREEN. Full detail in `apis/state/HEALTH_LOG.md`.
+
+---
+
+## Health Check — 2026-04-23 15:25 UTC (Thursday 10 AM CT, mid-session — VALIDATION DAY)
+
+**Overall Status:** YELLOW — Phase 65 alternating churn PERSISTS despite TTL fix. Sub-second open/close pairs still firing within cycles (15 closes today across 2 cycles). TTL fix (3600→43200s) prevented overnight target expiry but did NOT address the intra-cycle churn root cause. Cash positive, no phantom-cash/equity, no crash-triad, orders/fills ledger confirmed working, CI 11th consecutive GREEN.
+
+### §2 Execution Highlights
+- 2 paper cycles (13:35 + 14:30 UTC). Latest snapshot: `cash=$59,223.97 / equity=$102,405.54`.
+- 3 open positions (BK/INTC/EQIX), all with `origin_strategy`. Cost basis $43,114.
+- Orders: 54 (36 filled, 18 rejected). Fills: 39. 0 dupe idempotency_keys.
+- **Phase 65 churn NOT resolved:** sub-second open/close pairs at 14:30 UTC. Dupe closed counts: BK 22, ODFL 22, UNP 21, HOLX 20 (each +1-2 from 5 AM baseline).
+- `broker_health_position_drift` still firing (2 new today).
+- 0 crash-triad / 0 phantom guards / cash positive / evaluation_runs=88.
+
+### §3 Code + Schema
+- Alembic: `p6q7r8s9t0u1` single head ✅. Pytest: 272p/2f exact baseline ✅.
+- Git: `6d492c3` 0 unpushed. CI: run `24829972802` conclusion=success (11th GREEN).
+
+### §4 Config
+- All 11 `APIS_*` flags at expected values ✅. Scheduler job_count=35 ✅.
+
+### Issues Found
+- YELLOW: Phase 65 intra-cycle churn persists (TTL fix insufficient)
+- YELLOW: broker_health_position_drift (2 new today)
+- YELLOW: new_positions_per_day=11 (churn-inflated, nominal cap 5)
+
+### Fixes Applied
+- None. Churn requires code-level portfolio-engine investigation.
+
+### Action Required from Aaron
+- MEDIUM-HIGH: Investigate intra-cycle churn in `apply_ranked_opportunities` / rebalance-close logic within `run_paper_trading_cycle`.
+
+---
+
 ## Health Check — 2026-04-23 10:15 UTC (Thursday 5 AM CT, pre-market — VALIDATION DAY)
 
 **Overall Status:** GREEN — pre-cycle baseline clean. Sprint fixes from 2026-04-22 22:30 UTC committed + pushed (`25c3ea4`). First paper cycle at 13:35 UTC will be the real validation. Orders/fills tables now have data (21/20 rows). No crash-triad, no phantom-cash, no new errors since worker restart 12h ago.
