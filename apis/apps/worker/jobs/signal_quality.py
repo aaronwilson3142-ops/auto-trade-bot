@@ -134,6 +134,10 @@ def _run_with_db(
 
     with session_factory() as session:
         # ── For each closed trade, find matching strategy signals ────────────
+        # Build all outcome rows first, then bulk-insert with ON CONFLICT DO
+        # NOTHING to avoid UniqueViolation when the same trade appears in
+        # multiple cycles (e.g. from churn) or re-runs.
+        pending_rows: list[dict] = []
         for trade in closed_trades:
             trades_processed += 1
             ticker = trade.ticker
@@ -155,32 +159,28 @@ def _run_with_db(
                 strategy_scores = dict.fromkeys(DEFAULT_STRATEGIES)
 
             for strategy_name, signal_score in strategy_scores.items():
-                # Check for existing row (upsert-safe: skip if already exists)
-                existing = (
-                    session.query(SignalOutcome)
-                    .filter(
-                        SignalOutcome.ticker == ticker,
-                        SignalOutcome.strategy_name == strategy_name,
-                        SignalOutcome.trade_opened_at == opened_at,
-                    )
-                    .first()
-                )
-                if existing is not None:
-                    continue  # already recorded
+                pending_rows.append({
+                    "id": str(uuid.uuid4()),
+                    "ticker": ticker,
+                    "strategy_name": strategy_name,
+                    "signal_score": signal_score,
+                    "trade_opened_at": opened_at,
+                    "trade_closed_at": closed_at,
+                    "outcome_return_pct": outcome_return_pct,
+                    "hold_days": hold_days,
+                    "was_profitable": was_profitable,
+                })
 
-                row = SignalOutcome(
-                    id=str(uuid.uuid4()),
-                    ticker=ticker,
-                    strategy_name=strategy_name,
-                    signal_score=signal_score,
-                    trade_opened_at=opened_at,
-                    trade_closed_at=closed_at,
-                    outcome_return_pct=outcome_return_pct,
-                    hold_days=hold_days,
-                    was_profitable=was_profitable,
-                )
-                session.add(row)
-                outcomes_inserted += 1
+        # Bulk upsert with ON CONFLICT DO NOTHING (matches docstring contract)
+        if pending_rows:
+            from sqlalchemy.dialects.postgresql import insert as pg_insert  # noqa: PLC0415
+
+            stmt = pg_insert(SignalOutcome.__table__).values(pending_rows)
+            stmt = stmt.on_conflict_do_nothing(
+                constraint="uq_signal_outcome_trade",
+            )
+            result = session.execute(stmt)
+            outcomes_inserted = result.rowcount if result.rowcount else 0
 
         session.commit()
 

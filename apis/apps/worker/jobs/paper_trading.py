@@ -1100,6 +1100,21 @@ def run_paper_trading_cycle(
                 equity=portfolio_state.equity,
             )
             app_state.sector_filtered_count = _sector_dropped
+
+            # ── Sector rebalance trims: reduce overweight sectors back to limit ──
+            # If a sector is ALREADY above max_sector_pct (from prior cycles),
+            # generate TRIM actions for the largest positions in that sector.
+            # These are pre-approved (risk_approved=True) like other trims.
+            _sector_trims = _SectorSvc.generate_sector_trim_actions(
+                portfolio_state=portfolio_state,
+                settings=cfg,
+                already_closing=already_closing,
+            )
+            if _sector_trims:
+                for _st in _sector_trims:
+                    proposed_actions.append(_st)
+                    already_closing.add(_st.ticker)
+                logger.info("sector_rebalance_trims_added", count=len(_sector_trims))
         except Exception as _sect_exc:  # noqa: BLE001
             logger.error("sector_exposure_filter_failed", error=str(_sect_exc))
             # Fail-safe: drop all OPEN actions when filter crashes; CLOSE/TRIM pass through.
@@ -1332,10 +1347,33 @@ def run_paper_trading_cycle(
         already_closing = {
             a.ticker for a in proposed_actions if a.action_type == ActionType.CLOSE
         }
+        # ── Phase 65b: Suppress non-critical exit CLOSEs for rebalance-protected
+        # tickers.  Phase 65 already suppresses portfolio-engine "not_in_buy_set"
+        # closes when a rebalance target exists, but exit-evaluation closes with
+        # reasons like "score_decay_exit" or "max_position_age" bypassed that
+        # filter.  The rebalance engine would then re-open the position next
+        # cycle, creating every-other-cycle churn.  Critical risk exits
+        # (stop_loss, trailing_stop, atr_stop) still fire unconditionally.
+        _critical_exit_reasons = frozenset({
+            "stop_loss", "trailing_stop", "atr_stop", "max_drawdown",
+        })
         for exit_action in exit_actions:
-            if exit_action.ticker not in already_closing:
-                proposed_actions.append(exit_action)
-                already_closing.add(exit_action.ticker)
+            if exit_action.ticker in already_closing:
+                continue
+            _exit_reason = (getattr(exit_action, "reason", "") or "").lower()
+            if (
+                _reb_targets
+                and exit_action.ticker in _reb_targets
+                and not any(r in _exit_reason for r in _critical_exit_reasons)
+            ):
+                logger.info(
+                    "phase65b_exit_suppressed_rebalance_protected",
+                    ticker=exit_action.ticker,
+                    reason=_exit_reason,
+                )
+                continue
+            proposed_actions.append(exit_action)
+            already_closing.add(exit_action.ticker)
 
         # ── Deep-Dive Step 7: Shadow Portfolio — stopped_out_continued hook
         # For every exit that fired on a stop reason (stop_loss, trailing_stop,
@@ -1419,6 +1457,45 @@ def run_paper_trading_cycle(
                         "rebalance_actions_merged",
                         count=len(_reb_actions),
                     )
+
+                # ── Anti-churn: cap OPEN target_notional to rebalance target ─────
+                # When rebalance targets exist, portfolio-engine OPEN actions may be
+                # sized at half-kelly (e.g. 14% of equity) while the rebalance target
+                # is equal-weight (e.g. 6.67%).  The mismatch causes cycle-to-cycle
+                # churn: OPEN at 14% → rebalance TRIM to 6.67% → OPEN again at 14%.
+                # Fix: cap every OPEN's target_notional to the rebalance target weight
+                # × equity, preventing oversizing relative to the rebalance plan.
+                if _reb_targets:
+                    _capped_count = 0
+                    for _pa in proposed_actions:
+                        if _pa.action_type != ActionType.OPEN:
+                            continue
+                        _tw = _reb_targets.get(_pa.ticker)
+                        if _tw is None or _tw <= 0:
+                            continue
+                        _max_notional = Decimal(str(round(_tw * _reb_equity, 2)))
+                        if _pa.target_notional > _max_notional:
+                            logger.info(
+                                "open_action_capped_to_rebalance_target",
+                                ticker=_pa.ticker,
+                                original_notional=str(_pa.target_notional),
+                                capped_notional=str(_max_notional),
+                                target_weight=round(_tw, 4),
+                            )
+                            _pa.target_notional = _max_notional
+                            # Recalc target_quantity if price is available
+                            if _pa.target_quantity is not None and _max_notional > 0:
+                                _pos = portfolio_state.positions.get(_pa.ticker)
+                                _px = getattr(_pos, "current_price", None) if _pos else None
+                                if _px and float(_px) > 0:
+                                    from decimal import ROUND_DOWN as _RD  # noqa: PLC0415
+                                    _pa.target_quantity = (_max_notional / Decimal(str(_px))).quantize(
+                                        Decimal("1"), rounding=_RD
+                                    )
+                            _capped_count += 1
+                    if _capped_count:
+                        logger.info("open_actions_capped_to_rebalance", count=_capped_count)
+
         except Exception as _reb_exc:  # noqa: BLE001
             logger.warning("rebalance_actions_failed", error=str(_reb_exc))
 
@@ -1502,6 +1579,38 @@ def run_paper_trading_cycle(
                     "shadow_portfolio.rebalance_hook_failed",
                     error=str(_rshadow_exc),
                 )
+
+        # ── Phase 65b: Intra-cycle churn guard (safety net) ─────────────────
+        # After ALL action sources (portfolio engine, exit evaluation,
+        # rebalance, risk filters) have assembled proposed_actions, remove
+        # any CLOSE for a ticker that also has an OPEN in the same batch.
+        # The OPEN takes precedence — closing a position the system is
+        # simultaneously opening is always waste.  This is the final
+        # safety net; the upstream Phase 65 / Phase 65b exit-suppression
+        # should prevent most cases, but edge-case interactions between
+        # subsystems can still produce same-ticker OPEN+CLOSE pairs.
+        _open_tickers_this_cycle = {
+            a.ticker for a in proposed_actions if a.action_type == ActionType.OPEN
+        }
+        _close_tickers_this_cycle = {
+            a.ticker
+            for a in proposed_actions
+            if a.action_type == ActionType.CLOSE
+        }
+        _churn_tickers = _open_tickers_this_cycle & _close_tickers_this_cycle
+        if _churn_tickers:
+            proposed_actions = [
+                a for a in proposed_actions
+                if not (
+                    a.action_type == ActionType.CLOSE
+                    and a.ticker in _churn_tickers
+                )
+            ]
+            logger.warning(
+                "phase65b_intra_cycle_churn_suppressed",
+                suppressed_count=len(_churn_tickers),
+                tickers=sorted(_churn_tickers),
+            )
 
         # ── Validate each action + fetch price + build execution requests ──────
         approved_requests: list[ExecutionRequest] = []
@@ -1778,6 +1887,21 @@ def run_paper_trading_cycle(
                     # this, cash is debited but gross_exposure stays 0, producing
                     # negative equity and blocking future OPEN actions.
                     from services.portfolio_engine.models import PortfolioPosition
+                    # Phase 65b: robust origin_strategy fallback.
+                    # Prefer the signal-derived key; fall back to "rebalance"
+                    # for rebalance-opened positions, or "ranking_buy_signal"
+                    # for tickers present in rankings, so the DB never gets NULL.
+                    _os_value = _origin_strategy_by_ticker.get(bp.ticker, "")
+                    if not _os_value:
+                        _ranked_ticker_set = {
+                            getattr(r, "ticker", None) for r in rankings
+                        }
+                        if _reb_targets and bp.ticker in _reb_targets:
+                            _os_value = "rebalance"
+                        elif bp.ticker in _ranked_ticker_set:
+                            _os_value = "ranking_buy_signal"
+                        else:
+                            _os_value = "unknown"
                     portfolio_state.positions[bp.ticker] = PortfolioPosition(
                         ticker=bp.ticker,
                         quantity=bp.quantity,
@@ -1791,7 +1915,7 @@ def run_paper_trading_cycle(
                         # bind the origin strategy family on first observation
                         # so the ATR exit evaluator and per-family max-age can
                         # key off it once APIS_ATR_STOPS_ENABLED flips ON.
-                        origin_strategy=_origin_strategy_by_ticker.get(bp.ticker, ""),
+                        origin_strategy=_os_value,
                     )
             # Remove positions that broker no longer holds
             broker_tickers = {bp.ticker for bp in broker_positions}

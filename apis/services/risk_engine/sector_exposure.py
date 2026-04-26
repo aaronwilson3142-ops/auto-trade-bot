@@ -220,3 +220,127 @@ class SectorExposureService:
                 allowed.append(action)
 
         return allowed
+
+    # ── Sector rebalance trims ─────────────────────────────────────────────
+
+    @classmethod
+    def generate_sector_trim_actions(
+        cls,
+        portfolio_state: PortfolioState,
+        settings: Settings,
+        already_closing: set[str] | None = None,
+    ) -> list:
+        """Generate TRIM actions to reduce overweight sectors back under the limit.
+
+        When a sector's current weight exceeds max_sector_pct, the lowest-ranked
+        positions in that sector are trimmed (by market value descending, so the
+        largest overweight positions are reduced first) until the projected sector
+        weight drops to or below the limit.
+
+        TRIM actions are pre-approved (risk_approved=True) — same pattern as
+        overconcentration trims and rebalance trims.
+
+        Args:
+            portfolio_state: Current PortfolioState.
+            settings:        Settings instance with max_sector_pct field.
+            already_closing: Set of tickers already marked for CLOSE (skip these).
+
+        Returns:
+            List of PortfolioAction TRIM objects (may be empty).
+        """
+        from decimal import ROUND_DOWN  # noqa: PLC0415
+
+        from services.portfolio_engine.models import ActionType, PortfolioAction  # noqa: PLC0415
+
+        max_pct: float = float(getattr(settings, "max_sector_pct", 0.40))
+        equity: Decimal = getattr(portfolio_state, "equity", Decimal("0"))
+        positions: dict = getattr(portfolio_state, "positions", {})
+        closing: set[str] = already_closing or set()
+
+        if not positions or equity <= Decimal("0"):
+            return []
+
+        # Compute current sector weights
+        sector_weights = cls.compute_sector_weights(positions, equity)
+        overweight_sectors = {
+            s: w for s, w in sector_weights.items() if w > max_pct
+        }
+
+        if not overweight_sectors:
+            return []
+
+        trim_actions: list = []
+
+        for sector, current_weight in overweight_sectors.items():
+            # Gather all open positions in this sector, sorted by market_value
+            # descending (trim largest first to reduce exposure fastest).
+            sector_positions = []
+            for ticker, pos in positions.items():
+                if ticker in closing:
+                    continue
+                if cls.get_sector(ticker) == sector:
+                    mv = float(getattr(pos, "market_value", Decimal("0")))
+                    sector_positions.append((ticker, pos, mv))
+            sector_positions.sort(key=lambda x: x[2], reverse=True)
+
+            if not sector_positions:
+                continue
+
+            # Target sector market value = max_pct × equity
+            target_sector_mv = float(equity) * max_pct
+            current_sector_mv = sum(mv for _, _, mv in sector_positions)
+            excess_mv = current_sector_mv - target_sector_mv
+
+            if excess_mv <= 0:
+                continue
+
+            remaining_excess = excess_mv
+
+            for ticker, pos, mv in sector_positions:
+                if remaining_excess <= 0:
+                    break
+
+                current_price = float(getattr(pos, "current_price", 0) or 0)
+                quantity = float(getattr(pos, "quantity", 0) or 0)
+                if current_price <= 0 or quantity <= 0:
+                    continue
+
+                # Trim enough to eliminate excess, but don't close entire position.
+                # Leave at least 1 share.
+                max_trim_value = min(remaining_excess, mv - current_price)
+                if max_trim_value <= 0:
+                    continue
+
+                shares_to_sell = Decimal(str(max_trim_value / current_price)).quantize(
+                    Decimal("1"), rounding=ROUND_DOWN
+                )
+                if shares_to_sell <= 0:
+                    continue
+
+                # Don't sell more than (quantity - 1) to keep position alive
+                max_sellable = Decimal(str(int(quantity))) - Decimal("1")
+                if max_sellable <= 0:
+                    continue
+                shares_to_sell = min(shares_to_sell, max_sellable)
+
+                trim_actions.append(PortfolioAction(
+                    ticker=ticker,
+                    action_type=ActionType.TRIM,
+                    reason=f"sector_rebalance: {sector} at {current_weight:.1%} > {max_pct:.0%}",
+                    risk_approved=True,
+                    target_quantity=shares_to_sell,
+                ))
+
+                remaining_excess -= float(shares_to_sell) * current_price
+                closing.add(ticker)
+
+                log.info(
+                    "sector_rebalance_trim_generated",
+                    ticker=ticker,
+                    sector=sector,
+                    shares_to_sell=int(shares_to_sell),
+                    current_sector_pct=round(current_weight, 4),
+                    max_sector_pct=round(max_pct, 4),
+                )
+
+        return trim_actions
