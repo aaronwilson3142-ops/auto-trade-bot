@@ -73,15 +73,41 @@ def _load_persisted_state() -> None:
             if not cfg.kill_switch:
                 raw = _get(KEY_KILL_SWITCH_ACTIVE)
                 if raw == "true":
-                    app_state.kill_switch_active = True
-                    at_raw = _get(KEY_KILL_SWITCH_ACTIVATED_AT)
-                    if at_raw:
-                        try:
-                            app_state.kill_switch_activated_at = _dt.datetime.fromisoformat(at_raw)
-                        except ValueError:
-                            pass
-                    app_state.kill_switch_activated_by = _get(KEY_KILL_SWITCH_ACTIVATED_BY) or None
-                    logger.warning("kill_switch_restored_from_db")
+                    activated_by = _get(KEY_KILL_SWITCH_ACTIVATED_BY) or ""
+                    # Guard: test-pollution rows (activated_by "testclient" or
+                    # empty/None) are NOT legitimate kill-switch activations.
+                    # Auto-clear them instead of loading stale state into runtime.
+                    _is_test_pollution = activated_by.lower() in (
+                        "testclient", "test", "pytest", "",
+                    )
+                    if _is_test_pollution:
+                        logger.warning(
+                            "kill_switch_stale_test_pollution_detected",
+                            activated_by=activated_by or "empty",
+                            action="auto_clearing_db_rows",
+                        )
+                        for _stale_key in (
+                            KEY_KILL_SWITCH_ACTIVE,
+                            KEY_KILL_SWITCH_ACTIVATED_AT,
+                            KEY_KILL_SWITCH_ACTIVATED_BY,
+                        ):
+                            _stale_entry = db.get(SystemStateEntry, _stale_key)
+                            if _stale_entry:
+                                db.delete(_stale_entry)
+                        db.commit()
+                        logger.info("kill_switch_test_pollution_cleared")
+                    else:
+                        app_state.kill_switch_active = True
+                        at_raw = _get(KEY_KILL_SWITCH_ACTIVATED_AT)
+                        if at_raw:
+                            try:
+                                app_state.kill_switch_activated_at = (
+                                    _dt.datetime.fromisoformat(at_raw)
+                                )
+                            except ValueError:
+                                pass
+                        app_state.kill_switch_activated_by = activated_by or None
+                        logger.warning("kill_switch_restored_from_db")
 
             # Paper cycle count
             count_raw = _get(KEY_PAPER_CYCLE_COUNT)
@@ -914,6 +940,32 @@ async def health(state: AppStateDep, cfg: SettingsDep) -> JSONResponse:
     # ── Broker auth token ─────────────────────────────────────────────────────
     components["broker_auth"] = "expired" if state.broker_auth_expired else "ok"
 
+    # ── system_state test-pollution scan ─────────────────────────────────────
+    # Detect stale rows written by test runners (testclient, pytest, etc.)
+    # that could poison runtime on the next restart.
+    try:
+        from infra.db.models.system_state import (
+            KEY_KILL_SWITCH_ACTIVATED_BY as _KS_BY,
+            KEY_KILL_SWITCH_ACTIVE as _KS_ACTIVE,
+            SystemStateEntry as _SSE,
+        )
+        from infra.db.session import db_session as _db_health
+
+        with _db_health() as _hdb:
+            _ks_active = _hdb.get(_SSE, _KS_ACTIVE)
+            _ks_by = _hdb.get(_SSE, _KS_BY)
+            _by_val = (_ks_by.value_text if _ks_by else "").lower()
+            if (
+                _ks_active
+                and _ks_active.value_text == "true"
+                and _by_val in ("testclient", "test", "pytest", "")
+            ):
+                components["system_state_pollution"] = "detected"
+            else:
+                components["system_state_pollution"] = "ok"
+    except Exception:
+        components["system_state_pollution"] = "unknown"
+
     # ── Kill switch ───────────────────────────────────────────────────────────
     effective_kill = getattr(state, "kill_switch_active", False) or cfg.kill_switch
     components["kill_switch"] = "active" if effective_kill else "ok"
@@ -921,7 +973,7 @@ async def health(state: AppStateDep, cfg: SettingsDep) -> JSONResponse:
     # ── Overall status ────────────────────────────────────────────────────────
     if components["db"] == "down":
         overall = "down"
-    elif any(v in ("down", "error", "stale", "stopped", "expired", "active") for v in components.values()):
+    elif any(v in ("down", "error", "stale", "stopped", "expired", "active", "detected") for v in components.values()):
         overall = "degraded"
     else:
         overall = "ok"

@@ -16,6 +16,23 @@ os.environ.setdefault("APIS_REDIS_URL", "redis://localhost:6379/1")
 os.environ.setdefault("APIS_KILL_SWITCH", "false")
 
 
+# ── Test isolation guard: refuse to run if APIS_DB_URL points at production ──
+# The 2026-04-19 test pollution incident happened because a test runner's
+# DATABASE_URL fell through to the Docker Compose Postgres.  This guard
+# blocks that at the earliest possible point in the pytest session.
+_PRODUCTION_DB_MARKERS = ("docker-postgres", "/apis\"", "/apis'", "/apis ")
+_db_url = os.environ.get("APIS_DB_URL", "")
+if _db_url and "apis_test" not in _db_url and "test" not in _db_url:
+    # If the URL doesn't contain "test" anywhere, it's almost certainly
+    # pointing at the production-paper database.  Fail hard.
+    raise RuntimeError(
+        f"REFUSING TO RUN TESTS: APIS_DB_URL appears to point at a "
+        f"non-test database ({_db_url!r}).  Set APIS_DB_URL to an "
+        f"isolated test database (containing 'test' in the DB name) "
+        f"before running pytest.  See: 2026-04-19 test pollution incident."
+    )
+
+
 @pytest.fixture()
 def paper_broker():
     """Provide a connected PaperBrokerAdapter with market open and test prices injected."""
