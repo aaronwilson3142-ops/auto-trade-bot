@@ -1,4 +1,40 @@
 # APIS — Active Context
+Last Updated: 2026-04-26 01:10 UTC (Sat, Phase 67 Worker RED fix deployed) — **Worker RED critical — Sharpe at -3.39 vs 0.50 threshold.** Three fixes committed at `a5b156a` and pushed to origin/main. (1) **Anti-churn OPEN cap** — half-Kelly sized OPEN at ~$14.6k while rebalance target was $6.7k (1/15 equal weight), causing ODFL buy-66→trim-66 churn every cycle. Fix: after rebalance merge, cap OPEN `target_notional` to `rebalance_target_weight × equity`. New log: `open_action_capped_to_rebalance_target`. (2) **signal_quality UniqueViolation** — replaced per-row `session.add()` with PostgreSQL `pg_insert().on_conflict_do_nothing()`. (3) **Sector rebalance trims** — new `generate_sector_trim_actions()` in SectorExposureService detects overweight sectors and generates pre-approved TRIMs. Integrated into paper_trading cycle. New log: `sector_rebalance_trim_generated`. Worker + API restarted 00:53 UTC, both healthy. Docker bind mount means code is live without rebuild. **Validation:** Monday 2026-04-27 09:35 ET first paper cycle — watch for `open_action_capped_to_rebalance` and no new ODFL churn.
+
+## 2026-04-26 01:10 UTC — Phase 67 Worker RED Fix (operator-requested)
+
+- **Trigger:** Worker readiness gate RED — `min_sharpe_estimate = -3.3935` (threshold >= 0.50). Health endpoint showed `status=degraded, kill_switch=active`.
+- **Root cause:** ODFL churn was the primary Sharpe destroyer. Half-Kelly position sizing ($14.6k) × rebalance target ($6.7k) mismatch caused constant OPEN 66 shares → TRIM 66 shares loop, generating ~$8k realized losses per round-trip.
+- **Portfolio state at diagnosis:** Cash $5,849 of $100k portfolio (severe cash crunch from oversized positions). 8 open positions. Tech sector at 39.7% (near 40% limit). 374 closed trades total.
+- **Fixes (3 files, commit `a5b156a`):**
+  1. `apis/apps/worker/jobs/paper_trading.py` — Anti-churn cap: OPEN target_notional capped to rebalance target weight × equity. Also integrated sector rebalance trims into cycle.
+  2. `apis/apps/worker/jobs/signal_quality.py` — Bulk pg_insert with ON CONFLICT DO NOTHING replaces session.add() loop.
+  3. `apis/services/risk_engine/sector_exposure.py` — New `generate_sector_trim_actions()` classmethod for active sector rebalancing.
+- **Testing:** Anti-churn cap unit test (PASS: $14,600→$6,677.67). 49/49 sector exposure tests pass. Signal quality bulk upsert verified in container. Pre-existing failures unchanged.
+- **Deployment:** `docker restart docker-worker-1 docker-api-1` at 00:53 UTC. All 3 fixes confirmed live in containers. Worker healthy (35 jobs registered). Pushed to origin/main.
+- **Expected recovery:** Sharpe should improve over 1-2 weeks as non-churning cycles accumulate. Anti-churn cap eliminates the $8k/cycle realized loss pattern. Sector trims provide forward protection if tech crosses 40%.
+
+---
+
+Previous entry (2026-04-23 19:55 UTC, superseded):
+
+## 2026-04-23 19:55 UTC — Phase 65b Intra-Cycle Churn Fix (operator-requested)
+
+- **Root cause analysis:** The 2026-04-22 TTL fix (DEC-037: 3600→43200s) resolved overnight target expiry but exposed a deeper issue — the interaction between portfolio engine, exit evaluation, and rebalance engine within and across cycles. Two mechanisms produced churn: (a) exit evaluation closing rebalance-protected positions with non-critical reasons (bypassing Phase 65 suppression), then rebalance re-opening them next cycle; (b) edge-case interactions between subsystems producing same-ticker OPEN+CLOSE pairs in the same execution batch.
+- **Fixes applied to `apps/worker/jobs/paper_trading.py`:**
+  1. Extended exit-merge loop (~line 1342): `_critical_exit_reasons` frozenset gates which exits can close rebalance-protected positions. Score decay, max position age, etc. are suppressed; stop-loss/trailing-stop/atr-stop/max-drawdown fire unconditionally.
+  2. Added intra-cycle churn guard (~line 1529): after ALL proposed_actions assembled, set-intersection detects same-ticker OPEN+CLOSE pairs and drops the CLOSEs.
+  3. Robust origin_strategy fallback (~line 1836): broker-sync new-position creation now falls back to "rebalance" / "ranking_buy_signal" / "unknown" instead of empty string.
+- **Tests:** 66/66 `test_paper_trading.py` pass. 1 pre-existing failure in `test_portfolio_engine.py::test_respects_max_positions` (max_positions env drift from Position Cap Raise 2026-04-15, test not updated). Syntax check passed (2202 lines, valid AST).
+- **No worker restart yet** — code is on disk but worker container has the old image. Need `docker compose restart docker-worker-1` or container rebuild to pick up changes.
+- **Action items for operator:**
+  1. Restart worker to pick up Phase 65b changes
+  2. Monitor next 2-3 paper cycles for validation
+  3. Fix `test_respects_max_positions` by hardcoding `max_positions=10` in test fixtures (low priority, cosmetic)
+
+---
+
+Previous entry (2026-04-22 22:30 UTC, superseded):
 Last Updated: 2026-04-22 22:30 UTC (Wed evening, operator-driven fix sprint) — **Five-concern sprint closed GREEN code-side.** All four code-level bugs flagged by the 15:16 / 19:13 UTC deep-dives are now patched and deployed to the running worker container (restart 22:24:56 UTC, 35 jobs registered, next paper cycle Thu 2026-04-23 09:35 ET). (1) **Phase 65 Alternating Churn resolved** — true root cause was `rebalance_target_ttl_seconds` default of 3600s (1 h) expiring rebalance targets before the first paper cycle (06:26 ET rebalance_check → 09:35 ET first cycle, 3 h 9 m gap). Raised to 43200s (12 h) in `apis/config/settings.py`; unit test updated to match. (2) **Phantom-Equity Writer resolved** — new `_fetch_price_strict` helper returns `None` on yfinance failure; MTM loop in `apps/worker/jobs/paper_trading.py` now preserves prior-close price and emits `mark_to_market_stale_price_preserved` + `phantom_equity_guard_active` WARNs instead of accepting the synthetic `target_notional/100 = $10/share` fallback. Phantom snapshot row `4e6421e1-27c6-4dc4-851b-2cca0ed57274` (equity $28,296.77) deleted from `portfolio_snapshots`. (3) **Orders + Fills Ledger** — added `_persist_orders_and_fills` helper wired immediately after `execute_approved_actions`; idempotency-keyed `{cycle_id}:{ticker}:{side}`; fills written for FILLED results. First non-zero rows expected Thu 2026-04-23 09:35 ET. (4) **universe_overrides** migration `p6q7r8s9t0u1` created + applied; Alembic head now `p6q7r8s9t0u1`. Targeted unit sweeps pass: step1-constants 24/24, paper_broker 32/32, execution_engine 23/23, paper_trading 66/66, phase64 position_persistence 5/5, deep_dive_step2_idempotency 8/8. Broader sweep still shows 22 pre-existing env-drift failures (401 auth on universe routes, scheduler job-count mismatch, operating_mode default drift) none of which touch the patched code paths. **Validation window**: Thu 2026-04-23 paper cycles — watch for zero new dupe CLOSED rows on current holdings, non-zero `orders`+`fills` writes, and `broker_health_position_drift` warnings clearing within 1-2 cycles.
 
 ## 2026-04-22 19:13 UTC — Wed 2 PM CT Scheduled Deep-Dive (YELLOW, Phase 65 churn worsening) — headless via Desktop Commander

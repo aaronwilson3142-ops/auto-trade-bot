@@ -1,4 +1,27 @@
 # APIS — Next Steps
+Last Updated: 2026-04-26 01:10 UTC — Phase 67 deployed (anti-churn cap, signal quality fix, sector rebalance trims).
+
+## PRIORITY — Monitor Monday Paper Cycles (2026-04-27 09:35 ET)
+
+Phase 67 fixes are live (commit `a5b156a`, worker restarted 00:53 UTC). Monitor first Monday cycles for:
+1. `open_action_capped_to_rebalance_target` log lines (anti-churn cap firing)
+2. NO more ODFL buy-66→trim-66 churn pattern
+3. `sector_rebalance_trim_generated` if any sector crosses 40%
+4. `signal_quality_update` completing without UniqueViolation errors
+5. Cash stabilising (no more $5.8k cash crunch from oversized positions)
+6. Sharpe estimate trending upward over subsequent days
+
+## MEDIUM — Sharpe Recovery Timeline
+
+Sharpe at -3.39 will take 1-2 weeks of clean (non-churning) cycles to recover above the 0.50 readiness threshold. The anti-churn cap eliminates the ~$8k/cycle realized loss pattern but accumulated historical losses weigh on the estimate. Consider whether kill_switch should be manually toggled once Sharpe approaches threshold.
+
+## LOW PRIORITY — Fix test_respects_max_positions env drift
+
+`tests/unit/test_portfolio_engine.py::test_respects_max_positions` fails because `_make_settings()` picks up `APIS_MAX_POSITIONS=15` from `.env` instead of the old default 10. Fix: pass `max_positions=10` explicitly in the test fixture. Cosmetic — doesn't affect production.
+
+---
+
+Previous entry:
 Last Updated: 2026-04-19 02:15 UTC (5 AM CT Sat deep-dive finished **RED** — Postgres polluted by an outside-stack test run at 01:40 UTC; operator must decide cleanup path before Mon 09:35 ET)
 
 ## ✅ DONE 2026-04-19 02:32 UTC — Core Pollution Cleanup Executed (operator-approved at 02:20 UTC)

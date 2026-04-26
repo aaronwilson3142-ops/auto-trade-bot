@@ -3,6 +3,41 @@ Format: timestamp | decision | alternatives considered | rationale | consequence
 
 ---
 
+## [2026-04-26] Phase 67 — Worker RED Fix
+
+### DEC-049: Anti-churn cap — cap OPEN target_notional to rebalance target weight × equity
+- **Decision:** After rebalance merge step, iterate OPEN actions and cap `target_notional` to the rebalance target weight for that ticker × current equity. Recalculate `target_quantity` accordingly.
+- **Alternatives considered:** (a) Reduce half-Kelly factor from 0.5 to a lower value — too blunt, affects all sizing not just rebalance conflicts. (b) Skip OPEN entirely when rebalance target exists — too aggressive, prevents any new position entry. (c) Use rebalance target as max instead of half-Kelly — chosen approach, surgically fixes the mismatch.
+- **Rationale:** Half-Kelly sized ODFL at ~14.6% ($14.6k) while rebalance target was 6.67% ($6.7k). The 2x overshoot triggered immediate TRIM, then next cycle re-bought at full size. Capping to rebalance target eliminates the sizing mismatch that drives the churn loop.
+- **Consequence:** OPEN positions will be right-sized from the start, eliminating the OPEN→TRIM→OPEN churn cycle. Cash freed up (~$8k per position saved). Sharpe should recover over 1-2 weeks.
+
+### DEC-050: Signal quality — bulk upsert with ON CONFLICT DO NOTHING
+- **Decision:** Replace per-row `session.add()` + batch `session.commit()` with PostgreSQL `pg_insert().on_conflict_do_nothing(constraint="uq_signal_outcome_trade")`.
+- **Alternatives considered:** (a) Check existence before insert — N+1 query pattern, slower. (b) Try/except per row — masks other errors. (c) Bulk upsert with ON CONFLICT — chosen, idempotent and efficient.
+- **Rationale:** Duplicate (ticker, strategy_name, trade_opened_at) tuples from prior runs caused IntegrityError. The constraint `uq_signal_outcome_trade` already existed; the code just needed to use it.
+- **Consequence:** Signal quality updates will complete cleanly on re-runs. `signal_outcomes` table will accumulate data for quality reporting.
+
+### DEC-051: Sector rebalance trims — active sector weight correction
+- **Decision:** Add `generate_sector_trim_actions()` to SectorExposureService. When a sector exceeds `max_sector_pct` (40%), generate pre-approved TRIM actions for the largest positions in that sector until projected weight drops to or below the limit.
+- **Alternatives considered:** (a) Only block new OPENs (existing behavior) — insufficient, doesn't reduce existing overweight. (b) Close entire positions — too aggressive, loses position thesis. (c) Trim largest first to reduce excess — chosen, preserves positions while reducing concentration.
+- **Rationale:** Sector filter only prevented new breaches but never corrected existing ones. Tech at 39.7% could easily cross 40% with a single price move and would stay overweight indefinitely.
+- **Consequence:** Sectors will be actively managed back under limits. Trim actions are pre-approved (same as overconcentration trims). Currently tech at 39.7% won't trigger, but provides forward protection.
+
+---
+
+## [2026-04-23] Phase 65b — Intra-Cycle Churn Fix
+
+### DEC-048: Phase 65b — suppress non-critical exit CLOSEs for rebalance-protected tickers + add intra-cycle OPEN+CLOSE dedup guard
+- **Decision:** Two-layer fix: (1) extend the exit-action merge in `run_paper_trading_cycle` to suppress non-critical exit CLOSEs (score_decay_exit, max_position_age, etc.) for rebalance-protected tickers while letting critical risk exits (stop_loss, trailing_stop, atr_stop, max_drawdown) fire unconditionally; (2) add a final intra-cycle dedup pass after ALL action sources complete, dropping CLOSEs for any ticker that also has an OPEN in the same batch. Also fixed NULL origin_strategy with fallback chain.
+- **Alternatives considered:**
+  - (a) Modify `apply_ranked_opportunities` in `portfolio_engine/service.py` to accept a "just_opened" set. Rejected — `apply_ranked_opportunities` already correctly partitions opens and closes by ticker; the churn comes from the interaction between MULTIPLE subsystems (portfolio engine CLOSEs vs rebalance OPENs, exit evaluation CLOSEs vs rebalance OPENs), not from within a single subsystem.
+  - (b) Move all CLOSEs to run BEFORE all OPENs in separate execution batches. Rejected — would require splitting the execution engine call and the broker sync, adding complexity to the cycle flow. The dedup guard achieves the same effect with zero refactoring.
+  - (c) Make rebalance targets suppress ALL CLOSEs regardless of reason. Rejected — critical risk exits (stop-loss, trailing-stop) must always fire; rebalance targets should not override safety mechanisms.
+- **Rationale:** DEC-037 (TTL 3600→43200) fixed the stale-target path but didn't address exit evaluation generating CLOSEs with reasons that bypass Phase 65 suppression (which only checked for reason == "not_in_buy_set"). Exit evaluation fires after Phase 65 suppression and adds CLOSEs to the same `proposed_actions` list that rebalance later adds OPENs to — creating cross-cycle and potentially intra-cycle conflicts. The `_critical_exit_reasons` whitelist is the minimal change that preserves safety while eliminating waste. The dedup guard is a safety net for any future subsystem interaction that produces same-ticker OPEN+CLOSE pairs.
+- **Consequence:** Rebalance-protected positions can no longer be closed by non-critical exit evaluation. This means positions held by rebalance targets will stay open longer (until rebalance targets change or a critical stop fires). This is the correct behaviour — if the rebalance engine wants a position, non-critical exits shouldn't fight it. Validation: next paper cycles should show zero intra-cycle churn, stable cash, and clearing broker_health_position_drift warnings.
+
+---
+
 ## [2026-04-22] Five-Concern Operator Sprint
 
 ### DEC-037: Phase 65 Alternating Churn — fix via `rebalance_target_ttl_seconds` 3600 → 43200, not by modifying the suppression logic

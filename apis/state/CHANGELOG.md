@@ -3,6 +3,41 @@ Format: [YYYY-MM-DD] | file/module | description
 
 ---
 
+## [2026-04-26] Phase 67 — Worker RED Fix: Anti-Churn Cap + Signal Quality + Sector Rebalance Trims
+
+**Context:** Worker readiness gate RED — `min_sharpe_estimate = -3.3935` (threshold >= 0.50). ODFL churn pattern (buy 66 → trim 66 every cycle) was the primary Sharpe destroyer.
+
+**Root cause:** Half-Kelly position sizing (~14.6% / $14.6k) exceeded rebalance target (1/15 = 6.67% / $6.7k), causing constant OPEN/TRIM loops with ~$8k realized losses per round-trip.
+
+| File | Change |
+|------|--------|
+| `apps/worker/jobs/paper_trading.py` | Anti-churn cap: OPEN target_notional capped to rebalance_target_weight × equity after rebalance merge. Sector rebalance trims integrated into cycle. |
+| `apps/worker/jobs/signal_quality.py` | Replaced per-row session.add() with PostgreSQL pg_insert + ON CONFLICT DO NOTHING (constraint uq_signal_outcome_trade). |
+| `services/risk_engine/sector_exposure.py` | New generate_sector_trim_actions() classmethod: detects overweight sectors, generates pre-approved TRIM actions for largest positions until weight <= max_sector_pct. |
+
+**Commit:** `a5b156a` on main, pushed to origin. Worker + API restarted 00:53 UTC. All three fixes confirmed live via bind mount.
+
+---
+
+## [2026-04-23] Phase 65b — Intra-Cycle Churn Fix + NULL origin_strategy Fix
+
+**Context:** Thu 2 PM CT deep-dive (19:20 UTC) confirmed Phase 65 churn persisted despite the 2026-04-22 TTL fix: 46 positions opened across 6 cycles (vs cap 5), sub-second open/close pairs, 4 NULL origin_strategy, 15-ticker broker drift. Operator requested code-level fix.
+
+**Root cause:** Two mechanisms not addressed by DEC-037 TTL fix: (1) exit evaluation bypassed Phase 65 suppression by using non-"not_in_buy_set" close reasons (score_decay_exit, max_position_age), causing cross-cycle churn where rebalance re-opens what exits close; (2) edge-case subsystem interactions producing same-ticker OPEN+CLOSE pairs in the same execution batch.
+
+**Files touched:**
+
+- `apis/apps/worker/jobs/paper_trading.py` —
+  - Extended exit-action merge loop (~line 1342): added `_critical_exit_reasons` frozenset (`stop_loss`, `trailing_stop`, `atr_stop`, `max_drawdown`). Non-critical exit CLOSEs for rebalance-protected tickers are suppressed with `phase65b_exit_suppressed_rebalance_protected` log line. Critical risk exits still fire unconditionally.
+  - Added intra-cycle churn guard (~line 1529): after ALL proposed_actions assembled (portfolio engine + exit evaluation + rebalance + all risk filters), set-intersection detects same-ticker OPEN+CLOSE pairs and drops the CLOSEs. `phase65b_intra_cycle_churn_suppressed` log line with ticker list.
+  - Robust origin_strategy fallback (~line 1836): broker-sync new-position creation now uses fallback chain: signal-derived key → "rebalance" (if in rebalance targets) → "ranking_buy_signal" (if in rankings) → "unknown". Eliminates empty-string → NULL path.
+
+**Tests:** 66/66 `test_paper_trading.py` pass. 1 pre-existing failure in `test_portfolio_engine.py::test_respects_max_positions` (env drift from Position Cap Raise 2026-04-15 — test assumes max_positions=10, `.env` sets 15). Syntax verified (2202 lines, valid AST).
+
+**Deploy:** Code on disk. Worker restart needed to pick up changes.
+
+---
+
 ## [2026-04-22] Five-Concern Operator Sprint — Phase 65 + Phantom-Equity + Orders Ledger + universe_overrides
 
 **Context:** Wed 2 PM CT deep-dive (19:13 UTC) flagged four code-level latent bugs. Operator sprint at 22:30 UTC closes all four and deletes the phantom snapshot row.
