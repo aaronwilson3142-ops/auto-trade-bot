@@ -1105,15 +1105,18 @@ def run_paper_trading_cycle(
             # If a sector is ALREADY above max_sector_pct (from prior cycles),
             # generate TRIM actions for the largest positions in that sector.
             # These are pre-approved (risk_approved=True) like other trims.
+            _closing_tickers = {
+                a.ticker for a in proposed_actions if a.action_type == ActionType.CLOSE
+            }
             _sector_trims = _SectorSvc.generate_sector_trim_actions(
                 portfolio_state=portfolio_state,
                 settings=cfg,
-                already_closing=already_closing,
+                already_closing=_closing_tickers,
             )
             if _sector_trims:
                 for _st in _sector_trims:
                     proposed_actions.append(_st)
-                    already_closing.add(_st.ticker)
+                    _closing_tickers.add(_st.ticker)
                 logger.info("sector_rebalance_trims_added", count=len(_sector_trims))
         except Exception as _sect_exc:  # noqa: BLE001
             logger.error("sector_exposure_filter_failed", error=str(_sect_exc))

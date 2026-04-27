@@ -678,7 +678,7 @@ class TestBacktestRunsEndpoint:
         @contextmanager
         def bad_factory():
             raise Exception("DB down")
-            yield  # noqa: unreachable
+            yield  # unreachable — required for @contextmanager
 
         state = _make_app_state()
         state._session_factory = bad_factory
@@ -841,7 +841,7 @@ class TestBacktestDashboardPage:
         @contextmanager
         def bad_factory():
             raise Exception("connection refused")
-            yield  # noqa: unreachable
+            yield  # unreachable — required for @contextmanager
 
         state = _make_app_state()
         state._session_factory = bad_factory

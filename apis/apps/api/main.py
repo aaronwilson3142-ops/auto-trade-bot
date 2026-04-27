@@ -949,6 +949,7 @@ async def health(state: AppStateDep, cfg: SettingsDep) -> JSONResponse:
             KEY_KILL_SWITCH_ACTIVE as _KS_ACTIVE,
             SystemStateEntry as _SSE,
         )
+
         from infra.db.session import db_session as _db_health
 
         with _db_health() as _hdb:
