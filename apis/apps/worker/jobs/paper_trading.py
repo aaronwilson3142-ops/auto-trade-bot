@@ -897,11 +897,58 @@ def run_paper_trading_cycle(
             ):
                 portfolio_state.high_water_mark = portfolio_state.equity
             app_state.last_sod_capture_date = _run_date
+            # ── Phase 69: Reset daily position-open counter on day boundary ──
+            portfolio_state.daily_opens_count = 0
             logger.info(
                 "sod_equity_captured",
                 date=str(_run_date),
                 equity=str(portfolio_state.equity),
             )
+
+        # ── Phase 69: Startup-aware daily position cap ─────────────────────
+        # On first cycle after restart (or first cycle of the day), seed the
+        # counter from DB so the risk engine's check_daily_position_cap sees
+        # positions already opened today even if the worker was restarted.
+        # Without this, daily_opens_count starts at 0 and the first burst
+        # can exceed MAX_NEW_POSITIONS_PER_DAY (2026-04-28 incident: 7 vs 5).
+        if portfolio_state.daily_opens_count == 0:
+            try:
+                from sqlalchemy import func as _func
+                from sqlalchemy import select as _cap_select
+
+                from infra.db.models.portfolio import Position as _CapPosition
+                from infra.db.session import db_session as _cap_db_session
+
+                with _cap_db_session() as _cap_db:
+                    _today_opens = _cap_db.execute(
+                        _cap_select(_func.count())
+                        .select_from(_CapPosition)
+                        .where(_CapPosition.status == "open")
+                        .where(_func.date(_CapPosition.opened_at) == _run_date)
+                    ).scalar() or 0
+                    # Also count positions that were opened and already closed
+                    # today — they still consumed a daily slot.
+                    _today_closed = _cap_db.execute(
+                        _cap_select(_func.count())
+                        .select_from(_CapPosition)
+                        .where(_CapPosition.status == "closed")
+                        .where(_func.date(_CapPosition.opened_at) == _run_date)
+                    ).scalar() or 0
+                    _today_total = _today_opens + _today_closed
+                    if _today_total > 0:
+                        portfolio_state.daily_opens_count = _today_total
+                        logger.info(
+                            "phase69_daily_opens_restored_from_db",
+                            date=str(_run_date),
+                            today_opens=_today_opens,
+                            today_closed=_today_closed,
+                            daily_opens_count=_today_total,
+                        )
+            except Exception as _cap_exc:  # noqa: BLE001
+                logger.warning(
+                    "phase69_daily_opens_restore_failed",
+                    error=str(_cap_exc),
+                )
 
         # ────────────────────────────────────────────────────────────────────
         proposed_actions = _portfolio_svc.apply_ranked_opportunities(
@@ -1700,6 +1747,24 @@ def run_paper_trading_cycle(
         executed_count = sum(
             1 for r in execution_results if r.status.value == "filled"
         )
+
+        # ── Phase 69: Increment daily_opens_count for filled OPEN actions ────
+        # The risk engine's check_daily_position_cap reads this counter but
+        # nothing ever incremented it — the daily cap was effectively dead code.
+        # Now, each filled OPEN adds 1 so subsequent cycles in the same day
+        # are properly throttled.
+        _filled_opens = sum(
+            1 for r in execution_results
+            if r.status.value == "filled" and r.action.action_type == ActionType.OPEN
+        )
+        if _filled_opens > 0:
+            portfolio_state.daily_opens_count += _filled_opens
+            logger.info(
+                "phase69_daily_opens_incremented",
+                filled_opens=_filled_opens,
+                daily_opens_count=portfolio_state.daily_opens_count,
+                limit=cfg.max_new_positions_per_day,
+            )
 
         # ── Persist orders + fills ledger (2026-04-22 latent-bug fix) ─────────
         # Prior to this patch, the ``orders`` and ``fills`` tables contained

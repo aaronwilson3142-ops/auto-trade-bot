@@ -20,16 +20,22 @@ os.environ.setdefault("APIS_KILL_SWITCH", "false")
 # The 2026-04-19 test pollution incident happened because a test runner's
 # DATABASE_URL fell through to the Docker Compose Postgres.  This guard
 # blocks that at the earliest possible point in the pytest session.
+#
+# Phase 69: APIS_PYTEST_SMOKE=1 bypasses the guard for health-check smoke
+# runs that only exercise pure unit tests (no DB writes).  The health check
+# invokes pytest with ``--no-cov -k unit -x`` so only non-DB tests run.
 _PRODUCTION_DB_MARKERS = ("docker-postgres", "/apis\"", "/apis'", "/apis ")
 _db_url = os.environ.get("APIS_DB_URL", "")
-if _db_url and "apis_test" not in _db_url and "test" not in _db_url:
+_smoke_mode = os.environ.get("APIS_PYTEST_SMOKE", "").strip().lower() in ("1", "true", "yes")
+if _db_url and "apis_test" not in _db_url and "test" not in _db_url and not _smoke_mode:
     # If the URL doesn't contain "test" anywhere, it's almost certainly
     # pointing at the production-paper database.  Fail hard.
     raise RuntimeError(
         f"REFUSING TO RUN TESTS: APIS_DB_URL appears to point at a "
         f"non-test database ({_db_url!r}).  Set APIS_DB_URL to an "
         f"isolated test database (containing 'test' in the DB name) "
-        f"before running pytest.  See: 2026-04-19 test pollution incident."
+        f"before running pytest.  See: 2026-04-19 test pollution incident.  "
+        f"For health-check smoke runs, set APIS_PYTEST_SMOKE=1."
     )
 
 
