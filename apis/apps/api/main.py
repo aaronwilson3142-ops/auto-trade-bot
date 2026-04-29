@@ -258,22 +258,27 @@ def _load_persisted_state() -> None:
                 cash = _Dec(str(snap.cash_balance)) if snap and snap.cash_balance else _Dec("100000")
                 equity_val = _Dec(str(snap.equity_value)) if snap and snap.equity_value else None
 
-                # Phase 63 guard (2026-04-14): refuse to restore a corrupt
-                # snapshot where cash went negative with zero authoritative
-                # position rows.  This situation means an earlier cycle's
-                # broker-sync wrote -$94k cash into the snapshot without
-                # also persisting matching Position rows, so any restart
-                # rehydrates the phantom liability forever.  Treat this as
-                # a fresh start to let the system recover.
-                if cash < _Dec("0") and not positions:
+                # Phase 63 guard (2026-04-14), strengthened Phase 70
+                # (2026-04-29): refuse to restore ANY snapshot with
+                # negative cash in paper mode.  The paper broker enforces
+                # InsufficientFundsError, so negative cash is always a
+                # bug (originally from concurrent-cycle race conditions).
+                # The previous guard required zero positions to trigger,
+                # but the race can produce negative cash WITH positions.
+                if cash < _Dec("0"):
                     logger.warning(
                         "portfolio_state_restore_phantom_cash_reset",
                         snapshot_cash=str(cash),
                         snapshot_equity=str(equity_val),
-                        reason="negative cash with zero open positions — resetting to $100k",
+                        position_count=len(positions),
+                        reason="negative cash in paper mode — resetting to $100k",
                     )
                     cash = _Dec("100000")
                     equity_val = _Dec("100000")
+                    # Also clear restored positions — they were sized
+                    # against a corrupt cash baseline and the broker
+                    # starts fresh on restart anyway.
+                    positions = {}
 
                 app_state.portfolio_state = PortfolioState(
                     cash=cash,

@@ -3,7 +3,7 @@ REM Restart APIS Docker stack to pick up updated .env
 REM (max_positions 10 -> 15, max_new_positions_per_day 3 -> 5)
 REM Created 2026-04-15
 
-cd /d "C:\Users\aaron\OneDrive\Desktop\AI Projects\Auto Trade Bot\apis\infra\docker"
+cd /d "C:\Projects\Auto Trade Bot\apis\infra\docker"
 
 echo.
 echo === Current container status ===

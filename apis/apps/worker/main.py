@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import signal
 import sys
+import threading
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -310,11 +311,30 @@ def _job_readiness_report_update() -> None:
     )
 
 
+# Phase 70: serialise paper trading cycles across all cron slots.
+# APScheduler registers each time slot as a DIFFERENT job id, so
+# max_instances=1 (the default) does NOT prevent concurrent execution.
+# The PaperBrokerAdapter is explicitly not thread-safe — concurrent fills
+# can race past InsufficientFundsError and drive cash negative (the
+# phantom-cash writer bug observed repeatedly since mid-April 2026).
+_paper_cycle_lock = threading.Lock()
+
+
 def _job_paper_trading_cycle() -> None:
-    run_paper_trading_cycle(
-        app_state=get_app_state(),
-        settings=settings,
-    )
+    acquired = _paper_cycle_lock.acquire(blocking=False)
+    if not acquired:
+        logger.warning(
+            "phase70_paper_cycle_skipped_concurrent",
+            reason="another paper_trading_cycle is already running",
+        )
+        return
+    try:
+        run_paper_trading_cycle(
+            app_state=get_app_state(),
+            settings=settings,
+        )
+    finally:
+        _paper_cycle_lock.release()
 
 
 def _job_broker_token_refresh() -> None:

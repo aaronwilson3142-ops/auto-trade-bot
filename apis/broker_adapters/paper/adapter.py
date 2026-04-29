@@ -18,6 +18,7 @@ Spec reference:
 """
 from __future__ import annotations
 
+import threading
 import uuid
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
@@ -75,6 +76,10 @@ class PaperBrokerAdapter(BaseBrokerAdapter):
         self._market_open_override: bool | None = market_open
         self._kill_switch: bool = False
         self._connected: bool = False
+
+        # Phase 70: serialise all order placement so concurrent threads
+        # cannot race past the InsufficientFundsError check.
+        self._order_lock = threading.Lock()
 
         # State maps
         self._orders: dict[str, Order] = {}               # broker_order_id -> Order
@@ -146,6 +151,10 @@ class PaperBrokerAdapter(BaseBrokerAdapter):
         """
         Place a paper order.
 
+        Phase 70: the entire order path (check → fill → cash update) is
+        serialised under ``_order_lock`` so that concurrent threads cannot
+        race past InsufficientFundsError.
+
         Raises:
             KillSwitchActiveError: If kill switch is on.
             DuplicateOrderError: If idempotency_key was already submitted.
@@ -153,55 +162,56 @@ class PaperBrokerAdapter(BaseBrokerAdapter):
             MarketClosedError: If market is closed and order type is market.
             OrderRejectedError: If no price is available for the ticker.
         """
-        self._guard_kill_switch()
-        self._guard_duplicate(request.idempotency_key)
+        with self._order_lock:
+            self._guard_kill_switch()
+            self._guard_duplicate(request.idempotency_key)
 
-        price = self._resolve_price(request.ticker, request.order_type)
-        if price is None:
-            raise OrderRejectedError(
-                f"No price available for {request.ticker}. "
-                "Call set_price() before placing orders in paper mode.",
-                order_id=None,
-            )
-
-        if request.order_type == OrderType.MARKET and not self.is_market_open():
-            raise MarketClosedError(
-                "Market is closed. Market orders are not accepted outside market hours."
-            )
-
-        fill_price = self._apply_slippage(price, request.side, request.order_type)
-
-        if request.side == OrderSide.BUY:
-            cost = (fill_price * request.quantity).quantize(self._CENTS, ROUND_HALF_UP)
-            if cost > self._cash:
-                raise InsufficientFundsError(
-                    f"Insufficient cash: need {cost}, have {self._cash}"
+            price = self._resolve_price(request.ticker, request.order_type)
+            if price is None:
+                raise OrderRejectedError(
+                    f"No price available for {request.ticker}. "
+                    "Call set_price() before placing orders in paper mode.",
+                    order_id=None,
                 )
 
-        broker_order_id = str(uuid.uuid4())
-        now = datetime.now(tz=UTC)
+            if request.order_type == OrderType.MARKET and not self.is_market_open():
+                raise MarketClosedError(
+                    "Market is closed. Market orders are not accepted outside market hours."
+                )
 
-        order = Order(
-            idempotency_key=request.idempotency_key,
-            broker_order_id=broker_order_id,
-            ticker=request.ticker,
-            side=request.side,
-            order_type=request.order_type,
-            requested_quantity=request.quantity,
-            filled_quantity=Decimal("0"),
-            status=OrderStatus.SUBMITTED,
-            submitted_at=now,
-            limit_price=request.limit_price,
-            stop_price=request.stop_price,
-        )
+            fill_price = self._apply_slippage(price, request.side, request.order_type)
 
-        self._orders[broker_order_id] = order
-        self._idempotency_keys.add(request.idempotency_key)
+            if request.side == OrderSide.BUY:
+                cost = (fill_price * request.quantity).quantize(self._CENTS, ROUND_HALF_UP)
+                if cost > self._cash:
+                    raise InsufficientFundsError(
+                        f"Insufficient cash: need {cost}, have {self._cash}"
+                    )
 
-        if self._fill_immediately:
-            order = self._execute_fill(order, fill_price, now)
+            broker_order_id = str(uuid.uuid4())
+            now = datetime.now(tz=UTC)
 
-        return order
+            order = Order(
+                idempotency_key=request.idempotency_key,
+                broker_order_id=broker_order_id,
+                ticker=request.ticker,
+                side=request.side,
+                order_type=request.order_type,
+                requested_quantity=request.quantity,
+                filled_quantity=Decimal("0"),
+                status=OrderStatus.SUBMITTED,
+                submitted_at=now,
+                limit_price=request.limit_price,
+                stop_price=request.stop_price,
+            )
+
+            self._orders[broker_order_id] = order
+            self._idempotency_keys.add(request.idempotency_key)
+
+            if self._fill_immediately:
+                order = self._execute_fill(order, fill_price, now)
+
+            return order
 
     def cancel_order(self, broker_order_id: str) -> Order:
         order = self._get_order_or_raise(broker_order_id)
@@ -337,6 +347,20 @@ class PaperBrokerAdapter(BaseBrokerAdapter):
             self._cash -= cost
         else:
             self._cash += cost
+
+        # Phase 70: invariant — paper broker cash must never go negative.
+        # If it does, a concurrent race slipped past InsufficientFundsError.
+        # Reverse the fill so the damage doesn't propagate to snapshots.
+        if self._cash < Decimal("0"):
+            # Undo the cash change
+            if order.side == OrderSide.BUY:
+                self._cash += cost
+            else:
+                self._cash -= cost
+            raise InsufficientFundsError(
+                f"Phase 70 invariant: cash would go negative ({self._cash - cost if order.side == OrderSide.BUY else self._cash + cost}). "
+                f"Reversing fill for {order.ticker}."
+            )
 
         order.filled_quantity = fill_qty
         order.average_fill_price = fill_price

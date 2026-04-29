@@ -95,15 +95,32 @@ def _persist_portfolio_snapshot(
         from infra.db.models.portfolio import PortfolioSnapshot as _DBSnap
         from infra.db.session import db_session as _db_session
 
+        # Phase 70: never persist a negative-cash snapshot in paper mode.
+        # A negative cash value means the broker's state was corrupted
+        # (e.g. by a concurrent-cycle race).  Writing it to the DB would
+        # poison the restore path (_load_persisted_state) and propagate
+        # the corruption across container restarts.
+        _snap_cash = _Decimal(str(portfolio_state.cash))
+        if _snap_cash < _Decimal("0") and mode.lower() == "paper":
+            logger.critical(
+                "phase70_phantom_cash_snapshot_blocked",
+                cash=str(_snap_cash),
+                equity=str(portfolio_state.equity),
+                gross_exposure=str(portfolio_state.gross_exposure),
+                positions=len(portfolio_state.positions),
+                note="Negative cash in paper mode — snapshot NOT written to DB",
+            )
+            return
+
         idem_key = f"{cycle_id}:portfolio_snapshot" if cycle_id else None
         values = dict(
             snapshot_timestamp=dt.datetime.now(dt.UTC),
             mode=mode,
-            cash_balance=_Decimal(str(portfolio_state.cash)),
+            cash_balance=_snap_cash,
             gross_exposure=_Decimal(str(portfolio_state.gross_exposure)),
             net_exposure=(
                 _Decimal(str(portfolio_state.equity))
-                - _Decimal(str(portfolio_state.cash))
+                - _snap_cash
             ),
             equity_value=_Decimal(str(portfolio_state.equity)),
             drawdown_pct=_Decimal(str(portfolio_state.drawdown_pct)),
@@ -1665,6 +1682,13 @@ def run_paper_trading_cycle(
         # ── Validate each action + fetch price + build execution requests ──────
         approved_requests: list[ExecutionRequest] = []
         fill_expectations: list[FillExpectation] = []
+        # Phase 70: track approved OPENs within THIS validation loop so the
+        # risk engine's daily_position_cap check sees an up-to-date count.
+        # Previously, daily_opens_count was only incremented AFTER execution
+        # (Phase 69), so within a single cycle ALL OPENs passed the cap check
+        # because the counter stayed at its pre-execution value.  This is why
+        # 19 positions opened on 2026-04-29 despite a cap of 5.
+        _pre_validation_opens = portfolio_state.daily_opens_count
 
         for action in proposed_actions:
             # Risk validation (gate-keeper)
@@ -1719,6 +1743,12 @@ def run_paper_trading_cycle(
                         )
                 continue
 
+            # Phase 70: increment daily_opens_count at approval time (not
+            # after execution) so subsequent OPENs in the same batch see
+            # an accurate counter and the daily cap works within a single cycle.
+            if action.action_type == ActionType.OPEN:
+                portfolio_state.daily_opens_count += 1
+
             # Price fetch
             current_price = _fetch_price(action.ticker, action.target_notional, _market_data_svc, errors)
 
@@ -1748,17 +1778,28 @@ def run_paper_trading_cycle(
             1 for r in execution_results if r.status.value == "filled"
         )
 
-        # ── Phase 69: Increment daily_opens_count for filled OPEN actions ────
-        # The risk engine's check_daily_position_cap reads this counter but
-        # nothing ever incremented it — the daily cap was effectively dead code.
-        # Now, each filled OPEN adds 1 so subsequent cycles in the same day
-        # are properly throttled.
+        # ── Phase 69 / Phase 70: Reconcile daily_opens_count after execution.
+        # Phase 70 now increments daily_opens_count at APPROVAL time (inside
+        # the risk-validation loop) so the cap works within a single cycle.
+        # Here we reconcile: if some approved OPENs were rejected/blocked by
+        # the broker, subtract them back so the counter reflects ACTUAL fills.
+        _approved_opens = sum(
+            1 for r in execution_results
+            if r.action.action_type == ActionType.OPEN
+        )
         _filled_opens = sum(
             1 for r in execution_results
             if r.status.value == "filled" and r.action.action_type == ActionType.OPEN
         )
+        _rejected_opens = _approved_opens - _filled_opens
+        if _rejected_opens > 0:
+            portfolio_state.daily_opens_count -= _rejected_opens
+            logger.info(
+                "phase70_daily_opens_reconciled",
+                rejected_opens=_rejected_opens,
+                daily_opens_count=portfolio_state.daily_opens_count,
+            )
         if _filled_opens > 0:
-            portfolio_state.daily_opens_count += _filled_opens
             logger.info(
                 "phase69_daily_opens_incremented",
                 filled_opens=_filled_opens,
@@ -1943,6 +1984,16 @@ def run_paper_trading_cycle(
         # ── Sync portfolio state from broker ───────────────────────────────────
         try:
             acct = _broker.get_account_state()
+            # Phase 70: log if broker cash is negative — should be impossible
+            # after the lock + invariant fixes, but keep the diagnostic.
+            if acct.cash_balance < Decimal("0"):
+                logger.critical(
+                    "phase70_broker_cash_negative_at_sync",
+                    broker_cash=str(acct.cash_balance),
+                    broker_equity=str(acct.equity_value),
+                    broker_positions=len(acct.positions),
+                    note="broker._cash went negative despite invariant guard",
+                )
             portfolio_state.cash = acct.cash_balance
             broker_positions = _broker.list_positions()
             for bp in broker_positions:

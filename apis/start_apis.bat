@@ -17,4 +17,4 @@ if %ERRORLEVEL% NEQ 0 (
 
 :: ── 2. Start the combined API + scheduler (single process) ─────────────────
 echo [APIS] Starting API + Scheduler...
-"C:\Users\aaron\OneDrive\Desktop\AI Projects\Auto Trade Bot\apis\.venv\Scripts\python.exe" -m uvicorn apps.api.main:app --host 0.0.0.0 --port 8000
+"C:\Projects\Auto Trade Bot\apis\.venv\Scripts\python.exe" -m uvicorn apps.api.main:app --host 0.0.0.0 --port 8000

@@ -315,3 +315,29 @@ When you start work, part of your first technical assessment should be:
 4. which ones are optional and should wait
 
 Use the best relevant toolchain available to you, not the narrowest possible one.
+
+---
+
+## Windows-MCP (Desktop Automation)
+
+Windows-MCP is enabled for this project. It provides direct Windows desktop automation capabilities via the following tools:
+
+- **App** — Launch or focus Windows applications
+- **Click** — Click UI elements on screen
+- **Clipboard** — Read/write the Windows clipboard
+- **FileSystem** — Windows-native file operations
+- **Move** — Move the mouse cursor
+- **MultiEdit / MultiSelect** — Batch UI editing and selection
+- **Notification** — Send Windows toast notifications
+- **PowerShell** — Execute PowerShell commands natively on the host
+- **Process** — List, start, or kill Windows processes
+- **Registry** — Read/write Windows registry keys
+- **Scrape** — Extract content from on-screen applications
+- **Screenshot** — Capture screenshots of the desktop or specific windows
+- **Scroll** — Scroll within applications
+- **Shortcut** — Send keyboard shortcuts to applications
+- **Snapshot** — Capture and compare UI state
+- **Type** — Type text into focused applications
+- **Wait** — Wait for UI conditions (element visible, window open, etc.)
+
+Use Windows-MCP tools when you need to interact with the Windows desktop directly — launching apps, automating UI workflows, capturing screenshots for debugging, running PowerShell on the host machine, managing processes, or any task that requires native OS-level access beyond the sandboxed Linux shell.
