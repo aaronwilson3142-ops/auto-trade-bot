@@ -2000,6 +2000,27 @@ def run_paper_trading_cycle(
                 if bp.ticker in portfolio_state.positions:
                     portfolio_state.positions[bp.ticker].quantity = bp.quantity
                     portfolio_state.positions[bp.ticker].current_price = bp.current_price
+                    # Phase 72: stamp origin_strategy on restored positions
+                    # that were loaded from DB without one (Phase 59 restore
+                    # previously omitted this field).  Same fallback chain as
+                    # the new-position branch below.
+                    _existing_os = getattr(
+                        portfolio_state.positions[bp.ticker],
+                        "origin_strategy", None,
+                    ) or ""
+                    if not _existing_os:
+                        _os_fill = _origin_strategy_by_ticker.get(bp.ticker, "")
+                        if not _os_fill:
+                            _ranked_set = {
+                                getattr(r, "ticker", None) for r in rankings
+                            }
+                            if _reb_targets and bp.ticker in _reb_targets:
+                                _os_fill = "rebalance"
+                            elif bp.ticker in _ranked_set:
+                                _os_fill = "ranking_buy_signal"
+                            else:
+                                _os_fill = "unknown"
+                        portfolio_state.positions[bp.ticker].origin_strategy = _os_fill
                 else:
                     # Add new positions opened by the broker (e.g. via execution
                     # engine) that don't yet exist in portfolio_state.  Without

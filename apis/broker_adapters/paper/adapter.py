@@ -115,6 +115,21 @@ class PaperBrokerAdapter(BaseBrokerAdapter):
         """Deactivate the kill switch."""
         self._kill_switch = False
 
+    # ── Phase 72: broker health drift check interface ──────────────────────────
+
+    @property
+    def positions_by_ticker(self) -> dict[str, Decimal]:
+        """Return {ticker: quantity} for all open positions.
+
+        Used by ``services.broker_adapter.health.check_broker_health`` to
+        compare broker state against DB positions and detect drift.
+        """
+        return {
+            ticker: internal.quantity
+            for ticker, internal in self._positions.items()
+            if internal.quantity > Decimal("0")
+        }
+
     # ── Connection / lifecycle ─────────────────────────────────────────────────
 
     def connect(self) -> None:

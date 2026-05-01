@@ -90,7 +90,7 @@ HEALTHCARE: Final[list[str]] = [
     "AMGN", "GILD", "CVS", "MDT", "ELV", "ISRG", "SYK", "REGN", "VRTX",
     "ZTS", "CI", "BSX", "HCA", "IDXX", "BDX", "EW", "HUM", "BIIB", "ILMN",
     "IQV", "MCK", "COR", "DXCM", "A", "MTD", "RMD", "ALGN", "WST", "PKI",
-    "STE", "INCY", "HOLX", "ZBH", "CAH", "WAT", "VTRS", "MRNA", "MOH",
+    "STE", "INCY", "ZBH", "CAH", "WAT", "VTRS", "MRNA", "MOH",
     "CNC", "BAX", "UHS", "CTLT", "PODD", "TFX", "TECH", "DGX", "LH",
     "CRL", "HSIC", "DVA", "ORGN",
 ]

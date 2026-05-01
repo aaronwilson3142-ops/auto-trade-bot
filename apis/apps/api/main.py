@@ -244,7 +244,10 @@ def _load_persisted_state() -> None:
                         cur_price = (_Dec(str(pos.market_value)) / qty).quantize(_Dec("0.000001"))
                     else:
                         cur_price = entry
-                    positions[ticker] = PortfolioPosition(
+                    # Phase 72: restore origin_strategy from DB so
+                # broker-sync + _persist_positions don't lose it.
+                _db_os = getattr(pos, "origin_strategy", None) or ""
+                positions[ticker] = PortfolioPosition(
                         ticker=ticker,
                         quantity=qty,
                         avg_entry_price=entry,
@@ -253,6 +256,7 @@ def _load_persisted_state() -> None:
                         thesis_summary=(pos.thesis_snapshot_json or {}).get("summary", "") if isinstance(pos.thesis_snapshot_json, dict) else "",
                         strategy_key="",
                         security_id=pos.security_id,
+                        origin_strategy=_db_os,
                     )
 
                 cash = _Dec(str(snap.cash_balance)) if snap and snap.cash_balance else _Dec("100000")
@@ -903,25 +907,42 @@ async def health(state: AppStateDep, cfg: SettingsDep) -> JSONResponse:
         except Exception:
             components["broker"] = "error"
 
-    # ── Scheduler (inspect the in-process APScheduler instance directly) ─────
-    # Prior implementation inferred scheduler health from `last_paper_cycle_at`,
-    # but paper trading cycles only run 09:35–15:30 ET. Outside those hours
-    # (every morning before 09:35 ET, every evening after 15:30 ET, and every
-    # weekend) the most recent cycle is always >2h old, so the old check
-    # produced a persistent false "stale" status — forcing needless daily
-    # container restarts. The in-process scheduler instance is the source of
-    # truth: if it exists and `.running` is True, the scheduler is alive.
-    sched = _APSCHEDULER_INSTANCE
-    if sched is None:
-        components["scheduler"] = "down"
-    else:
-        try:
-            if getattr(sched, "running", False):
+    # ── Scheduler liveness (APScheduler heartbeat via Redis) ────────────────
+    # `scheduler.running` only checks that the APScheduler object hasn't been
+    # shutdown — it does NOT prove the dispatch thread is executing jobs.
+    # On 2026-04-30, `running` was True for 27h while zero jobs fired.
+    #
+    # The worker now writes an epoch timestamp to `worker:scheduler_heartbeat`
+    # every 5 min via an APScheduler-managed job.  If this key is stale
+    # (>10 min) or missing, the dispatch thread has stalled.
+    try:
+        import redis as _redis_health
+        _r = _redis_health.Redis.from_url(
+            cfg.redis_url, socket_connect_timeout=2, socket_timeout=2,
+        )
+        _hb_val = _r.get("worker:scheduler_heartbeat")
+        if _hb_val is None:
+            # Key missing — worker may not have started or Redis was flushed.
+            # Fall back to the old in-process check for backward compat.
+            sched = _APSCHEDULER_INSTANCE
+            if sched is not None and getattr(sched, "running", False):
                 components["scheduler"] = "ok"
             else:
-                components["scheduler"] = "stopped"
-        except Exception:
-            components["scheduler"] = "error"
+                components["scheduler"] = "no_heartbeat"
+        else:
+            _age = _dt.datetime.now(tz=_dt.UTC).timestamp() - float(_hb_val)
+            if _age < 600:  # 10 min
+                components["scheduler"] = "ok"
+            else:
+                components["scheduler"] = "stale"
+                components["scheduler_heartbeat_age_s"] = str(int(_age))
+    except Exception:
+        # Redis unavailable — fall back to in-process check
+        sched = _APSCHEDULER_INSTANCE
+        if sched is not None and getattr(sched, "running", False):
+            components["scheduler"] = "ok"
+        else:
+            components["scheduler"] = "unknown"
 
     # ── Paper cycle freshness (informational — only stale during market hours)
     last_cycle = state.last_paper_cycle_at
@@ -982,7 +1003,7 @@ async def health(state: AppStateDep, cfg: SettingsDep) -> JSONResponse:
     # ── Overall status ────────────────────────────────────────────────────────
     if components["db"] == "down":
         overall = "down"
-    elif any(v in ("down", "error", "stale", "stopped", "expired", "active", "detected") for v in components.values()):
+    elif any(v in ("down", "error", "stale", "stopped", "expired", "active", "detected", "no_heartbeat") for v in components.values()):
         overall = "degraded"
     else:
         overall = "ok"

@@ -12,7 +12,7 @@
 # All migrations in this repo are additive (nullable column adds, new
 # tables) so auto-apply is safe under paper mode.  If you go live, consider
 # gating this on APIS_OPERATING_MODE and failing-fast instead of auto-
-# applying.  The worker container does NOT run migrations — it depends on
+# applying.  The worker container does NOT run migrations â€” it depends on
 # api health, so by the time it boots the schema is already up to date.
 # ---------------------------------------------------------------------------
 set -e
