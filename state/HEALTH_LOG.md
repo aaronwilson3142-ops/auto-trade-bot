@@ -2,6 +2,118 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-05-01 12:25 UTC (Thursday 7:25 AM CT, pre-market)
+
+**Overall Status:** YELLOW — 2 Alertmanager drawdown alerts firing (DrawdownCritical + DrawdownAlert, started at worker restart time 11:57 UTC — likely false positive from HWM reset). Origin_strategy NULL regression from 5 AM check RESOLVED by Phase 72 (`1759455`). All other systems GREEN.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy. Worker up 22min / API up 24min (restarted during this session). Postgres 2d, Redis 2w. k8s control plane up 2w.
+- /health: all components `ok`. Mode=paper.
+- Worker/API log scan: CLEAN — zero crash-triad. Known 13 stale tickers only.
+- Prometheus: 2/2 up. Alertmanager: 2 firing (DrawdownCritical + DrawdownAlert, restart artifact).
+- Resources: all normal. DB 158 MB.
+
+### §2 Execution + Data Audit
+- Paper cycles today: 0 (pre-market expected). Morning pipeline ran (signals 10:30, rankings 10:45 UTC).
+- Portfolio: cash=$20,120 / equity=$109,232. Cash positive ✅.
+- Origin-strategy: RESOLVED — all 13 open positions have `origin_strategy=rebalance` ✅ (Phase 72 fix).
+- Position caps: 13/15. Data fresh. Kill-switch false. Eval_runs=95. Idempotency clean.
+
+### §3 Code + Schema
+- Alembic: `p6q7r8s9t0u1` single head. Pytest: 358p/2f exact baseline. Git: 0 unpushed, 13 dirty.
+- CI: Run #25213460365 `1759455` conclusion=success GREEN ✅.
+
+### §4 Config + Gate
+- All APIS_* flags correct. Scheduler job_count=36 (was 35).
+
+### Issues Found
+- 2 Alertmanager drawdown alerts (restart artifact, should self-clear after first cycle)
+- 13 dirty files, job count 35→36
+
+### Fixes Applied
+- None.
+
+### Action Required from Aaron
+- Monitor drawdown alerts after 13:35 UTC cycle. Commit dirty tree.
+
+---
+
+## Health Check — 2026-05-01 10:25 UTC (Friday 5:25 AM CT, pre-market)
+
+**Overall Status:** YELLOW — origin_strategy NULL regression: 9 of 13 open positions missing origin_strategy (Step 5 commit `d08875d` regression). All other systems GREEN; scheduler recovered from Apr 30 stall; morning pipeline ran cleanly.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy. Worker/API up 15h. Postgres 2d, Redis 2w. All components ok.
+- /health: all `ok`. Mode=paper.
+- Log scan: CLEAN — zero crash-triad, only known 13 stale tickers.
+- Prometheus: 2/2 up. Alertmanager: 0 firing. Resources normal. DB 150 MB.
+
+### §2 Execution + Data Audit
+- Paper cycles today: 0 (pre-market, expected). Morning pipeline ALL ran 10:00–10:22 UTC ✅.
+- Portfolio: cash=$20,120 / equity=$109,232. Cash positive ✅.
+- **Origin-strategy: REGRESSION** — 9/13 open positions NULL (AMD, AMZN, BE, GOOG, MRVL, NUE, NVDA, STT, WDC). Only EQIX/GOOGL/MU/PWR stamped.
+- Position caps: 13/15 ✅. Idempotency: clean ✅. Eval runs: 95 ✅. Kill-switch: false ✅.
+
+### §3 Code + Schema
+- Alembic: `p6q7r8s9t0u1` single head ✅. Pytest: 358p/2f baseline ✅.
+- Git: 14 dirty, 0 unpushed. CI: Run #31 `6215c20` conclusion=success GREEN ✅.
+
+### §4 Config + Gate Verification
+- All critical APIS_* flags at expected values ✅. Scheduler job_count=35 ✅.
+
+### Issues Found
+- **origin_strategy NULL regression**: 9/13 open positions missing origin_strategy. Regression of commit `d08875d`.
+
+### Fixes Applied
+- None.
+
+### Action Required from Aaron
+- Investigate origin_strategy NULL regression in `paper_trading.py` Phase 70 rebalance code path.
+- Commit 14 dirty files.
+
+---
+
+## Health Check — 2026-04-30 19:30 UTC (Wednesday 2:30 PM CT, market closed)
+
+**Overall Status:** YELLOW — Full market day missed (zero paper cycles, zero data pipeline on Wed Apr 30); worker scheduler malfunctioned despite 27h uptime. Worker restarted during deep-dive; should resume normal operation.
+
+### §1 Infrastructure
+- Containers: 8/8 present. Worker/API up 27h (healthy). Postgres 2d, Redis 2w. Grafana/Prometheus/Alertmanager recreated during deep-dive. k8s control plane up 13d.
+- /health: **degraded** — `paper_cycle: stale`. All other components `ok`. Mode=paper.
+- Worker/API log scan: CLEAN — zero crash-triad patterns.
+- Prometheus: 2/2 targets up, 0 dropped. Alertmanager: 0 firing alerts.
+- Resource usage: all normal. DB size: 150 MB.
+
+### §2 Execution + Data Audit
+- **Paper cycles today: 0 on a Wednesday (market day).** Full pipeline missed.
+- Portfolio trend: latest snapshot 2026-04-29 19:30 UTC — cash=$20,284, equity=$106,765. Cash positive. No new snapshots today.
+- 13 open positions, all with `origin_strategy` set. Within cap (13/15). 0 new today.
+- Data freshness: prices=2026-04-28 (2 biz days stale). Signals/rankings=2026-04-29.
+- Kill-switch: false. Mode: paper. Eval history: 94. Idempotency: clean.
+
+### §3 Code + Schema
+- Alembic: `p6q7r8s9t0u1` single head. No drift.
+- Pytest: 249p/2f exact DEC-021 baseline. No regressions.
+- Git: 84 dirty, 0 unpushed. CI run #31 `6215c20` GREEN.
+
+### §4 Config + Gate Verification
+- All APIS_* flags correct. Scheduler job_count=35 post-restart.
+
+### Issues Found
+- Full market day missed (scheduler silent failure)
+- /health degraded (paper_cycle stale)
+- Prices 2 business days stale
+- 84 dirty files in git tree
+
+### Fixes Applied
+- Worker + monitoring stack restarted via docker compose up -d.
+
+### Action Required from Aaron
+- Investigate scheduler silent failure — new failure mode.
+- Commit dirty tree (84 modified files).
+
+---
+
 ## Health Check — 2026-04-29 15:10 UTC (Tuesday 10:10 AM CT, market open)
 
 **Overall Status:** YELLOW — Phantom cash regression at 14:30 UTC; position churn persists (19 opened today vs cap 5).
@@ -225,3 +337,111 @@ Auto-generated daily health check results.
 - **Commit Phase 70 code**: The 4 modified source files + state docs should be committed and pushed so CI can validate the Phase 70 changes. Until then, CI coverage is stale (last CI run tested Phase 69 code, not Phase 70).
 - **Monitor Phase 70 daily cap**: Watch the 16:35 UTC cycle — if the daily cap still allows >5 opens, the Phase 70 fix needs further investigation.
 - **Pytest smoke path**: Tests not found at `apis/tests/unit/` inside the container. May need to verify the Docker build includes the test directory, or adjust the health-check test path.
+
+## Health Check — 2026-04-30 19:28 UTC (Wednesday 2:28 PM CT, market closed)
+
+**Overall Status:** YELLOW — Worker scheduler was silent for ~20h (all Wed cycles missed); restarted and healthy. No trading regressions or data corruption.
+
+### §1 Infrastructure
+- Containers: 7/7 up + healthy (worker+api restarted during this check; postgres 2d, redis/prom/grafana/alertmanager 13d)
+- /health: `degraded` — `paper_cycle: stale` (expected post-restart, all other components `ok`)
+- Worker/API log scan: clean — zero ERROR/CRITICAL/Traceback in 24h
+- Prometheus: 2/2 targets up; Alertmanager: 0 firing alerts
+- Resource usage: all normal
+
+### §2 Execution + Data Audit
+- Paper cycles yesterday: 1 completed; today: 0/12 — all missed (silent scheduler)
+- Portfolio trend: cash $20,284 / equity $106,764.94; clean $100k baseline also present
+- 13 open positions, all with origin_strategy=rebalance; no dupes
+- Data freshness: prices 2026-04-28, rankings 2026-04-29 10:45 UTC, signals 2026-04-29 10:30 UTC
+- Kill-switch=false, mode=paper; evaluation_runs=94 (above floor)
+- Idempotency: clean
+
+### §3 Code + Schema
+- Alembic: `p6q7r8s9t0u1` (single head, no drift)
+- Pytest: 358/360 pass — 2 known phase22 failures
+- Git: clean (6 untracked scratch files), 0 unpushed, HEAD=`6215c20`
+- CI: run #31 GREEN `6215c20` conclusion=success
+
+### §4 Config + Gate Verification
+- All critical APIS_* flags at expected values ✓
+
+### Issues Found
+- **[YELLOW] Worker scheduler silent ~20h** — all Wed cycles missed. Restarted; will resume Thu.
+
+### Fixes Applied
+- Restarted worker+api containers at 19:21 UTC. Worker healthy, job_count=35.
+
+### Action Required from Aaron
+- Investigate scheduler silence root cause; consider APScheduler liveness probe.
+- **[INFO] 6 untracked scratch files in repo root**: `_docker_exit.txt`, `_docker_info.txt`, `_docker_ps.txt`, etc. Non-blocking.
+
+### Fixes Applied
+- Restarted `docker-worker-1` and `docker-api-1` via `docker restart`. Worker came up healthy with job_count=35 at 19:21 UTC. All next_run times set for 2026-05-01 (today's cron windows had passed).
+
+### Action Required from Aaron
+- **Investigate scheduler silence**: Worker healthcheck passed for ~20h while APScheduler produced zero output. Consider adding a scheduler-liveness probe (e.g., heartbeat job that writes to Redis/DB every 5 min, healthcheck verifies recency). This is the second time the scheduler has gone silent without container-level detection.
+- **Clean up scratch files**: 6 `_docker_*.txt` files in repo root — safe to delete or .gitignore.
+
+
+## Health Check — 2026-05-01 10:15 UTC (Thursday 5:15 AM CT, market pre-open)
+
+**Overall Status:** YELLOW — 9/13 open positions have NULL origin_strategy (regression of d08875d); broker_health_position_drift on all 13 tickers; HOLX broker rejection (new inactive ticker); 5 modified files uncommitted; pytest path fix needed in health-check SKILL.
+
+### §1 Infrastructure
+- Containers: 8/8 up (7 APIS + k8s). Worker up 15h (healthy), API up 15h (healthy), Postgres up 2d (healthy), Redis up 2w (healthy), Grafana/Prometheus/Alertmanager up 15h. No restart loops.
+- /health: all components `ok` (db, broker, scheduler, paper_cycle, broker_auth, system_state_pollution, kill_switch). Mode=paper.
+- Worker log scan: only known 13 stale tickers (DFS, JNPR, HES, PKI, PARA, IPG, MRO, WRK, ANSS, MMC, K, PXD, CTLT). No crash-triad patterns. No CRITICAL/Traceback.
+- API log scan: 2 pre-existing restore warnings (regime_result_restore_failed, readiness_report_restore_failed). Known stale tickers. **NEW: `broker_order_rejected` for HOLX ("asset HOLX is not active")** at 2026-04-30 19:30 UTC.
+- Prometheus: 2/2 targets up (apis, prometheus), 0 droppedTargets.
+- Alertmanager: 0 firing alerts.
+- Resource usage: Worker 686 MiB, API 851 MiB, Postgres 203 MiB, Redis 8 MiB, Grafana 46 MiB, Prometheus 43 MiB, Alertmanager 15 MiB, k8s 2.55 GiB (8.2%). No CPU/mem spikes.
+- DB size: 150 MB.
+
+### §2 Execution + Data Audit
+- Paper cycles last 30h: 1 completed (2026-04-30 21:00 UTC, paper, status=complete). Today's first cycle at 13:35 UTC (09:35 ET) not yet reached. Wednesday's scheduler silence (Phase 71) caused all Wed daytime cycles to be missed; Phase 71 liveness probe now deployed.
+- Portfolio trend: latest snapshot 2026-04-30 19:30 UTC — cash $20,120 / equity $109,232. Also clean $100k baseline snapshot at same timestamp. Cash ≥ 0 ✓. No phantom-cash regression.
+- Broker<->DB reconciliation: **broker_health_position_drift fired** at 2026-04-30 19:30 UTC with all 13 open tickers (MRVL, WDC, STT, NUE, EQIX, BE, AMD, AMZN, GOOGL, MU, GOOG, PWR, NVDA). Broker endpoint 404 (expected per build); /health broker=ok. DB shows 13 open positions with ~$86.7k cost basis.
+- **Origin-strategy stamping: 9 of 13 open positions have NULL origin_strategy** — AMD, AMZN, BE, GOOG, MRVL, NUE, NVDA, STT, WDC. Only EQIX, GOOGL, MU, PWR have `rebalance`. All opened 2026-04-29 16:00 UTC (Phase 70 restart burst). This is a regression of commit d08875d — positions opened after 2026-04-18 must have origin_strategy set.
+- Position caps: 13 open (within 15 max) ✓. 0 new today (within 5/day cap) ✓.
+- Data freshness: prices 2026-04-30 (488 securities, current — market pre-open). Rankings 2026-04-29 10:45 UTC (stale; today's ranking job at 10:45 UTC hasn't fired yet). Signals latest run 2026-04-29 10:30 UTC (stale; today's signal job at 10:30 UTC hasn't fired yet). Intel feed ingestion ran today at 10:10 UTC ✓.
+- Stale tickers: known 13 only + **HOLX (NEW)** — Alpaca rejected "asset HOLX is not active" on 2026-04-30 19:30 cycle.
+- Kill-switch: false ✓. Operating mode: paper ✓.
+- Evaluation history rows: 95 (above 80 floor) ✓.
+- Idempotency: clean — 0 duplicate orders, 0 duplicate open-position tickers ✓.
+
+### §3 Code + Schema
+- Alembic head: `p6q7r8s9t0u1` (single head). No drift. ✓
+- Pytest smoke: **358/360 pass** (35.5s) — 2 known failures (`test_scheduler_has_thirteen_jobs`, `test_all_expected_job_ids_present`) per DEC-021 baseline. No new failures. Note: health-check SKILL had wrong test path (`apis/tests/unit/` → should be `tests/unit/` relative to rootdir `/app/apis`); corrected this run.
+- Git: **5 modified** (apis/apps/api/main.py, apis/apps/worker/main.py, apis/infra/docker/docker-compose.yml, apis/state/HEALTH_LOG.md, apis/tests/unit/test_phase15_production_ready.py) + state docs (state/DECISION_LOG.md, state/HEALTH_LOG.md) + **7 untracked** scratch files (_docker_*.txt, _git_log.txt). 0 unpushed commits. HEAD at `6215c20`.
+- **GitHub Actions CI:** Run #31 `6215c20` conclusion=success — https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25121114314 GREEN ✓
+
+### §4 Config + Gate Verification
+- All critical APIS_* flags at expected values:
+  - APIS_OPERATING_MODE=paper ✓
+  - APIS_KILL_SWITCH=false ✓
+  - APIS_MAX_POSITIONS=15 ✓
+  - APIS_MAX_NEW_POSITIONS_PER_DAY=5 ✓
+  - APIS_MAX_THEMATIC_PCT=0.75 ✓
+  - APIS_RANKING_MIN_COMPOSITE_SCORE=0.30 ✓
+  - APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED not set (default false) ✓
+  - APIS_INSIDER_FLOW_PROVIDER not set (default null) ✓
+  - Deep-Dive Step 6/7/8 flags not set (default OFF) ✓
+- Scheduler: worker started 2026-04-30 19:21 UTC with job_count=35 (expected per DEC-021). Heartbeat connected ✓.
+
+### Issues Found
+- **[YELLOW] 9/13 open positions have NULL origin_strategy**: Regression of commit d08875d. Positions AMD, AMZN, BE, GOOG, MRVL, NUE, NVDA, STT, WDC opened during Phase 70 restart burst (2026-04-29 16:00 UTC) lack origin_strategy stamping. Only EQIX, GOOGL, MU, PWR have `rebalance`. The stamping logic may not fire during broker-position-restore / restart-burst code paths.
+- **[YELLOW] broker_health_position_drift on all 13 tickers**: Fired 2026-04-30 19:30 UTC. Broker state diverges from DB for all open positions. May be related to the restart burst or broker sync issues.
+- **[YELLOW] HOLX broker rejection — new inactive ticker**: Alpaca rejected order for HOLX ("asset HOLX is not active") on 2026-04-30 19:30 cycle. HOLX should be added to the known-stale/inactive ticker list or removed from the trading universe.
+- **[INFO] 5 modified + 7 untracked files in git tree**: Phase 71 (scheduler liveness probe) changes in api/main.py, worker/main.py, docker-compose.yml deployed to containers via bind mount but not committed. CI cannot validate these changes. 7 scratch _docker_*.txt files cluttering repo root.
+- **[INFO] Signals/rankings stale at 2026-04-29**: Expected — today's signal (10:30 UTC) and ranking (10:45 UTC) jobs haven't fired yet at time of this check (10:15 UTC). Wednesday's jobs were missed due to scheduler silence (resolved by Phase 71).
+
+### Fixes Applied
+- None this run. No autonomous fixes required.
+
+### Action Required from Aaron
+- **Backfill origin_strategy on 9 open positions**: UPDATE the 9 NULL rows with the appropriate strategy (likely `rebalance` given they were part of a restart burst). Investigate why the stamping logic didn't fire during the Phase 70 restart path and fix the code to prevent recurrence.
+- **Commit Phase 71 changes**: 5 modified source files (api/main.py, worker/main.py, docker-compose.yml, test_phase15, HEALTH_LOG.md) + state docs should be committed and pushed. CI coverage is stale — last CI run tested Phase 70 code, not Phase 71.
+- **Add HOLX to inactive ticker handling**: Either remove HOLX from the trading universe or add it to the known-inactive list so it doesn't generate broker rejections.
+- **Clean up scratch files**: 7 `_docker_*.txt` / `_git_log.txt` files in repo root — safe to delete or .gitignore.
+

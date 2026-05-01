@@ -45,10 +45,13 @@ from __future__ import annotations
 import signal
 import sys
 import threading
+import time as _time_mod
 
 import pytz
+import redis as _redis_mod
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 from apps.api.state import get_app_state
 from apps.worker.jobs import (
@@ -345,6 +348,56 @@ def _job_broker_token_refresh() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Scheduler liveness probe — heartbeat written BY APScheduler itself
+# ---------------------------------------------------------------------------
+# The main-thread heartbeat (`worker:heartbeat`) only proves the sleep loop
+# is alive.  APScheduler's internal dispatch thread can silently stall while
+# the main thread keeps ticking (observed 2026-04-30 — full market day lost).
+#
+# This heartbeat is a lightweight APScheduler job that runs every 5 minutes
+# (including weekends) and writes the current epoch to Redis.  The Docker
+# healthcheck and /health endpoint verify recency of this key; if it goes
+# stale (>10 min), the worker container is marked unhealthy and Docker
+# restarts it automatically.
+# ---------------------------------------------------------------------------
+_SCHEDULER_HEARTBEAT_KEY = "worker:scheduler_heartbeat"
+_SCHEDULER_HEARTBEAT_TTL = 900  # 15 min — 3× the 5-min interval
+_SCHEDULER_HEARTBEAT_MAX_AGE = 600  # 10 min — threshold for "stale"
+
+_scheduler_heartbeat_client: _redis_mod.Redis | None = None
+
+
+def _init_scheduler_heartbeat_client() -> None:
+    """Lazily initialize the Redis client for the scheduler heartbeat."""
+    global _scheduler_heartbeat_client
+    if _scheduler_heartbeat_client is not None:
+        return
+    try:
+        _scheduler_heartbeat_client = _redis_mod.Redis.from_url(
+            settings.redis_url, socket_connect_timeout=2, socket_timeout=2,
+        )
+        _scheduler_heartbeat_client.ping()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("scheduler_heartbeat_redis_init_failed", error=str(exc))
+        _scheduler_heartbeat_client = None
+
+
+def _job_scheduler_heartbeat() -> None:
+    """Write current epoch to Redis — proves APScheduler dispatch is alive."""
+    _init_scheduler_heartbeat_client()
+    if _scheduler_heartbeat_client is None:
+        return
+    try:
+        now = str(int(_time_mod.time()))
+        _scheduler_heartbeat_client.setex(
+            _SCHEDULER_HEARTBEAT_KEY, _SCHEDULER_HEARTBEAT_TTL, now,
+        )
+        logger.debug("scheduler_heartbeat_written", epoch=now)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("scheduler_heartbeat_write_failed", error=str(exc))
+
+
+# ---------------------------------------------------------------------------
 # Scheduler factory
 # ---------------------------------------------------------------------------
 
@@ -355,6 +408,16 @@ def build_scheduler() -> BackgroundScheduler:
     inspected or started by the caller.
     """
     scheduler = BackgroundScheduler(timezone=_ET)
+
+    # ── Scheduler liveness heartbeat — runs every 5 min, ALL days ────────
+    scheduler.add_job(
+        _job_scheduler_heartbeat,
+        IntervalTrigger(minutes=5),
+        id="scheduler_heartbeat",
+        name="Scheduler Liveness Heartbeat",
+        replace_existing=True,
+        misfire_grace_time=60,
+    )
 
     _weekday = "mon-fri"
 
@@ -845,6 +908,10 @@ def main() -> None:
     scheduler = build_scheduler()
     scheduler.start()
 
+    # Write initial scheduler heartbeat immediately so the Docker healthcheck
+    # doesn't fail during the first 5-min interval before the job fires.
+    _job_scheduler_heartbeat()
+
     # Log the registered jobs for visibility
     for job in scheduler.get_jobs():
         logger.info(
@@ -865,30 +932,25 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
 
-    # Build a Redis client for the heartbeat — None-safe if Redis is unavailable.
-    # The healthcheck in docker-compose polls worker:heartbeat to confirm the
-    # worker process is alive (improvement item #11).
+    # Build a Redis client for the main-thread heartbeat — secondary signal
+    # that the process is alive (the scheduler heartbeat is the primary).
     _heartbeat_client = None
     try:
-        import redis as _redis_mod
         _heartbeat_client = _redis_mod.Redis.from_url(
-            settings.redis_url, socket_connect_timeout=2, socket_timeout=2
+            settings.redis_url, socket_connect_timeout=2, socket_timeout=2,
         )
-        _heartbeat_client.ping()  # verify connectivity at startup
+        _heartbeat_client.ping()
         logger.info("worker_heartbeat_redis_connected")
     except Exception as _exc:  # noqa: BLE001
         logger.warning("worker_heartbeat_redis_unavailable", error=str(_exc))
         _heartbeat_client = None
 
-    # Block the main thread; write a heartbeat to Redis on every iteration so
-    # the docker-compose healthcheck can confirm the worker process is alive.
-    # TTL is 3× the sleep interval so a single missed write does not fail the check.
+    # Block the main thread; write a secondary heartbeat every 60s.
     _HEARTBEAT_KEY = "worker:heartbeat"
-    _HEARTBEAT_TTL = 180  # seconds — 3× the 60-second sleep
+    _HEARTBEAT_TTL = 180  # 3× the 60-second sleep
     try:
-        import time
         while True:
-            time.sleep(60)
+            _time_mod.sleep(60)
             if _heartbeat_client is not None:
                 try:
                     _heartbeat_client.setex(_HEARTBEAT_KEY, _HEARTBEAT_TTL, "1")

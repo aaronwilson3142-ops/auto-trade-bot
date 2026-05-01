@@ -829,11 +829,11 @@ class TestWorkerSchedulerPhase22:
         job_ids = {job.id for job in scheduler.get_jobs()}
         assert "feature_enrichment" in job_ids
 
-    def test_scheduler_has_thirteen_jobs(self):
+    def test_scheduler_has_thirty_six_jobs(self):
         from apps.worker.main import build_scheduler
 
         scheduler = build_scheduler()
-        assert len(scheduler.get_jobs()) == 30
+        assert len(scheduler.get_jobs()) == 36
 
     def test_feature_enrichment_scheduled_at_622(self):
         from apps.worker.main import build_scheduler
@@ -869,6 +869,7 @@ class TestWorkerSchedulerPhase22:
         from apps.worker.main import build_scheduler
 
         expected = {
+            "scheduler_heartbeat",
             "market_data_ingestion",
             "alternative_data_ingestion",
             "intel_feed_ingestion",
@@ -894,7 +895,12 @@ class TestWorkerSchedulerPhase22:
             "universe_refresh",
             "rebalance_check",
             "paper_trading_cycle_morning",
+            "paper_trading_cycle_late_morning",
+            "paper_trading_cycle_pre_midday",
             "paper_trading_cycle_midday",
+            "paper_trading_cycle_early_afternoon",
+            "paper_trading_cycle_afternoon",
+            "paper_trading_cycle_close",
             "broker_token_refresh",
             "fill_quality_update",
             "fill_quality_attribution",
