@@ -3,6 +3,20 @@ Format: [YYYY-MM-DD] | file/module | description
 
 ---
 
+## [2026-05-04] CI Lint Auto-Fix (DEC-073)
+
+**Commit:** `3bdbe64 fix(lint): I001 import-sort in tests/conftest.py from Phase 74`
+
+**Context:** Phase 74 commit `37191c3` added an import block to `apis/tests/conftest.py` that violated isort group rules. CI run #25319905949 reported `Lint & Type Check=failure`. Daily deep-dive auto-fix authority covered Lint failures, so reordered the imports.
+
+**Files changed:** `apis/tests/conftest.py:177–179` — reorder so `from sqlalchemy.orm import Session as _BaseSession; from sqlalchemy.orm import sessionmaker as _sessionmaker; <blank>; import infra.db.session as session_mod` (third-party before first-party).
+
+**Verification:** `docker exec docker-api-1 python -m ruff check --no-cache → All checks passed`. Pytest smoke 360/360 in 29.94s (matches Phase 73/74 baseline). Pushed to origin/main; CI rerun #25327148433 queued at 15:15 UTC.
+
+**Carry-forward:** CI Unit Tests (Python 3.11|3.12) reported failure on the same Phase 74 commit. Not auto-fixable per standing-authority prohibition on autonomous test edits. Likely cause: Phase 74's SessionLocal write-blocker is gated on `APIS_PYTEST_SMOKE=1`; CI runners likely don't set that, so tests that previously wrote to the real test DB now hit the no-op blocker and fail. Aaron-review item.
+
+---
+
 ## [2026-05-04] Phase 74 — phase59 Test Isolation Fix (DEC-072, candidate c shipped + validated)
 
 **Context:** DEC-070 documented the 3rd test-pollution incident (2026-05-04 01:05 UTC) and DEC-071 landed the operator-approved cleanup transaction. DEC-072 lands the permanent fix per Phase 74 ticket.

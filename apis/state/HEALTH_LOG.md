@@ -2,6 +2,87 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-05-04 15:15 UTC (Monday 10:15 AM CT, market open ~45 min)
+
+**Overall Status:** YELLOW — CI Lint & Type Check failed on Phase 74 commit `37191c3` (run #25319905949 at 12:49 UTC) due to a single I001 import-sort issue in `apis/tests/conftest.py`. Auto-fixed (commit `3bdbe64`, pushed); CI rerun #25327148433 queued at 15:15 UTC. Two `broker_health_position_drift` warnings fired in 24h (cycles 13:35 + 14:30 UTC) — known carry-forward artifact from the operator-approved cleanup transaction at 12:25 UTC (the 12 production positions were UPDATE'd back to `open` in DB but the broker adapter's in-memory position cache wasn't resynced; should self-clear on next API restart). Today's 06:30/06:45 ET signal_runs + ranking_runs were collateral damage from the 12:25 UTC cleanup (DELETE >= 2026-05-04 01:00:00 also nuked legitimate Monday morning runs); paper cycles still ran successfully and produced clean snapshots. Everything else GREEN: 8/8 containers healthy 15h uptime, /health all 7 components ok, Alertmanager firing=0 (Phase 73 defense holding), 12 open positions correctly restored with `origin_strategy=rebalance`, Prometheus gauges match DB exactly, equity $110,872.56 / cash $23,050.74, pytest 360/360 in 29.94s, git tree clean post-fix push, all 6 critical APIS_* flags correct.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy. worker `Up 15h`, api `Up 14h`, postgres/redis healthy, grafana/prometheus/alertmanager up, apis-control-plane up. No restart loops.
+- /health: all 7 components `ok` (db, broker, scheduler, paper_cycle, broker_auth, system_state_pollution, kill_switch). Mode=paper. Timestamp 2026-05-04T15:07:49Z.
+- Worker log scan (24h, 919 lines): 34 ERROR/CRITICAL pattern matches — 18 HTTP 404 + ~16 yfinance/empty-DataFrame for the 13 known stale tickers (PXD, JNPR, DFS, PKI, CTLT, IPG, K, ANSS, PARA, MMC, MRO, HES, WRK). **2 `broker_health_position_drift` warnings** at 13:35:00.203 UTC (12 tickers) and 14:30:00.013 UTC (13 tickers, +CSCO). 0 other crash-triad regression patterns (`_fire_ks` / `broker_adapter_missing_with_live_positions` / `EvaluationRun.idempotency_key` / `paper_cycle.*no_data` / `phantom_cash_guard_triggered`).
+- API log scan (24h): not separately quantified this run — focus was worker. Spot-check via /health components all ok suggests no new patterns.
+- Prometheus: 2/2 targets up (apis, prometheus), 0 dropped ✅.
+- **Alertmanager: firing=0** ✅ — Phase 73's `for: 30m` defense + indentation fix continues to hold. No `DrawdownAlert`/`DrawdownCritical` post-restart false-positives despite the operator-approved cleanup transaction touching DB state.
+- Resource usage: worker 784.2 MiB, api 805.1 MiB, postgres 169 MiB, grafana 50.7 MiB, prometheus 39.3 MiB, alertmanager 14.9 MiB, redis 8.1 MiB, apis-control-plane 1.022 GiB / 21.13% CPU (kind k8s control plane normal). All under threshold.
+- DB size: not re-probed this run; was 175 MB at 10:10 UTC + cleanup transaction freed ~15k pollution rows so should be lower now.
+
+### §2 Execution + Data Audit
+- Paper cycles today: **2 cycles fired** (13:35 UTC + 14:30 UTC). Worker log shows `paper_trading_cycle_starting` events with cycle_ids `16c1ad32...` and `a2de1a41...`. Both completed (snapshots written for both). DEC-021 schedule expects 12/weekday from 13:35-19:50 UTC; 2/2 of cycles-due-by-15:07-UTC ran.
+- `evaluation_runs` total: **96** (≥80 floor ✅; pollution row deleted by 12:25 UTC cleanup, leaving the legitimate 96).
+- Portfolio trend (latest 4 paired-snapshot rows):
+  - 2026-05-04 14:30:03.178 — cash=$23,050.74 / equity=$110,872.56
+  - 2026-05-04 14:30:01.254 — cash=$67,448.48 / equity=$99,983.24 (paired baseline)
+  - 2026-05-04 13:35:04.034 — cash=$23,050.74 / equity=$111,586.01
+  - 2026-05-04 13:35:02.225 — cash=$67,448.48 / equity=$99,983.24 (paired baseline)
+  - Equity drift 13:35 → 14:30: -$713 (-0.64%, intraday market move on the 12 longs).
+  - Cash positive ✅. Dual-snapshot pattern (Phase 73 documented).
+- Broker<->DB reconciliation: DB shows **12 OPEN positions** (CAT, SLB, WDC, BE, NUE, INTC, STT, MU, MRVL, AMD, EQIX, AMZN). All `origin_strategy=rebalance`. /health broker=ok. Prometheus `apis_portfolio_positions=12` matches DB ✅. **However, 2 broker_health_position_drift warnings fired** — known carry-forward from the cleanup transaction (post-cleanup the broker adapter's in-memory position cache wasn't refreshed; the DB has the 12 restored positions but the cache-vs-DB drift check at cycle start sees them as drifted). The 14:30 cycle's drift list also includes CSCO (intra-cycle timing artifact: CSCO closed at 14:30:00.00064 UTC, drift check fired at 14:30:00.013 UTC — broker still had it).
+- Origin-strategy stamping: ALL 12 open positions `origin_strategy=rebalance` ✅. 0 NULLs ✅. No new positions opened to DB today (CSCO opened+closed within today's cycles → both rows now `closed`, both with `origin_strategy=momentum_v1`).
+- Position caps: **12/15 open** ✅. **0 new positions** persisted as OPEN today (2 CSCO opens + 2 closes within the day → net 0 OPEN). Within `APIS_MAX_NEW_POSITIONS_PER_DAY=5` cap.
+- Data freshness:
+  - bars=2026-05-01 (Friday close, 490 securities) — Monday's daily bars not ingested yet (post-close job).
+  - **signal_runs MAX = 2026-05-01 10:30 UTC** (stale) — collateral damage from 12:25 UTC cleanup.
+  - **ranking_runs MAX = 2026-05-01 10:45 UTC** (stale) — same cause.
+  - **security_signals MAX = 2026-05-01 10:30 UTC**, 0 rows in 24h.
+  - **ranked_opportunities MAX = 2026-05-01 10:45 UTC**, 0 rows in 24h.
+  - Worker log confirms today's "Signal Generation" (06:30 ET) and morning ingestion jobs DID fire today before 12:25 UTC, but the cleanup transaction (`DELETE … WHERE created_at >= '2026-05-04 01:00:00'`) deleted those legitimate 10:30 UTC rows along with the 01:05–01:14 UTC test-pollution rows. Will re-populate Tue 06:30 ET.
+- Stale tickers: known 13 only (PXD, JNPR, DFS, PKI, CTLT, IPG, K, ANSS, PARA, MMC, MRO, HES, WRK). No new additions.
+- Kill-switch: `false` ✅. Operating mode: `paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+
+### §3 Code + Schema
+- Alembic head: `p6q7r8s9t0u1` (single head ✅).
+- Pytest smoke: **360 passed / 0 failed / 3660 deselected in 29.94s** ✅ — same baseline as Phase 73 (then 397 with phase59 included; phase59 not run here for safety until next operator-approved validation).
+- Git: **CLEAN** post-fix-push. HEAD = `3bdbe64` (lint fix). 0 unpushed commits. Only `main` branch. Push from 15:14 UTC: `37191c3..3bdbe64  main -> main`.
+- **GitHub Actions CI:**
+  - Run **#25319905949** on `37191c3` (Phase 74 commit) at 12:49 UTC — **conclusion=failure**. Failed jobs: `Lint & Type Check` (I001 import-sort), `Unit Tests (Python 3.11)` and `Unit Tests (Python 3.12)`. `Integration Tests` and `Docker Build` succeeded. https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25319905949
+  - Auto-fix applied: `apis/tests/conftest.py` lines 177-179 reordered to put `from sqlalchemy.orm` imports before `import infra.db.session` per isort group rules. Verified locally: `docker exec docker-api-1 python -m ruff check --no-cache → All checks passed`. Pytest smoke still 360/360.
+  - Run **#25327148433** on `3bdbe64` queued at 15:15 UTC (in flight at write time). Per deep-dive rules, in-flight CI is GREEN-with-note pending next deep-dive verification.
+  - Unit Tests Python 3.11/3.12 failures NOT auto-fixed — per `apis/state/TECH_DEBT_UNIT_TESTS_2026-04-19.md` rule and the deep-dive prohibition on autonomous test edits. Carry-forward as Aaron-review item if the 3bdbe64 rerun also reports those jobs as failure (the lint fix should not have moved them either way).
+
+### §4 Config + Gate Verification
+- All critical APIS_* flags at expected values:
+  - APIS_OPERATING_MODE=paper ✅
+  - APIS_KILL_SWITCH=false ✅
+  - APIS_MAX_POSITIONS=15 ✅
+  - APIS_MAX_NEW_POSITIONS_PER_DAY=5 ✅
+  - APIS_MAX_THEMATIC_PCT=0.75 ✅
+  - APIS_RANKING_MIN_COMPOSITE_SCORE=0.30 ✅
+  - APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED not set (defaults false) ✅
+  - APIS_INSIDER_FLOW_PROVIDER not set (defaults null) ✅
+  - Deep-Dive Step 6/7/8 flags not set (defaults OFF) ✅
+- Scheduler: `job_count=36`. Worker started 2026-05-04 00:33:32 UTC. Liveness heartbeat firing every 5 min ✅.
+
+### Issues Found
+- **[YELLOW] CI failure on `37191c3` (Phase 74 commit) — Lint & Type Check (I001 import-sort).** Single fixable diagnostic in `apis/tests/conftest.py` lines 177-179. **AUTO-FIXED** at `3bdbe64` and pushed. Rerun #25327148433 queued.
+- **[YELLOW] CI Unit Tests (Python 3.11) + Unit Tests (Python 3.12) reported failure on `37191c3`.** Rules forbid autonomous test edits — Aaron-review item. The Phase 74 commit added a write-blocking SessionLocal fixture that may have surfaced pre-existing test reliance on real DB writes; this matches the `TECH_DEBT_UNIT_TESTS_2026-04-19.md` carry-forward pattern. Confirm post-`3bdbe64` rerun whether the failures persist; if yes, dig into per-test output to determine which fixtures regressed.
+- **[YELLOW] Two `broker_health_position_drift` warnings (13:35 + 14:30 UTC paper cycles).** Known artifact: the 12:25 UTC operator-approved cleanup transaction restored 12 production positions in the DB (UPDATE … status='open') but the broker adapter's in-memory position cache wasn't synchronized with the change. Drift fires at cycle start and lists the 12 cleanup-restored tickers. Will likely self-clear on next API restart (broker re-syncs from DB). The 14:30 inclusion of CSCO is a separate intra-cycle timing artifact — CSCO closed 12.6ms before the drift check fired. Not a regression.
+- **[INFO] signal_runs / ranking_runs / security_signals / ranked_opportunities all stale at 2026-05-01.** Today's legitimate Monday morning data was collateral damage from the `DELETE … WHERE created_at >= '2026-05-04 01:00:00'` portion of the operator-approved cleanup. The cleanup couldn't selectively spare the 10:30/10:45 UTC legitimate runs without parsing each row's content. Paper cycles still ran successfully (in-memory state preserved), just without fresh signals/rankings DB context. Will repopulate Tue 2026-05-05 06:30 ET.
+- **[INFO] No new persisted positions today** — CSCO opened+closed within the same intra-day window (momentum_v1 strategy). Net 0 new OPENs. Within caps.
+- **[INFO] Phase 73 defense fully holding** — Alertmanager firing=0 across the post-cleanup window; the dual-snapshot $99,983.24 baseline + $111,586.01 actual rows are no longer triggering DrawdownCritical/DrawdownAlert thanks to the `for: 30m` debounce.
+
+### Fixes Applied
+- **Lint auto-fix at `3bdbe64`**: reordered import block in `apis/tests/conftest.py` lines 177-179 to satisfy ruff I001. Before: `import infra.db.session as session_mod; from sqlalchemy.orm import Session as _BaseSession; from sqlalchemy.orm import sessionmaker as _sessionmaker`. After: `from sqlalchemy.orm import Session as _BaseSession; from sqlalchemy.orm import sessionmaker as _sessionmaker; <blank>; import infra.db.session as session_mod`. Verified: `ruff check` clean, pytest smoke 360/360. Pushed to `origin/main`.
+- State doc updates only otherwise (this entry + DECISION_LOG DEC-073 + CHANGELOG entry).
+
+### Action Required from Aaron
+1. **Verify CI rerun #25327148433** on `3bdbe64` reports `Lint & Type Check=success`. (~5 min wait at write time.) If still red, the auto-fix missed something.
+2. **Triage Unit Tests (Python 3.11|3.12) failures** on `37191c3` — same regression likely persists on `3bdbe64`. The Phase 74 write-blocking fixture is the most likely culprit (it intercepts SessionLocal under `APIS_PYTEST_SMOKE=1` to prevent prod-DB pollution; some pre-existing tests may not set that env var and may rely on real writes). Per the deep-dive standing authority I cannot autonomously edit tests; this needs Aaron's review of which tests regressed.
+3. **Optional: API restart to clear broker adapter drift cache** — the two `broker_health_position_drift` warnings will keep firing every paper cycle until the broker adapter's in-memory position cache is resynced from DB. A `docker restart docker-api-1` (or `docker compose --env-file "../../.env" up -d api`) would resync; warning level only, not blocking trading.
+4. **YELLOW email**: created via Gmail MCP — see Action Required section in body.
+
+---
+
 ## Cleanup Applied — 2026-05-04 12:25 UTC (Monday 7:25 AM CT, operator-approved)
 
 **Overall Status:** GREEN — DEC-070 test-pollution cleanup transaction landed cleanly. No `docker-api-1` restart required; in-memory state preserved end-to-end.

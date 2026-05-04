@@ -2,6 +2,28 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-05-04 15:15 UTC (Monday 10:15 AM CT, market open ~45 min) — YELLOW
+
+**Overall Status:** YELLOW — CI Lint failure on Phase 74 commit `37191c3` (I001 import-sort in `apis/tests/conftest.py`) auto-fixed at `3bdbe64` and pushed; CI rerun #25327148433 queued. Two `broker_health_position_drift` warnings fired in 24h (cycles 13:35 + 14:30 UTC) — known carry-forward artifact from the 12:25 UTC operator-approved cleanup (broker adapter cache not resynced after DB UPDATE). Today's signal_runs/ranking_runs are stale at 2026-05-01 — collateral damage from the cleanup `DELETE … >= 2026-05-04 01:00:00` clause; paper cycles still ran successfully. Everything else GREEN: 8/8 containers healthy 15h, /health all 7 ok, Alertmanager firing=0 (Phase 73 defense holding), 12 open positions correctly restored, Prom matches DB exactly, equity $110,872.56 / cash $23,050.74, pytest 360/360, all 6 critical APIS_* flags correct, git tree clean.
+
+**Full report:** see `apis/state/HEALTH_LOG.md` for the §1–§4 detail block. Issues + Fixes + Action Required summary:
+
+### Issues Found
+- **[YELLOW]** CI failure on `37191c3` — Lint & Type Check (I001 import-sort in `apis/tests/conftest.py:177-179`). **AUTO-FIXED** at `3bdbe64`.
+- **[YELLOW]** CI Unit Tests (Python 3.11+3.12) reported failure on `37191c3` — Aaron-review (test edits prohibited autonomously). Phase 74 write-blocking SessionLocal fixture is the most likely surfacing cause.
+- **[YELLOW]** Two `broker_health_position_drift` warnings (13:35+14:30 UTC) — broker adapter in-memory cache not synced post-cleanup. Self-clears on next API restart.
+- **[INFO]** signal_runs / ranking_runs stale at 2026-05-01 — collateral damage from 12:25 UTC cleanup; repopulates Tue 06:30 ET.
+
+### Fixes Applied
+- **`3bdbe64`** — `fix(lint): I001 import-sort in tests/conftest.py from Phase 74` — reorder imports so `from sqlalchemy.orm` precedes `import infra.db.session` per isort group rules. Verified: ruff clean, pytest smoke 360/360. Pushed to origin/main.
+
+### Action Required from Aaron
+1. Confirm CI rerun #25327148433 on `3bdbe64` reports `Lint & Type Check=success`.
+2. Triage Unit Tests (Python 3.11|3.12) failures — same regression likely persists; Phase 74 SessionLocal write-blocker probably surfaced pre-existing tests reliant on real DB writes (no `APIS_PYTEST_SMOKE=1` env).
+3. Optional: `docker restart docker-api-1` to clear broker adapter drift cache.
+
+---
+
 ## Health Check — 2026-05-04 10:10 UTC (Monday 5:10 AM CT, pre-market) — RED
 
 **Overall Status:** RED — pytest test pollution from the Phase 73 validation run at 01:05–01:14 UTC clobbered the 12 production paper positions (UPDATE'd to `status='closed'` at synthetic `closed_at='2026-05-04 01:05:18.847001'`) and wrote 56 polluted `portfolio_snapshots` + 6 signal_runs + 6 ranking_runs + 1 research-mode evaluation_runs + 5 fake position OPENs + 57 orders + 53 fills + 15,060 security_signals + 70 ranked_opportunities + 8 evaluation_metrics. Production runtime is currently shielded by API in-memory state preserved across the 01:00 UTC restart (pre-pollution); Prometheus correctly reports `apis_portfolio_positions=12, apis_portfolio_equity_usd=111051.98, apis_portfolio_cash_usd=23050.76`. **Danger: next API restart will restore from the polluted $90k snapshot or the phantom AAPL OPEN, silently corrupting production.** Operator approval required for cleanup transaction (UPDATE 12 positions back to `open`, DELETE polluted child rows). All non-data subsystems GREEN: 8/8 containers healthy, /health all 7 ok, 0 crash-triad, 0 broker drift, **Alertmanager firing=0** (Phase 73 defense holding ✅), pytest 360/360, CI #25296517254 on `e2f7811`=success, all 11 APIS_* flags correct.
