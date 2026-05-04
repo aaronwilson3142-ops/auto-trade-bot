@@ -174,9 +174,10 @@ def _phase74_block_production_writes_in_smoke_mode():
         return
 
     try:
-        import infra.db.session as session_mod
         from sqlalchemy.orm import Session as _BaseSession
         from sqlalchemy.orm import sessionmaker as _sessionmaker
+
+        import infra.db.session as session_mod
     except ImportError:
         # If the DB layer can't import (e.g. no SQLAlchemy install in this
         # virtualenv), the tests don't have a way to write anyway.  No-op.
