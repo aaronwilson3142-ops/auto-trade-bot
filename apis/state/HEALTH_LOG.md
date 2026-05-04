@@ -2,6 +2,172 @@
 
 Auto-generated daily health check results.
 
+## Cleanup Applied — 2026-05-04 12:25 UTC (Monday 7:25 AM CT, operator-approved)
+
+**Overall Status:** GREEN — DEC-070 test-pollution cleanup transaction landed cleanly. No `docker-api-1` restart required; in-memory state preserved end-to-end.
+
+### Transaction
+File: `outputs/cleanup_2026-05-04.sql` (preserved for next-incident template).
+Executed via: `docker exec -i docker-postgres-1 psql -U apis -d apis -v ON_ERROR_STOP=1` against `apis` DB inside `docker-postgres-1`.
+
+| Step | Statement | Rows |
+|------|-----------|------|
+| 1 | `UPDATE positions SET status='open', closed_at=NULL WHERE closed_at='2026-05-04 01:05:18.847001'` | 12 |
+| 2 | `DELETE FROM fills WHERE created_at >= '2026-05-04 01:00:00'` | 53 |
+| 3 | `DELETE FROM orders WHERE created_at >= '2026-05-04 01:00:00'` | 57 |
+| 4 | `DELETE FROM positions WHERE id = 'e109d491-044a-4f85-81b5-af3160d21f34'` (phantom AAPL) | 1 |
+| 5 | `DELETE FROM positions WHERE opened_at IN [05-03 01:00, 05-04 02:00) AND id != phantom` | 7 |
+| 6 | `DELETE FROM portfolio_snapshots WHERE snapshot_timestamp >= '2026-05-04 01:00:00'` | 56 |
+| 7 | `DELETE FROM evaluation_metrics WHERE created_at >= '2026-05-04 01:00:00'` | 8 |
+| 8 | `DELETE FROM ranked_opportunities WHERE created_at >= '2026-05-04 01:00:00'` | 100 |
+| 9 | `DELETE FROM ranking_runs WHERE run_timestamp >= '2026-05-04 01:00:00'` | 8 |
+| 10 | `DELETE FROM security_signals WHERE created_at >= '2026-05-04 01:00:00'` | 20080 |
+| 11 | `DELETE FROM signal_runs WHERE run_timestamp >= '2026-05-04 01:00:00'` | 8 |
+| 12 | `DELETE FROM evaluation_runs WHERE run_timestamp >= '2026-05-04 01:00:00'` | 1 |
+
+### FK-order corrections vs HEALTH_LOG proposed transaction
+The proposed transaction in the prior `2026-05-04 10:10 UTC` entry placed `DELETE FROM positions` BEFORE `DELETE FROM orders` / `DELETE FROM fills`. That ordering would have FK-failed on `orders.position_id → positions.id` for the 7 test-fixture closed positions (which have orders rows pointing at them). Pre-flight verified `risk_events.position_id` had **0** references to the polluted IDs, so no extra DELETE was needed for that FK. The executed order is reflected in the table above (fills → orders → positions → snapshots → eval/ranking/signal grandchildren → parents).
+
+### Spot-checks (post-COMMIT, pre-COMMIT visibility)
+- `SELECT COUNT(*) FROM positions WHERE status='open'` → **12** ✅ (matches API in-memory state)
+- `SELECT MAX(snapshot_timestamp) FROM portfolio_snapshots` → **2026-05-01 19:30:03.287017** ✅ (legitimate pre-pollution row preserved)
+- 12 open positions: CAT, SLB, WDC, BE, NUE, INTC, STT, MU, MRVL, AMD, EQIX, AMZN — all `origin_strategy='rebalance'`, original `quantity` / `entry_price` / `opened_at` intact
+
+### Runtime validation (post-COMMIT)
+- `docker ps --filter "name=docker-api-1"` → `Up 11 hours (healthy)` ✅ (NOT restarted)
+- `/health` → all 7 components ok (db/broker/scheduler/paper_cycle/broker_auth/system_state_pollution/kill_switch) ✅
+- Prometheus `/metrics`:
+  - `apis_portfolio_positions=12` ✅
+  - `apis_portfolio_equity_usd=111051.98` ✅
+  - `apis_portfolio_cash_usd=23050.76` ✅
+  - All three exact match against DB latest legitimate snapshot
+- 0 polluted orders / 0 polluted snapshots remaining (verified via `>= 2026-05-04 01:00:00` recount)
+
+### Outcome
+- **Pollution scope:** fully cleared (3 positions tables + 6 child tables + 2 snapshots/eval tables = 11 tables touched).
+- **Production runtime:** unaffected end-to-end (in-memory state was the protection; restart no longer dangerous).
+- **Next paper cycle:** Monday 2026-05-04 13:35 UTC (~1h 10m from cleanup completion). Will run from a clean DB.
+- **Phase 74 ticket:** opened (`memory/project_phase74_phase59_test_isolation.md`), referenced in `MEMORY.md`. Permanent fix to `phase59` conftest isolation still owed before the next pytest validation sweep that touches `phase59`.
+- **DEC-071:** logged in `state/DECISION_LOG.md`.
+
+---
+
+## Health Check — 2026-05-04 10:10 UTC (Monday 5:10 AM CT, pre-market)
+
+**Overall Status:** RED — pytest test pollution from the Phase 73 validation run at 01:05–01:14 UTC clobbered the 12 production paper positions (UPDATE'd to `status='closed'` with synthetic `closed_at='2026-05-04 01:05:18.847001'`) and wrote 56 polluted `portfolio_snapshots`, 6 `signal_runs`, 6 `ranking_runs`, 1 research-mode `evaluation_runs` row, 5 fake position OPENs, 19 closes total, 57 orders, 53 fills, 70 ranked_opportunities, 8 evaluation_metrics, 15,060 security_signals. **Production runtime is currently shielded** because `docker-api-1` was restarted at 01:00 UTC BEFORE the 01:05 UTC pollution burst, and the API's in-memory state was loaded from the last legitimate snapshot (2026-05-01 19:30:03 UTC, cash=$23,050.76 / equity=$111,051.98 / positions=12). Prometheus `/metrics` confirms `apis_portfolio_positions=12, apis_portfolio_equity_usd=111051.98, apis_portfolio_cash_usd=23050.76` — exact match against the legit snapshot. **The danger is the next API restart**: portfolio_state restore will pick up either the latest polluted snapshot ($90k/$91,150) or the phantom AAPL OPEN row (10 shares × $100 = $1,000 cost basis), which would silently corrupt production state and re-fire DrawdownCritical (now also blocked for ≥30m by Phase 73 defense, but still wrong). **Immediate operator action requested**: approve DB cleanup transaction (UPDATE 12 production positions back to `open`, DELETE polluted child rows). All non-data subsystems GREEN: 8/8 containers healthy, /health all 7 ok, 0 crash-triad, 0 broker drift, Alertmanager firing=0 (Phase 73 defense holding), pytest 360/360 in 22.65s, CI #25296517254 on `e2f7811`=success, all 11 APIS_* flags correct.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy. worker `Up 10h`, api `Up 9h` (Phase 73 restart 01:00 UTC), postgres/redis healthy, grafana/prometheus/alertmanager up, apis-control-plane up. No restart loops.
+- /health: all 7 components `ok` (db, broker, scheduler, paper_cycle, broker_auth, system_state_pollution, kill_switch). Mode=paper. Timestamp 2026-05-04T10:08:38Z.
+- Worker log scan (24h): 15 errors — all 13 known stale delisted tickers (PXD, JNPR, DFS, PKI, CTLT, IPG, K, ANSS, PARA, MMC, MRO, HES, WRK) + 2 yfinance summary lines from the 06:00 ET (10:00 UTC) ingestion. **0 crash-triad regression patterns** (`_fire_ks` / `broker_adapter_missing_with_live_positions` / `EvaluationRun.idempotency_key` / `paper_cycle.*no_data` / `phantom_cash_guard_triggered` / `broker_health_position_drift`).
+- API log scan (24h): 19 errors — 4 known startup quirks (regime_result_restore_failed × 2 + readiness_report_restore_failed × 2 from 00:33:45 + 01:02:07 boots, both flagged in prior entries) + 15 stale-ticker yfinance from 10:00 UTC. **0 crash-triad** patterns.
+- Prometheus: 2/2 targets up (apis, prometheus), 0 dropped ✅.
+- **Alertmanager: firing=0** ✅ — Phase 73's `for: 30m` defense + the indentation fix has cleared the recurring DEC-061/DEC-064/DEC-065/DEC-068 false positive that fired across the previous 4 deep-dive runs. **Successful Phase 73 validation.**
+- Resource usage: worker 773.8 MiB, api 791.2 MiB, postgres 157 MiB, grafana 50.5 MiB, prometheus 38.7 MiB, alertmanager 14.9 MiB, redis 8.3 MiB, apis-control-plane 1.005 GiB / 10.6% CPU (kind k8s control plane). All under threshold.
+- DB size: **175 MB** (up from 158 MB at 00:38 UTC — +17 MB growth includes 06:00 ET bars ingestion AND the 01:05–01:14 UTC pytest pollution).
+
+### §2 Execution + Data Audit
+- Paper cycles last 30h: **0 paper-mode rows**. 1 research-mode evaluation_run at 01:06:53 UTC (`8f097843-36f3-460a-9480-8451e3213f67`, status=complete) — **test pollution**, NOT a legitimate cycle. Sunday closed; first Monday cycle fires at 13:35 UTC (~3h 25m from probe).
+- `evaluation_runs` total: **97** (≥80 floor ✅; 96 legit + 1 polluted).
+- Portfolio trend in DB:
+  - Latest legit snapshot before pollution: 2026-05-01 19:30:03 UTC, **cash=$23,050.76 / equity=$111,051.98** (paired with the dual-snapshot $30,430.83 baseline row at 19:30:00 — pre-Phase-73 pattern).
+  - Latest polluted snapshot: 2026-05-04 01:14:46 UTC, cash=$90,000 / equity=$91,150.
+  - **56 polluted rows** between 01:05 and 01:14:46 UTC matching the round-number test-pollution signature ($100k → $57,486 → $53,995 → $90k → $91,150 in two identical bursts).
+  - Prometheus `/metrics` (in-memory): `apis_portfolio_equity_usd=111051.98, apis_portfolio_cash_usd=23050.76, apis_portfolio_positions=12` — correctly reads pre-pollution state.
+- Broker<->DB reconciliation: DB shows **1 OPEN position** (phantom AAPL 10 × $100, opened 2026-05-03 01:14:46 UTC by pytest fixture). API in-memory holds 12 (correct). `/health broker=ok`. **Mismatch is artifact of pollution**, not broker drift.
+- Origin-strategy stamping: phantom AAPL has `origin_strategy=ranking_buy_signal`. The 12 legit positions were UPDATE'd to `closed` but their original `origin_strategy=rebalance` is preserved.
+- Position caps:
+  - DB OPEN: 1/15 (post-pollution) — DOES NOT reflect production. In-memory: 12/15 ✅.
+  - Positions opened today (DB): 5 — all pytest fixtures with synthetic timestamps.
+  - Positions closed today (DB): 19 — 12 legit clobbered by pytest + 7 test fixtures.
+- Data freshness: bars=2026-05-01 (Friday close — Monday's 06:00 ET ingestion ran at 10:00 UTC but Friday's bars were already present so no new rows for those tickers; today's bars will arrive after market close); legit signal_runs=2026-05-01 10:30 UTC; legit ranking_runs=2026-05-01 10:45 UTC. Pollution adds 6 polluted signal_runs (01:06–01:16 UTC) + 6 polluted ranking_runs.
+- Stale tickers: known 13 only. No new additions.
+- Kill-switch: `false` ✅. Operating mode: `paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+- **Pollution row counts** (since 2026-05-04 01:00 UTC):
+  - portfolio_snapshots: 56
+  - signal_runs: 6
+  - ranking_runs: 6
+  - evaluation_runs: 1 (research mode)
+  - positions opened: 5 (1 still OPEN — phantom AAPL)
+  - positions closed: 19 (12 production + 7 fixtures)
+  - orders: 57
+  - fills: 53
+  - security_signals: 15,060
+  - ranked_opportunities: 70
+  - evaluation_metrics: 8
+  - position_history: 0
+
+### §3 Code + Schema
+- Alembic head: `p6q7r8s9t0u1` (single head ✅).
+- Pytest smoke: **360 passed / 0 failed / 3657 deselected in 22.65s** ✅ (`-k "deep_dive or phase22 or phase57"` in `docker-api-1` with `APIS_PYTEST_SMOKE=1`). Note: this audit re-ran the smoke without `phase59` and added **0 new pollution rows** — confirming the pollution source is in the `phase59` filter (or a fixture imported there). Phase 73's validation used `-k "deep_dive or phase22 or phase57 or phase59"` which is when pollution occurred.
+- Git: **CLEAN** — `git status --porcelain` empty, 0 unpushed commits, only `main` branch. HEAD = `e2f7811` (Phase 73 commit, pushed 2026-05-04 01:22 UTC).
+- **GitHub Actions CI:** Run #25296517254 on `e2f7811` conclusion=`success` status=`completed`. GREEN ✅. https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25296517254
+
+### §4 Config + Gate Verification
+- All critical APIS_* flags at expected values:
+  - APIS_OPERATING_MODE=paper ✅
+  - APIS_KILL_SWITCH=false ✅
+  - APIS_MAX_POSITIONS=15 ✅
+  - APIS_MAX_NEW_POSITIONS_PER_DAY=5 ✅
+  - APIS_MAX_THEMATIC_PCT=0.75 ✅
+  - APIS_RANKING_MIN_COMPOSITE_SCORE=0.30 ✅
+  - APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED not set (defaults false) ✅
+  - APIS_INSIDER_FLOW_PROVIDER not set (defaults null) ✅
+  - Deep-Dive Step 6/7/8 flags not set (defaults OFF) ✅
+- Scheduler: `job_count=36`. Worker started 2026-05-04T00:33:32Z.
+
+### Issues Found
+- **[RED] Pytest test pollution clobbered production paper DB at 01:05–01:14 UTC.** Source: Phase 73 validation pytest sweep `-k "deep_dive or phase22 or phase57 or phase59"`. Phase 68 conftest isolation has a hole — at least one fixture/test in the `phase59` set writes to the production paper Postgres rather than an isolated test DB. Damage:
+  - 12 production positions UPDATE'd to `status='closed'` with `closed_at='2026-05-04 01:05:18.847001'` (CAT, SLB, WDC, BE, NUE, INTC, STT, MU, MRVL, AMD, EQIX, AMZN). Original `quantity / entry_price / opened_at / origin_strategy='rebalance'` preserved → recovery is `UPDATE … SET status='open', closed_at=NULL`.
+  - 1 phantom AAPL OPEN position (10 shares × $100 cost basis, opened 2026-05-03 01:14:46 UTC) currently the only `status='open'` row in DB.
+  - 56 polluted `portfolio_snapshots` rows (round-number $100k/$57k/$54k/$90k/$91k pattern, two identical bursts at 01:10:27–01:10:53 and 01:14:20–01:14:46).
+  - Plus 6 signal_runs, 6 ranking_runs, 1 evaluation_runs (research mode), 4 positions opened that were also closed (test fixtures), 57 orders, 53 fills, 15,060 security_signals, 70 ranked_opportunities, 8 evaluation_metrics.
+  - **Production runtime is currently shielded** by API in-memory state preserved across the 01:00 UTC restart (which preceded pollution). Next API restart restores from polluted DB → silent corruption.
+  - Same class of regression as `project_test_pollution_2026-04-19.md`; Phase 68 guard insufficient.
+- **[INFO] Phase 73 fix is fully validated.** Alertmanager firing=0 confirms `for: 30m` defense is holding the recurring post-restart DrawdownCritical false-positive below threshold; Prometheus equity gauge ($111,051.98) matches DB latest legit snapshot exactly, confirming the indentation fix correctly restores all 12 positions.
+- **[INFO] Friday 2026-05-01 daily_market_bars not advanced** — pre-existing intentional weekday-only schedule; Mon 06:00 ET (10:00 UTC) ingestion ran but Friday's bars were already present. Today's bars will arrive after close.
+- **[INFO] research-mode evaluation_run at 01:06:53 UTC** is part of the test pollution. Total `evaluation_runs=97` is `96 legit + 1 polluted`.
+
+### Fixes Applied
+- **None applied autonomously.** DB DELETE is on the operator-approval-required list per the standing-authority rules. State doc updates only (this entry).
+
+### Action Required from Aaron
+1. **APPROVE DB cleanup transaction** (precedent: `project_test_pollution_2026-04-19.md` 02:20 UTC operator approval). Proposed transaction in dependency order:
+
+   ```sql
+   BEGIN;
+   -- Restore the 12 production positions
+   UPDATE positions SET status='open', closed_at=NULL
+     WHERE closed_at = '2026-05-04 01:05:18.847001';
+   -- Drop the phantom AAPL OPEN
+   DELETE FROM positions WHERE id = 'e109d491-044a-4f85-81b5-af3160d21f34';
+   -- Drop pollution-created closed test positions (NVDA × 3, AAPL × 4)
+   DELETE FROM positions WHERE opened_at >= '2026-05-03 01:00:00' AND opened_at < '2026-05-04 02:00:00' AND id != 'e109d491-044a-4f85-81b5-af3160d21f34';
+   -- Drop polluted child rows
+   DELETE FROM fills WHERE created_at >= '2026-05-04 01:00:00';
+   DELETE FROM orders WHERE created_at >= '2026-05-04 01:00:00';
+   DELETE FROM portfolio_snapshots WHERE snapshot_timestamp >= '2026-05-04 01:00:00';
+   DELETE FROM evaluation_metrics WHERE created_at >= '2026-05-04 01:00:00';
+   DELETE FROM ranked_opportunities WHERE created_at >= '2026-05-04 01:00:00';
+   DELETE FROM ranking_runs WHERE run_timestamp >= '2026-05-04 01:00:00';
+   DELETE FROM security_signals WHERE created_at >= '2026-05-04 01:00:00';
+   DELETE FROM signal_runs WHERE run_timestamp >= '2026-05-04 01:00:00';
+   DELETE FROM evaluation_runs WHERE run_timestamp >= '2026-05-04 01:00:00';
+   -- Spot-check
+   SELECT COUNT(*) AS open_positions FROM positions WHERE status='open';  -- should be 12
+   SELECT MAX(snapshot_timestamp) FROM portfolio_snapshots;  -- should be 2026-05-01 19:30:03
+   COMMIT;
+   ```
+
+2. **DO NOT restart `docker-api-1`** until cleanup is committed. The API's in-memory state is the only thing protecting Monday's first paper cycle from the pollution. If a restart is forced (e.g., Docker Desktop reboot), the next portfolio_state restore picks up the polluted $90k row.
+
+3. **Phase 74 ticket — fix `phase59` test isolation.** The Phase 68 conftest DB isolation must be extended to cover phase59 fixtures. Investigation required: which test in `tests/unit/test_phase59_state_persistence.py` (or a phase59-imported fixture) writes to the real Postgres rather than the mock. The new AST test from Phase 73 itself doesn't touch DB; the regression must be in an existing phase59 test. **This is the third documented test-pollution incident** (2026-04-19 → ~unknown gap → 2026-05-04); a permanent fix is overdue.
+
+4. **YELLOW/RED email**: Gmail draft to be created — manual send required.
+
+---
+
 ## Phase 73 Fix Sprint — 2026-05-04 01:20 UTC (Sunday 8:20 PM CT, operator-requested)
 
 **Overall Status:** GREEN — Phase 73 deployed and validated. Position-restore indentation regression from Phase 72 (`1759455`, 2026-05-01) fixed; Alertmanager `DrawdownAlert` + `DrawdownCritical` `for:` raised to 30m as defense-in-depth.

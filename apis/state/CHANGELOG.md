@@ -3,6 +3,43 @@ Format: [YYYY-MM-DD] | file/module | description
 
 ---
 
+## [2026-05-04] DEC-071 — DEC-070 Test-Pollution Cleanup Executed (operator-approved)
+
+**Context:** Phase 73 validation pytest sweep `tests/unit/ -k "deep_dive or phase22 or phase57 or phase59"` at 01:05–01:14 UTC wrote pytest fixtures into the production paper Postgres. DEC-070 deep-dive at 10:10 UTC documented the damage and proposed a cleanup transaction; operator approved at 12:25 UTC.
+
+**Execution path:** Desktop Commander PowerShell → `docker exec -i docker-postgres-1 psql -U apis -d apis -v ON_ERROR_STOP=1` with the SQL piped from `outputs/cleanup_2026-05-04.sql`. Single transaction, atomic.
+
+| Step | Statement | Rows | Notes |
+|------|-----------|------|-------|
+| 1 | `UPDATE positions SET status='open', closed_at=NULL WHERE closed_at='2026-05-04 01:05:18.847001'` | 12 | Production positions CAT/SLB/WDC/BE/NUE/INTC/STT/MU/MRVL/AMD/EQIX/AMZN — origin_strategy='rebalance' preserved. |
+| 2 | `DELETE FROM fills WHERE created_at >= '2026-05-04 01:00:00'` | 53 | Must precede orders+positions DELETE. |
+| 3 | `DELETE FROM orders WHERE created_at >= '2026-05-04 01:00:00'` | 57 | Must precede positions DELETE (FK on `orders.position_id → positions.id`). |
+| 4 | `DELETE FROM positions WHERE id = 'e109d491-044a-4f85-81b5-af3160d21f34'` | 1 | Phantom AAPL OPEN. |
+| 5 | `DELETE FROM positions WHERE opened_at IN [05-03 01:00, 05-04 02:00) AND id != phantom` | 7 | 7 closed test fixtures (AAPL × 4, NVDA × 3). |
+| 6 | `DELETE FROM portfolio_snapshots WHERE snapshot_timestamp >= '2026-05-04 01:00:00'` | 56 | 56 polluted snapshots in two identical bursts. |
+| 7 | `DELETE FROM evaluation_metrics WHERE created_at >= '2026-05-04 01:00:00'` | 8 | |
+| 8 | `DELETE FROM ranked_opportunities WHERE created_at >= '2026-05-04 01:00:00'` | 100 | |
+| 9 | `DELETE FROM ranking_runs WHERE run_timestamp >= '2026-05-04 01:00:00'` | 8 | Must precede signal_runs DELETE (FK on `ranking_runs.signal_run_id → signal_runs.id`). |
+| 10 | `DELETE FROM security_signals WHERE created_at >= '2026-05-04 01:00:00'` | 20080 | |
+| 11 | `DELETE FROM signal_runs WHERE run_timestamp >= '2026-05-04 01:00:00'` | 8 | |
+| 12 | `DELETE FROM evaluation_runs WHERE run_timestamp >= '2026-05-04 01:00:00'` | 1 | Research-mode pollution row. |
+
+**FK-order correction vs DEC-070 proposed transaction:** the HEALTH_LOG proposal placed `DELETE FROM positions` BEFORE `DELETE FROM orders / fills`. That order would have FK-failed because the 7 test-fixture closed positions have orders rows pointing at them via `orders.position_id`. Reordered before running. `risk_events.position_id` had 0 references to polluted IDs (verified pre-flight) so no extra DELETE was needed.
+
+**Spot-checks (pre-COMMIT):** `open_positions=12`, `MAX(snapshot_timestamp)=2026-05-01 19:30:03.287017`. Both ✅.
+
+**Runtime validation (post-COMMIT, NO restart):**
+- `docker ps --filter "name=docker-api-1"` → `Up 11 hours (healthy)` — same boot as the 01:00 UTC restart that pre-dated pollution.
+- `/health` → all 7 components ok (db/broker/scheduler/paper_cycle/broker_auth/system_state_pollution/kill_switch).
+- Prometheus `/metrics`: `apis_portfolio_positions=12, apis_portfolio_equity_usd=111051.98, apis_portfolio_cash_usd=23050.76` — exact match against DB latest legit snapshot.
+- DEC-070 danger window (next API restart picks up polluted $90k row) closed: DB latest legit snapshot is now the only thing a future restore can read.
+
+**Phase 74 ticket opened** (`memory/project_phase74_phase59_test_isolation.md`) — permanent fix to phase59 conftest isolation still owed; until landed, validation sweeps must drop the `phase59` token (use `tests/unit/ -k "deep_dive or phase22 or phase57"`).
+
+**Cleanup SQL preserved** at `outputs/cleanup_2026-05-04.sql` as the next-incident recovery template.
+
+---
+
 ## [2026-05-04] Phase 73 — Position-Restore Indentation Fix + Alertmanager 30m Defense
 
 **Context:** 3 consecutive Sunday/Saturday deep-dives (DEC-064 / DEC-065 / DEC-068) all flagged `DrawdownCritical` re-firing within ~2 minutes of every stack restart. Prior runs misdiagnosed the cause as a "dual-snapshot baseline row" being read by the Prometheus equity gauge.

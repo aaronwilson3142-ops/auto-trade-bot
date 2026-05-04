@@ -1,6 +1,24 @@
 # APIS — Next Steps
 
-Last Updated: 2026-05-04 01:20 UTC — Phase 73 deployed (position-restore indentation fix + Alertmanager 30m defense).
+Last Updated: 2026-05-04 12:25 UTC — DEC-071 cleanup landed (DB clean, in-memory state preserved). Phase 74 promoted to URGENT.
+
+## ✅ DONE 2026-05-04 12:25 UTC — DEC-070 Test-Pollution Cleanup Executed (operator-approved)
+
+Cleanup transaction (`outputs/cleanup_2026-05-04.sql`) ran clean against `docker-postgres-1`:
+- `UPDATE 12` production positions restored to `status='open', closed_at=NULL` (origin_strategy='rebalance' preserved).
+- `DELETE 53/57` fills/orders + `DELETE 1/7` phantom AAPL + 7 test fixtures + `DELETE 56` snapshots + `DELETE 8/100/8/20080/8/1` evaluation_metrics/ranked_opportunities/ranking_runs/security_signals/signal_runs/evaluation_runs → COMMIT.
+- FK-order correction required (orders/fills BEFORE positions; HEALTH_LOG's proposed order would have FK-failed).
+- Spot-checks: open=12, latest snapshot=2026-05-01 19:30:03.
+- Runtime preserved: `docker-api-1 Up 11 hours (healthy)` — NOT restarted. Prometheus reads legit `12 / $111,051.98 / $23,050.76`.
+
+## URGENT — Phase 74 (phase59 test isolation hardening)
+
+This is the THIRD documented test-pollution incident (2026-04-19 → unknown gap → 2026-05-04). Phase 68 conftest DB isolation works for the `deep_dive`/`phase22`/`phase57` filter (audit re-verified after cleanup — re-running with that filter added 0 new rows) but does NOT cover the `phase59` filter. Investigation entry points captured in `memory/project_phase74_phase59_test_isolation.md`:
+
+1. Walk every fixture and test in `tests/unit/test_phase59_state_persistence.py`; check `conftest.py` chain for any fixture that does `engine = create_engine(settings.database_url)` instead of going through the Phase 68 isolation override. The new Phase 73 AST test itself doesn't touch DB, so the offending test pre-dates Phase 73.
+2. Three permanent-fix candidates in priority order: (a) make `APIS_PYTEST_SMOKE=1` short-circuit DB writes at the SQLAlchemy engine layer (engine wrapper that no-ops `INSERT/UPDATE/DELETE` against compose-Postgres URL when the env flag is set); (b) Postgres event trigger rejecting non-container-IP writes while `OPERATING_MODE=paper`; (c) extend Phase 68 conftest override to also patch `apps.api.deps.get_db` and any direct `Session()` constructions inside `phase59` fixtures.
+3. **Workaround until Phase 74 lands:** validation sweeps must drop the `phase59` token (use `tests/unit/ -k "deep_dive or phase22 or phase57"`). Run `phase59` tests against a throwaway Postgres only.
+4. RED Gmail draft `r7977850630206949787` (from DEC-070) — superseded by cleanup; recommend updating to GREEN follow-up or canceling.
 
 ## PRIORITY — Monitor Monday Paper Cycle (2026-05-04 13:35 UTC / 09:35 ET)
 

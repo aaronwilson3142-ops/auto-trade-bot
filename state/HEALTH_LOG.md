@@ -2,6 +2,50 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-05-04 10:10 UTC (Monday 5:10 AM CT, pre-market) — RED
+
+**Overall Status:** RED — pytest test pollution from the Phase 73 validation run at 01:05–01:14 UTC clobbered the 12 production paper positions (UPDATE'd to `status='closed'` at synthetic `closed_at='2026-05-04 01:05:18.847001'`) and wrote 56 polluted `portfolio_snapshots` + 6 signal_runs + 6 ranking_runs + 1 research-mode evaluation_runs + 5 fake position OPENs + 57 orders + 53 fills + 15,060 security_signals + 70 ranked_opportunities + 8 evaluation_metrics. Production runtime is currently shielded by API in-memory state preserved across the 01:00 UTC restart (pre-pollution); Prometheus correctly reports `apis_portfolio_positions=12, apis_portfolio_equity_usd=111051.98, apis_portfolio_cash_usd=23050.76`. **Danger: next API restart will restore from the polluted $90k snapshot or the phantom AAPL OPEN, silently corrupting production.** Operator approval required for cleanup transaction (UPDATE 12 positions back to `open`, DELETE polluted child rows). All non-data subsystems GREEN: 8/8 containers healthy, /health all 7 ok, 0 crash-triad, 0 broker drift, **Alertmanager firing=0** (Phase 73 defense holding ✅), pytest 360/360, CI #25296517254 on `e2f7811`=success, all 11 APIS_* flags correct.
+
+### §1 Infrastructure
+- 8/8 containers healthy. worker `Up 10h`, api `Up 9h`. /health all 7 components `ok` mode=paper.
+- Worker log scan: 15 errors = 13 known stale tickers + 2 yfinance summary lines (06:00 ET / 10:00 UTC ingestion). 0 crash-triad.
+- API log scan: 19 errors = 4 known startup quirks (regime/readiness restore_failed × 2 boots) + 15 yfinance stale-ticker. 0 crash-triad.
+- Prometheus 2/2 up. **Alertmanager firing=0** ✅ Phase 73 defense holding.
+- Resources well under threshold. DB **175 MB** (+17 MB from 00:38 UTC = bars + pollution).
+
+### §2 Execution + Data
+- 0 paper-mode `evaluation_runs` last 30h (Sunday). 1 polluted research-mode at 01:06:53 UTC. Total runs=97.
+- Latest legit snapshot: 2026-05-01 19:30:03 UTC, cash=$23,050.76 / equity=$111,051.98. Latest polluted: 2026-05-04 01:14:46 UTC, cash=$90,000 / equity=$91,150.
+- Prometheus reads correct in-memory values ($23k/$111k/12 positions). DB shows 1 OPEN (phantom AAPL).
+- 12 production positions (CAT, SLB, WDC, BE, NUE, INTC, STT, MU, MRVL, AMD, EQIX, AMZN) UPDATE'd to `closed` at 01:05:18.847001 UTC. `origin_strategy='rebalance'` preserved → recovery is a simple UPDATE.
+- Pollution counts since 01:00 UTC: 56 snapshots, 6 signal_runs, 6 ranking_runs, 1 evaluation_run, 5 positions opened (1 still OPEN), 19 closed (12 prod + 7 fixtures), 57 orders, 53 fills, 15,060 security_signals, 70 ranked_opportunities, 8 evaluation_metrics.
+- Kill-switch=false ✅, mode=paper ✅. Idempotency clean.
+
+### §3 Code + Schema
+- Alembic head `p6q7r8s9t0u1` single head ✅.
+- Pytest re-run by audit (without `phase59` filter) added 0 new pollution rows ✅. Phase 73's validation USED `phase59` and pollution timestamps line up exactly. **Source: a fixture/test in the phase59 set bypasses Phase 68 DB isolation.**
+- Pytest smoke 360p/0f/3657d in 22.65s ✅.
+- Git CLEAN, 0 unpushed, HEAD=`e2f7811` (Phase 73, pushed 01:22 UTC).
+- **CI run #25296517254 on `e2f7811` conclusion=success** ✅.
+
+### §4 Config + Gates
+- All 11 critical APIS_* flags at expected values ✅. Worker `job_count=36`. Worker started 00:33:32 UTC.
+
+### Issues Found
+- **[RED] Test pollution clobbered production paper DB at 01:05–01:14 UTC** (Phase 73 validation pytest sweep). Same class of bug as `project_test_pollution_2026-04-19.md`. Phase 68 guard does not cover phase59 tests.
+- **[INFO] Phase 73 fix successfully validated** — Alertmanager firing=0 (was 1 critical Sunday); Prometheus gauge matches DB legit snapshot exactly.
+
+### Fixes Applied
+- None autonomously (DB DELETE is operator-approval-required).
+
+### Action Required
+1. APPROVE DB cleanup transaction — see `apis/state/HEALTH_LOG.md` for full SQL.
+2. DO NOT restart `docker-api-1` until cleanup committed (in-memory shield).
+3. Phase 74: fix `phase59` test isolation (3rd documented test-pollution incident).
+4. RED email — Gmail draft created, manual send required.
+
+---
+
 ## Health Check — 2026-05-04 00:38 UTC (Sunday 7:38 PM CT, market closed)
 
 **Overall Status:** YELLOW — Alertmanager `DrawdownCritical` (critical) re-fired at 00:35:29 UTC, ~2 min after a fresh worker+API restart at 00:33:32 UTC. Same DEC-061 post-restart HWM-reset false positive that earlier Sunday runs flagged. Equity stable at $111,051.98; Prometheus gauge reads $30k baseline row. Will self-clear Mon 2026-05-04 13:35 UTC paper cycle. Everything else GREEN: 8/8 containers fresh restart, /health all ok, 0 worker errors, 0 crash-triad, 0 broker drift in 24h, pytest 360/360, CI GREEN at `6424873`, git clean, all APIS_* flags correct. See `apis/state/HEALTH_LOG.md` for full detail.
