@@ -11,14 +11,27 @@ Cleanup transaction (`outputs/cleanup_2026-05-04.sql`) ran clean against `docker
 - Spot-checks: open=12, latest snapshot=2026-05-01 19:30:03.
 - Runtime preserved: `docker-api-1 Up 11 hours (healthy)` — NOT restarted. Prometheus reads legit `12 / $111,051.98 / $23,050.76`.
 
-## URGENT — Phase 74 (phase59 test isolation hardening)
+## ✅ DONE 2026-05-04 ~16:30 UTC — Phase 74 candidate (c) shipped + validated
 
-This is the THIRD documented test-pollution incident (2026-04-19 → unknown gap → 2026-05-04). Phase 68 conftest DB isolation works for the `deep_dive`/`phase22`/`phase57` filter (audit re-verified after cleanup — re-running with that filter added 0 new rows) but does NOT cover the `phase59` filter. Investigation entry points captured in `memory/project_phase74_phase59_test_isolation.md`:
+Write-blocking SessionLocal fixture landed in `apis/tests/conftest.py` and 3-test regression class `TestPhase74WriteBlocker` added to `tests/unit/test_phase59_state_persistence.py`. End-to-end validation:
 
-1. Walk every fixture and test in `tests/unit/test_phase59_state_persistence.py`; check `conftest.py` chain for any fixture that does `engine = create_engine(settings.database_url)` instead of going through the Phase 68 isolation override. The new Phase 73 AST test itself doesn't touch DB, so the offending test pre-dates Phase 73.
-2. Three permanent-fix candidates in priority order: (a) make `APIS_PYTEST_SMOKE=1` short-circuit DB writes at the SQLAlchemy engine layer (engine wrapper that no-ops `INSERT/UPDATE/DELETE` against compose-Postgres URL when the env flag is set); (b) Postgres event trigger rejecting non-container-IP writes while `OPERATING_MODE=paper`; (c) extend Phase 68 conftest override to also patch `apps.api.deps.get_db` and any direct `Session()` constructions inside `phase59` fixtures.
-3. **Workaround until Phase 74 lands:** validation sweeps must drop the `phase59` token (use `tests/unit/ -k "deep_dive or phase22 or phase57"`). Run `phase59` tests against a throwaway Postgres only.
-4. RED Gmail draft `r7977850630206949787` (from DEC-070) — superseded by cleanup; recommend updating to GREEN follow-up or canceling.
+- Pre-sweep snapshot of all 11 pollution-tracked tables.
+- Ran the exact filter that polluted on 2026-05-04 01:05 UTC inside `docker-api-1`: `tests/unit/ -k "deep_dive or phase22 or phase57 or phase59"` with `APIS_PYTEST_SMOKE=1`.
+- Result: **400 passed / 0 failed in 126.38s** (361 baseline + 36 phase59 + 3 new regression tests).
+- Post-sweep snapshot identical to pre-sweep on all 11 tables: positions_open 12, positions_total 521, orders 295, fills 197, snapshots 570, signal_runs 59, ranking_runs 56, eval_runs 96, security_signals 79705, ranked_opportunities 590, evaluation_metrics 768. **Zero new rows.**
+
+Root cause confirmed: `test_catchup_fires_correlation_when_empty` mocks ONLY `run_correlation_refresh`; at the patched Monday 10am ET, the other 8 catchup branches in `_run_startup_catchup()` fired real `run_signal_generation`/`run_ranking_generation`/`run_universe_refresh` etc. against production paper Postgres via `_session_factory()` → `SessionLocal`. The new conftest fixture intercepts `SessionLocal()` and returns `WriteBlockingSession` (no-ops `add`/`add_all`/`delete`/`merge`/`flush`/`commit` and stubs out `execute()` for `Insert/Update/Delete` statements while passing SELECTs through). Catches every path without requiring any test rewrites.
+
+The `phase59` workaround in NEXT_STEPS is now obsolete — full sweeps are safe again.
+
+## MEDIUM — Phase 74 follow-ups (defense-in-depth, not blocking)
+
+1. **Candidate (a)** — engine-layer wrapper that no-ops DML against compose-Postgres URLs when `APIS_PYTEST_SMOKE=1`. Catches paths that bypass `SessionLocal` entirely (e.g., raw `engine.execute(...)`). Low priority — no known caller bypasses SessionLocal today.
+2. **Candidate (b)** — Postgres event trigger rejecting non-container-IP writes while `OPERATING_MODE=paper`. DB-level safety net. Low priority — disruptive to dev/admin queries.
+
+## LOW PRIORITY — Cancel/update RED Gmail draft
+
+RED Gmail draft `r7977850630206949787` (from DEC-070) is now superseded by both DEC-071 cleanup AND Phase 74 fix. Cancel or convert to GREEN follow-up.
 
 ## PRIORITY — Monitor Monday Paper Cycle (2026-05-04 13:35 UTC / 09:35 ET)
 

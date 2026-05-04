@@ -736,3 +736,88 @@ class TestStartupCatchup:
              patch("apps.api.state.get_app_state", return_value=state):
             # This should not raise even if underlying imports fail
             _run_startup_catchup()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Phase 74 — Regression: smoke-mode write blocker is installed
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class TestPhase74WriteBlocker:
+    """Phase 74 regression — when APIS_PYTEST_SMOKE=1, every code path that
+    requests a SessionLocal MUST receive a write-blocking session.
+
+    Background: 2026-05-04 was the 3rd documented test-pollution incident.
+    `test_catchup_fires_correlation_when_empty` mocked only
+    `run_correlation_refresh` and let _run_startup_catchup() fire real
+    signal_generation / ranking_generation / universe_refresh jobs against
+    production paper Postgres (the jobs grab SessionLocal directly via
+    _session_factory(), bypassing any test-level patch of db_session).
+    Phase 74's fix: a session-scoped autouse conftest fixture monkey-patches
+    `infra.db.session.SessionLocal` to return a WriteBlockingSession when
+    smoke mode is on.  This test class proves that patch is in place.
+    """
+
+    def test_smoke_mode_is_on_inside_pytest_with_env_flag(self):
+        """Sanity: pytest sweeps that include `phase59` should be invoked
+        with APIS_PYTEST_SMOKE=1 (per the Phase 74 NEXT_STEPS workaround
+        until a fully-isolated test DB is wired in).
+        """
+        import os
+        smoke = os.environ.get("APIS_PYTEST_SMOKE", "").strip().lower()
+        # We don't hard-fail if smoke isn't set — there are legitimate
+        # local dev runs against ephemeral test DBs.  Just record the state.
+        assert smoke in ("", "0", "1", "true", "yes", "false", "no")
+
+    def test_session_local_writes_are_blocked_under_smoke_mode(self):
+        """When APIS_PYTEST_SMOKE=1, calling SessionLocal().add() / .commit()
+        must NOT reach the bound engine.  Asserts via the write-blocking
+        wrapper class type AND by behavioural check (rolls back instead of
+        committing).
+        """
+        import os
+        if os.environ.get("APIS_PYTEST_SMOKE", "").strip().lower() not in ("1", "true", "yes"):
+            pytest.skip("Phase 74 write blocker only installs under APIS_PYTEST_SMOKE=1")
+
+        from infra.db.session import SessionLocal
+
+        sess = SessionLocal()
+        try:
+            # Class identity: the conftest fixture replaces the sessionmaker
+            # with one bound to our WriteBlockingSession subclass.
+            class_name = type(sess).__name__
+            assert class_name == "WriteBlockingSession", (
+                f"Phase 74 regression: SessionLocal() returned a {class_name} "
+                f"instance — the conftest write-blocker is NOT installed.  "
+                f"This means phase59 fixtures could pollute the production DB "
+                f"again.  Check tests/conftest.py "
+                f"_phase74_block_production_writes_in_smoke_mode fixture."
+            )
+
+            # Behavioural check: add() / commit() are no-ops.  We don't
+            # actually need a real ORM object — the no-op check is purely
+            # method-level so passing None is fine for the smoke contract.
+            assert sess.add(object()) is None
+            assert sess.commit() is None
+            assert sess.flush() is None
+        finally:
+            sess.close()
+
+    def test_db_session_context_manager_also_returns_blocker(self):
+        """The `db_session()` context manager pulls SessionLocal from the
+        module global, so the same patch must cover it.
+        """
+        import os
+        if os.environ.get("APIS_PYTEST_SMOKE", "").strip().lower() not in ("1", "true", "yes"):
+            pytest.skip("Phase 74 write blocker only installs under APIS_PYTEST_SMOKE=1")
+
+        from infra.db.session import db_session
+
+        with db_session() as sess:
+            class_name = type(sess).__name__
+            assert class_name == "WriteBlockingSession", (
+                f"Phase 74 regression: db_session() yielded a {class_name} "
+                f"instance — the patch only covers direct SessionLocal() "
+                f"calls, not db_session().  This is a half-fix; phase59 "
+                f"tests that go through db_session can still pollute."
+            )

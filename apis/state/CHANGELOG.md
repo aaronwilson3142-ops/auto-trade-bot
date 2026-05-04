@@ -3,6 +3,31 @@ Format: [YYYY-MM-DD] | file/module | description
 
 ---
 
+## [2026-05-04] Phase 74 — phase59 Test Isolation Fix (DEC-072, candidate c shipped + validated)
+
+**Context:** DEC-070 documented the 3rd test-pollution incident (2026-05-04 01:05 UTC) and DEC-071 landed the operator-approved cleanup transaction. DEC-072 lands the permanent fix per Phase 74 ticket.
+
+**Root cause:** `apis/apps/api/main.py::_run_startup_catchup()` (lines 564–727) is fired during FastAPI lifespan startup AND in three phase59 tests. Each catchup branch calls `_session_factory()` which re-imports `infra.db.session.SessionLocal` per call. `test_catchup_fires_correlation_when_empty` (`tests/unit/test_phase59_state_persistence.py` line 660) patches `_dt` to Monday 10am and mocks ONLY `apps.worker.jobs.run_correlation_refresh`. The other 8 branches (liquidity/var/regime/stress/earnings/universe/rebalance/signal_generation/ranking_generation/weight_optimization) fire REAL jobs against the production paper Postgres. `run_signal_generation` alone explains the 20,080 polluted `security_signals` rows seen in DEC-070 (~488 securities × ~40 signal types).
+
+**Fix candidate:** (c) — extend Phase 68 conftest override to cover the `SessionLocal` bypass at the boundary. Defense-in-depth candidates (a) engine-layer DML wrapper and (b) Postgres event trigger deferred as follow-ups.
+
+| File | Change |
+|------|--------|
+| `apis/tests/conftest.py` | New session-scoped autouse fixture `_phase74_block_production_writes_in_smoke_mode`. When `APIS_PYTEST_SMOKE=1`, monkey-patches `infra.db.session.SessionLocal` to return `WriteBlockingSession` instances bound to the same engine. Wrapper class no-ops `add`/`add_all`/`delete`/`merge`/`flush`/`commit`; `execute()` returns a stub MagicMock (rowcount=0 + scalar/scalar_one_or_none/all/first/fetchall/mappings populated) for `Insert/Update/Delete` statements (detected via `sqlalchemy.sql` types AND raw-text prefix sniff) while passing SELECT/text-SELECT through. Helper `_is_dml_statement()` + `_make_write_blocking_session_class()` factory included. |
+| `apis/tests/unit/test_phase59_state_persistence.py` | New `TestPhase74WriteBlocker` class with 3 regression tests: (1) sanity check on `APIS_PYTEST_SMOKE` env var, (2) under smoke mode, `SessionLocal()` returns a `WriteBlockingSession` instance + `add()`/`commit()`/`flush()` are no-ops, (3) `db_session()` context manager also yields a `WriteBlockingSession`. Skip cleanly when smoke mode is off — no impact on local dev. |
+
+**Why every caller is covered:** Python's import machinery re-resolves the module attribute on every `from infra.db.session import SessionLocal` call. So `db_session()` (line 46 of `infra/db/session.py`), `get_db()` (line 36), and `_run_startup_catchup()._session_factory()` (line 608 of `apps/api/main.py`) all see the patched `SessionLocal` after the fixture runs. The fixture is session-scoped + autouse so the patch is in place before any test module imports.
+
+**Validation (live, against `docker-api-1`):**
+1. Pre-sweep snapshot of all 11 pollution-tracked tables.
+2. Ran the EXACT polluting filter `python -m pytest tests/unit/ -k "deep_dive or phase22 or phase57 or phase59" --no-cov -q --tb=line` inside `docker-api-1` with `APIS_PYTEST_SMOKE=1`.
+3. **Result: 400 passed / 0 failed in 126.38s** (was 397 baseline + 3 new regression tests; exit code 0). Up from the 397 Phase 73 baseline.
+4. Post-sweep snapshot: every count identical to pre-sweep on positions_open / positions_total / orders / fills / snapshots / signal_runs / ranking_runs / eval_runs / security_signals / ranked_opportunities / evaluation_metrics. **Zero new rows.**
+
+The exact reproducer that wrote ~15,300 rows into the production paper Postgres on 2026-05-04 01:05 UTC now writes nothing. The `phase59` workaround in NEXT_STEPS (drop the token from validation sweeps) is now obsolete — full sweeps are safe again.
+
+---
+
 ## [2026-05-04] DEC-071 — DEC-070 Test-Pollution Cleanup Executed (operator-approved)
 
 **Context:** Phase 73 validation pytest sweep `tests/unit/ -k "deep_dive or phase22 or phase57 or phase59"` at 01:05–01:14 UTC wrote pytest fixtures into the production paper Postgres. DEC-070 deep-dive at 10:10 UTC documented the damage and proposed a cleanup transaction; operator approved at 12:25 UTC.
