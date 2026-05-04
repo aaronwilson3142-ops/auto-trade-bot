@@ -2,6 +2,72 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-05-04 00:38 UTC (Sunday 7:38 PM CT, market closed)
+
+**Overall Status:** YELLOW — Alertmanager `DrawdownCritical` (critical) re-fired at 00:35:29 UTC, ~2 min after a fresh worker+API restart at 00:33:32 UTC. Same DEC-061 post-restart HWM-reset false positive that earlier 5:15 AM CT + 10:10 AM CT Sunday runs flagged. Equity is stable at $111,051.98; Prometheus gauge `apis_portfolio_equity_usd=30417.30` reads the dual-snapshot $30k baseline row instead of the $111k actual row. Will self-clear Mon 2026-05-04 13:35 UTC paper cycle re-establishes HWM. Everything else GREEN: 8/8 containers up ~5 min on fresh restart, /health all 7 components ok, 0 worker/api errors, 0 crash-triad, 0 broker drift in 24h, pytest 360/360, CI GREEN at HEAD `6424873`, git tree clean, all APIS_* flags correct.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy. ALL containers freshly restarted — `Up About a minute` at probe time (worker started 2026-05-04 00:33:32 UTC). Likely a Docker Desktop / machine restart event between the 15:10 UTC YELLOW run and now (~9.5h gap). Same docker-compose stack: docker-{worker,api,postgres,redis,prometheus,grafana,alertmanager}-1 + apis-control-plane.
+- /health: all 7 components `ok` (db, broker, scheduler, paper_cycle, broker_auth, system_state_pollution, kill_switch). Mode=paper. Timestamp 2026-05-04T00:36:15Z.
+- Worker log scan (24h): CLEAN — 544 total lines, **0 ERROR/CRITICAL/Traceback/TypeError**. **0 crash-triad regression patterns** (`_fire_ks` / `broker_adapter_missing_with_live_positions` / `EvaluationRun.idempotency_key` / `paper_cycle.*no_data` / `phantom_cash_guard_triggered`). 0 `broker_health_position_drift` ✅.
+- API log scan (24h): 6951 total lines, 2 matches — both known startup warnings on the fresh boot:
+  - `regime_result_restore_failed` (error: `detection_basis_json`) at 2026-05-04T00:33:45Z
+  - `readiness_report_restore_failed` (`ReadinessGateRow.__init__() missing 1 required positional argument: 'description'`) at 2026-05-04T00:33:45Z
+  - Both are pre-existing non-blocking startup quirks that have appeared in every recent restart's log (also flagged in 5:15 AM CT entry).
+- Prometheus: 2/2 targets up (apis, prometheus), 0 dropped ✅.
+- **Alertmanager: 1 ACTIVE alert firing**:
+  - `DrawdownCritical` (severity=critical) since 2026-05-04T00:35:29Z — fired ~2 min after the 00:33:32 UTC worker+API restart. Annotation reads `apis_portfolio_equity_usd is 30417.30. Approaching the 10% drawdown kill-switch at $90,000.` This is the dual-snapshot baseline row reading, not actual equity ($111,051.98 from the post-cycle row). Identical DEC-061 pattern.
+  - `DrawdownAlert` (warning) NOT yet active — may fire on next Prometheus scrape evaluation. Earlier Sunday runs had both firing.
+  - Will NOT self-clear until Monday 2026-05-04 13:35 UTC paper cycle re-establishes HWM.
+- Resource usage: Worker 80MiB, API 165MiB, Grafana 65MiB, Prometheus 38MiB, Alertmanager 15MiB, Postgres 43MiB, Redis 9MiB, k8s 1.003GiB (CPU 9.32%). All well under threshold.
+- DB size: 158 MB (unchanged).
+
+### §2 Execution + Data Audit
+- Paper cycles last 30h: 0 rows ✅ (Sunday — expected, no market hours).
+- Total `evaluation_runs`: **96** (above 80 floor ✅).
+- Portfolio trend: latest snapshot **2026-05-01 19:30:03 UTC** — cash=$23,050.76 / equity=$111,051.98 ✅. Cash positive ✅. Dual-snapshot pattern continues (paired $30,430.83 baseline row + actual $111,051.98 cycle row).
+- Broker<->DB reconciliation: **0 `broker_health_position_drift` warnings in 24h** ✅. 12 open positions in DB. /health broker=ok.
+- Origin-strategy stamping: ALL 12 open positions `origin_strategy=rebalance` ✅. 0 NULLs (CAT, SLB opened 2026-05-01 15:30; MU, INTC, BE, NUE, STT, WDC opened 2026-05-01 13:35; MRVL, AMD, EQIX, AMZN opened 2026-04-29 16:00). Phase 72 holding.
+- Position caps: **12/15 open** ✅. 0 new today (Sunday) ✅.
+- Data freshness: bars=2026-04-30 (Thursday close, 488 securities — Friday's bars pending Mon 06:00 ET ingestion); ranking_runs=2026-05-01 10:45 UTC ✅; signal_runs=2026-05-01 10:30 UTC ✅.
+- Stale tickers: known 13 only. No new additions (worker did not run any ingestion this session — too brief, no scheduled job since restart).
+- Kill-switch: `false` ✅. Operating mode: `paper` ✅.
+- Idempotency: clean — 0 duplicate orders by `idempotency_key`, 0 duplicate open positions per ticker ✅.
+
+### §3 Code + Schema
+- Alembic head: `p6q7r8s9t0u1` (single head ✅). `alembic current` and `alembic heads` both return single rev. Drift: ~25 documented cosmetic items (TIMESTAMP↔DateTime, comment wording) — non-functional, persists from prior runs.
+- Pytest smoke: **360 passed / 0 failed / 3656 deselected in 23.38s** ✅. Above 358/360 baseline (Phase 72 re-baseline). Ran in `docker-api-1` with `APIS_PYTEST_SMOKE=1` against `tests/unit -k "deep_dive or phase22 or phase57"`.
+- Git: **CLEAN** — `git status --porcelain` empty, 0 unpushed commits, only `main` branch. HEAD = `6424873` (this morning's 10:10 AM CT entry, already committed + pushed).
+- **GitHub Actions CI:** Run #25282920307 on `6424873` conclusion=success status=completed. GREEN ✅. https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25282920307
+
+### §4 Config + Gate Verification
+- All critical APIS_* flags at expected values:
+  - APIS_OPERATING_MODE=paper ✅
+  - APIS_KILL_SWITCH=false ✅
+  - APIS_MAX_POSITIONS=15 ✅
+  - APIS_MAX_NEW_POSITIONS_PER_DAY=5 ✅
+  - APIS_MAX_THEMATIC_PCT=0.75 ✅
+  - APIS_RANKING_MIN_COMPOSITE_SCORE=0.30 ✅
+  - APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED not set (defaults false) ✅
+  - APIS_INSIDER_FLOW_PROVIDER not set (defaults null) ✅
+  - Deep-Dive Step 6/7/8 flags not set (defaults OFF) ✅
+- Scheduler: `job_count=36`. Worker started 2026-05-04 00:33:32 UTC.
+
+### Issues Found
+- **[YELLOW] Alertmanager `DrawdownCritical` re-fired at 00:35:29 UTC** — ~2 min after a fresh 00:33:32 UTC worker+API restart event (machine reboot or Docker Desktop restart between 15:10 UTC and 00:33 UTC). Identical to the DEC-061 post-restart HWM-reset false positive that earlier 5:15 AM CT + 10:10 AM CT Sunday runs flagged. Equity stable at $111,051.98; Prometheus gauge `apis_portfolio_equity_usd=30417.30` reads dual-snapshot baseline row. Cannot self-clear until Mon 2026-05-04 13:35 UTC paper cycle re-establishes HWM. Non-actionable on weekend. NOTE: only `DrawdownCritical` (critical) currently firing — `DrawdownAlert` (warning) may fire on next scrape evaluation.
+- **[INFO] All 8 containers freshly restarted at 00:33:32 UTC** — likely Docker Desktop / machine restart between 15:10 UTC and 00:33 UTC. Stack came up cleanly; same Phase 72 code at `6424873`. The 9.5h gap between earlier Sunday run and this one means earlier YELLOW carry-forward window has been reset.
+- **[INFO] Friday 2026-05-01 daily_market_bars not yet ingested** — weekday-only schedule (06:00 ET); Friday's close ingests Mon 06:00 ET. Pre-existing intentional behavior.
+
+### Fixes Applied
+- None. The `DrawdownCritical` alert is a known false positive that requires Monday's market open to clear naturally; flipping silences/manual clears would mask future genuine HWM resets. State doc updates only (this entry).
+
+### Action Required from Aaron
+- **Monday monitoring (2026-05-04)**: Watch first paper cycle at 13:35 UTC (09:35 ET). The active `DrawdownCritical` (and `DrawdownAlert` if it fires before Monday) should self-clear within 1–2 cycles as HWM is re-established. If they DON'T clear by 14:30 UTC, investigate equity drawdown vs new HWM.
+- **Optional Phase 73 ticket** (carry-forward across all 3 Sunday runs): Fix the dual-snapshot baseline row OR align Prometheus equity gauge OR add Alertmanager `for: 30m` minimum so post-restart false-positives stop firing. The fact that the alert re-fires every restart event (twice on Sunday alone) is now well-documented and reproducible.
+- **YELLOW email**: Gmail draft to be created — manual send required.
+
+---
+
 ## Health Check — 2026-05-03 15:10 UTC (Sunday 10:10 AM CT, market closed)
 
 **Overall Status:** YELLOW — Alertmanager DrawdownCritical + DrawdownAlert still firing (5h after 5:15 AM CT run; identical carry-forward from 2026-05-02 13:26/13:30 UTC restart). No Sunday paper cycles to self-clear; will clear Mon 13:35 UTC. Everything else GREEN: 8/8 containers up 26h, /health all 7 components ok, 0 worker/api errors, 0 crash-triad, 0 broker drift in 24h, pytest 360/360, CI GREEN at HEAD, git tree clean, all APIS_* flags correct.

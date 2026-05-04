@@ -1,4 +1,26 @@
 # APIS — Active Context
+Last Updated: 2026-05-04 00:38 UTC (Sun 7:38 PM CT, third Sunday deep-dive) — **YELLOW — `DrawdownCritical` re-fired at 00:35:29 UTC, ~2 min after a fresh 00:33:32 UTC worker+API restart event.** Stack came up cleanly on `6424873` (Phase 72 code, Phase 71 scheduler liveness, all 360/360 pytest passing); /health all 7 components ok; 0 crash-triad; 0 broker drift in 24h; 12/15 open positions all `origin_strategy=rebalance`; APIS_* flags correct; CI GREEN. Same DEC-061 post-restart HWM-reset false positive — Prometheus `apis_portfolio_equity_usd=30417.30` reads dual-snapshot $30k baseline instead of actual $111k cycle row. Will self-clear Mon 2026-05-04 13:35 UTC paper cycle. **No autonomous fixes applied** — false-positive only, manual silence would mask future genuine HWM resets. **YELLOW email draft created via Gmail MCP — manual send required.** Phase 73 carry-forward request: dual-snapshot row vs Prometheus gauge alignment.
+
+## 2026-05-04 00:38 UTC — Sun 7:38 PM CT Scheduled Deep-Dive (YELLOW, post-restart HWM re-fire) — headless via Desktop Commander
+
+- Triggered by scheduled task `apis-health-check-v2`. Late-Sunday run — 9.5h after the 15:10 UTC YELLOW. The 8-container stack was freshly restarted at 00:33:32 UTC (worker started log line confirms; possible Docker Desktop / machine reboot event — unknown trigger).
+- Methodology: Desktop Commander `start_process("powershell.exe")` → `interact_with_process`; `docker exec -i docker-postgres-1 psql` for DB probes; `mcp__workspace__web_fetch` for anonymous GitHub CI probe; `curl http://localhost:9093/api/v2/alerts` for active Alertmanager probe. Fully headless.
+- **§1 Infra YELLOW**: 8/8 containers up `About a minute` (fresh restart). /health all 7 ok. Worker log 24h = 544 lines, 0 errors, 0 crash-triad, 0 broker drift. API log 24h = 6951 lines, 2 known startup warnings (`regime_result_restore_failed`, `readiness_report_restore_failed` on 00:33:45 boot). Prometheus 2/2 up. **Alertmanager 1 active alert: `DrawdownCritical` since 00:35:29Z** (`DrawdownAlert` warning may fire on next scrape). Resources fine. DB 158 MB.
+- **§2 Execution+Data GREEN**: 0 cycles in 30h (Sunday expected); 96 evaluation_runs (≥80 floor ✅); latest snapshot 2026-05-01 19:30 UTC `cash=$23,050.76 / equity=$111,051.98` (cash positive ✅, dual-snapshot pattern continues); 0 broker drift; 12/15 positions all `origin_strategy=rebalance` ✅; bars=2026-04-30 (Friday pending Mon 06:00 ET); rankings/signals from 2026-05-01; kill-switch `false`, mode `paper`; idempotency clean.
+- **§3 Code+Schema GREEN**: alembic `p6q7r8s9t0u1` single head; pytest **360p/0f/3656d in 23.38s** ✅; git clean at `6424873` 0 unpushed; **CI run #25282920307 on `6424873` conclusion=success** ✅.
+- **§4 Config+Gates GREEN**: all critical APIS_* flags at expected values; scheduler `job_count=36`.
+- **§5 Severity: YELLOW** (Alertmanager active alert per skill rubric). **§6 Email: YELLOW draft to be created** via Gmail MCP `create_draft` (manual send required). **§7 State+memory**: this ACTIVE_CONTEXT update + both HEALTH_LOG entries (primary + mirror, just landed).
+- **Autonomous fixes applied: NONE.** The DrawdownCritical alert is a known dual-snapshot false-positive that requires Monday market open to clear naturally; manual silence/clear would mask genuine HWM resets.
+- **Carry-forward latent items (non-blocking):**
+  - Dual-snapshot baseline row + Prometheus equity gauge mismatch (Phase 73 candidate — fires every restart event)
+  - Friday 2026-05-01 bars pending Monday 06:00 ET ingestion (intentional weekday-only schedule)
+
+---
+
+Previous entry (2026-04-26 01:10 UTC, superseded):
+
+## 2026-04-26 01:10 UTC — Phase 67 Worker RED Fix (operator-requested)
+
 Last Updated: 2026-04-26 01:10 UTC (Sat, Phase 67 Worker RED fix deployed) — **Worker RED critical — Sharpe at -3.39 vs 0.50 threshold.** Three fixes committed at `a5b156a` and pushed to origin/main. (1) **Anti-churn OPEN cap** — half-Kelly sized OPEN at ~$14.6k while rebalance target was $6.7k (1/15 equal weight), causing ODFL buy-66→trim-66 churn every cycle. Fix: after rebalance merge, cap OPEN `target_notional` to `rebalance_target_weight × equity`. New log: `open_action_capped_to_rebalance_target`. (2) **signal_quality UniqueViolation** — replaced per-row `session.add()` with PostgreSQL `pg_insert().on_conflict_do_nothing()`. (3) **Sector rebalance trims** — new `generate_sector_trim_actions()` in SectorExposureService detects overweight sectors and generates pre-approved TRIMs. Integrated into paper_trading cycle. New log: `sector_rebalance_trim_generated`. Worker + API restarted 00:53 UTC, both healthy. Docker bind mount means code is live without rebuild. **Validation:** Monday 2026-04-27 09:35 ET first paper cycle — watch for `open_action_capped_to_rebalance` and no new ODFL churn.
 
 ## 2026-04-26 01:10 UTC — Phase 67 Worker RED Fix (operator-requested)

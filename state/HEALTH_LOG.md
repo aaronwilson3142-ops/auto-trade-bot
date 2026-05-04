@@ -2,6 +2,12 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-05-04 00:38 UTC (Sunday 7:38 PM CT, market closed)
+
+**Overall Status:** YELLOW — Alertmanager `DrawdownCritical` (critical) re-fired at 00:35:29 UTC, ~2 min after a fresh worker+API restart at 00:33:32 UTC. Same DEC-061 post-restart HWM-reset false positive that earlier Sunday runs flagged. Equity stable at $111,051.98; Prometheus gauge reads $30k baseline row. Will self-clear Mon 2026-05-04 13:35 UTC paper cycle. Everything else GREEN: 8/8 containers fresh restart, /health all ok, 0 worker errors, 0 crash-triad, 0 broker drift in 24h, pytest 360/360, CI GREEN at `6424873`, git clean, all APIS_* flags correct. See `apis/state/HEALTH_LOG.md` for full detail.
+
+---
+
 ## Health Check — 2026-05-03 15:10 UTC (Sunday 10:10 AM CT, market closed)
 
 **Overall Status:** YELLOW — Alertmanager DrawdownCritical + DrawdownAlert still firing (5h after 5:15 AM CT run; identical carry-forward from 2026-05-02 13:26/13:30 UTC restart). No Sunday paper cycles to self-clear; will clear Mon 13:35 UTC. Everything else GREEN: 8/8 containers up 26h, /health all 7 components ok, 0 worker/api errors, 0 crash-triad, 0 broker drift in 24h, pytest 360/360, CI GREEN at HEAD, git tree clean, all APIS_* flags correct.
