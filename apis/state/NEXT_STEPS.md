@@ -1,8 +1,29 @@
 # APIS — Next Steps
 
-Last Updated: 2026-04-26 01:10 UTC — Phase 67 deployed (anti-churn cap, signal quality fix, sector rebalance trims).
+Last Updated: 2026-05-04 01:20 UTC — Phase 73 deployed (position-restore indentation fix + Alertmanager 30m defense).
 
-## PRIORITY — Monitor Monday Paper Cycles (2026-04-27 09:35 ET)
+## PRIORITY — Monitor Monday Paper Cycle (2026-05-04 13:35 UTC / 09:35 ET)
+
+Phase 73 fixes are live on the running stack (`docker-api-1` restarted 01:00 UTC; bind mount picked up edits). Watch for:
+
+1. Prometheus continues to report `apis_portfolio_positions=12` (or whatever count is open) and `apis_portfolio_equity_usd ≈ DB latest snapshot equity_value`.
+2. NO `DrawdownCritical` or `DrawdownAlert` firing in `/api/v2/alerts` after the cycle. (If something does fire, the new `for: 30m` guard means it must persist 30 min before paging.)
+3. `portfolio_state_restored_from_db` log line on next API boot should report `positions: 12` (or current N), not `positions: 1`.
+4. New AST regression test `test_restore_loop_dict_assignment_is_inside_for_loop` runs in CI as part of `tests/unit/`.
+
+Also: confirm CI run on the Phase 73 commit comes back GREEN.
+
+## MEDIUM — None right now
+
+Phase 73 closes out the only known carry-forward. Remaining latent items from prior runs (orders/fills ledger, signal_quality idempotency, Friday 2026-05-01 bars pending Mon 06:00 ET ingestion) are non-blocking and unchanged.
+
+## LOW PRIORITY — Fix test_respects_max_positions env drift
+
+`tests/unit/test_portfolio_engine.py::test_respects_max_positions` fails because `_make_settings()` picks up `APIS_MAX_POSITIONS=15` from `.env` instead of the old default 10. Fix: pass `max_positions=10` explicitly in the test fixture. Cosmetic — doesn't affect production.
+
+---
+
+## Previous Entry — 2026-04-26 01:10 UTC, Phase 67
 
 Phase 67 fixes are live (commit `a5b156a`, worker restarted 00:53 UTC). Monitor first Monday cycles for:
 

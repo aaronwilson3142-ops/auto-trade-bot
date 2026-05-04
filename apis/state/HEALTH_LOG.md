@@ -2,6 +2,45 @@
 
 Auto-generated daily health check results.
 
+## Phase 73 Fix Sprint — 2026-05-04 01:20 UTC (Sunday 8:20 PM CT, operator-requested)
+
+**Overall Status:** GREEN — Phase 73 deployed and validated. Position-restore indentation regression from Phase 72 (`1759455`, 2026-05-01) fixed; Alertmanager `DrawdownAlert` + `DrawdownCritical` `for:` raised to 30m as defense-in-depth.
+
+**Trigger:** Operator pinged on the recurring `DrawdownCritical` post-restart YELLOWs (DEC-064 / DEC-065 / DEC-068, 3 consecutive Saturday/Sunday deep-dive runs all flagging the same alert). Granted full sweep across the 3 Phase 73 candidates from those runs.
+
+**Investigation outcome:** None of the 3 candidates (Alertmanager `for: 30m`, gauge alignment, dual-snapshot writer) was the actual root cause. Probing live snapshot rows revealed both pre/post-cycle snapshots are at $100-111k — there is no $30k row anywhere. Probing the live Prometheus output revealed `apis_portfolio_positions=1` while DB had 12 open positions. Reading `apps/api/main.py` lines 239-260 revealed a comment block at column 16 dragging the dict assignment OUT of the `for pos, ticker in open_rows:` loop body.
+
+**Fixes shipped:**
+
+| Layer | Change |
+|-------|--------|
+| Code | `apps/api/main.py` re-indent `_db_os` + `positions[ticker] = PortfolioPosition(...)` block from column 16 → column 20 (inside for-loop). |
+| Test | `tests/unit/test_phase59_state_persistence.py` new AST regression test `test_restore_loop_dict_assignment_is_inside_for_loop`. |
+| Alerts | `infra/monitoring/prometheus/rules/apis_alerts.yaml` `DrawdownAlert` 5m → 30m, `DrawdownCritical` 1m → 30m. Prometheus reloaded. |
+
+**Live validation:**
+- Pre-fix Prometheus: `apis_portfolio_positions=1, apis_portfolio_equity_usd=30417.30, apis_portfolio_cash_usd=23050.76`
+- Post-fix Prometheus (after `docker restart docker-api-1`): `apis_portfolio_positions=12, apis_portfolio_equity_usd=111051.98, apis_portfolio_cash_usd=23050.76` (matches DB latest snapshot exactly)
+- Alertmanager: `firing=0`
+- /health: all 7 components ok
+- Pytest smoke (`tests/unit/ -k "deep_dive or phase22 or phase57 or phase59"`, `APIS_PYTEST_SMOKE=1`): **397 passed / 0 failed in 74.57s** (361 baseline + 1 new test)
+- Prometheus rules reloaded: `DrawdownAlert duration=1800s, DrawdownCritical duration=1800s`
+
+**Memory + docs updated:**
+- `memory/project_phase73_position_restore_indentation.md` (new)
+- `memory/MEMORY.md` (Phase 73 entry added)
+- `apis/state/CHANGELOG.md` (Phase 73 section)
+- `apis/state/ACTIVE_CONTEXT.md` (top + new section)
+- `apis/state/NEXT_STEPS.md` (rewritten head)
+- `apis/state/HEALTH_LOG.md` (this entry)
+- `state/DECISION_LOG.md` (DEC-069)
+
+**Carry-forward correction for future deep-dives:** the "dual-snapshot baseline row" theory in DEC-061 / DEC-064 / DEC-065 / DEC-068 was wrong. If a future deep-dive sees `apis_portfolio_equity_usd` mismatch DB latest snapshot equity, FIRST check `apis_portfolio_positions` against DB open-position count — a mismatch implies a restore-loop regression rather than a snapshot/gauge mismatch.
+
+**Pending:** commit + push to `origin/main`.
+
+---
+
 ## Health Check — 2026-05-04 00:38 UTC (Sunday 7:38 PM CT, market closed)
 
 **Overall Status:** YELLOW — Alertmanager `DrawdownCritical` (critical) re-fired at 00:35:29 UTC, ~2 min after a fresh worker+API restart at 00:33:32 UTC. Same DEC-061 post-restart HWM-reset false positive that earlier 5:15 AM CT + 10:10 AM CT Sunday runs flagged. Equity is stable at $111,051.98; Prometheus gauge `apis_portfolio_equity_usd=30417.30` reads the dual-snapshot $30k baseline row instead of the $111k actual row. Will self-clear Mon 2026-05-04 13:35 UTC paper cycle re-establishes HWM. Everything else GREEN: 8/8 containers up ~5 min on fresh restart, /health all 7 components ok, 0 worker/api errors, 0 crash-triad, 0 broker drift in 24h, pytest 360/360, CI GREEN at HEAD `6424873`, git tree clean, all APIS_* flags correct.

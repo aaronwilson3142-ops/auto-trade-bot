@@ -245,9 +245,14 @@ def _load_persisted_state() -> None:
                     else:
                         cur_price = entry
                     # Phase 72: restore origin_strategy from DB so
-                # broker-sync + _persist_positions don't lose it.
-                _db_os = getattr(pos, "origin_strategy", None) or ""
-                positions[ticker] = PortfolioPosition(
+                    # broker-sync + _persist_positions don't lose it.
+                    # Phase 73 (2026-05-04): re-indented INTO the loop —
+                    # the previous dedent meant only the last-iteration
+                    # position was added to the dict, restoring 1 of N
+                    # positions on every API boot.  See HEALTH_LOG and
+                    # project_phase73_position_restore_indentation.md.
+                    _db_os = getattr(pos, "origin_strategy", None) or ""
+                    positions[ticker] = PortfolioPosition(
                         ticker=ticker,
                         quantity=qty,
                         avg_entry_price=entry,

@@ -167,6 +167,85 @@ class TestRestorePortfolioState:
         state = _make_app_state()
         assert state.portfolio_state is None
 
+    def test_restore_loop_dict_assignment_is_inside_for_loop(self):
+        """Phase 73 regression — AST check that the dict assignment lives INSIDE
+        the for-loop body, not after it.
+
+        Bug history: Phase 72 (`1759455`, 2026-05-01) introduced a comment block at
+        the wrong indentation level, dedenting the dict assignment OUT of the
+        for-loop in `apps/api/main.py` portfolio_state restore.  Result: only the
+        last-iteration position made it into the dict, so on every API restart
+        only 1 of N positions was restored.  The bug triggered the recurring
+        `DrawdownCritical` post-restart YELLOW alerts (cash $23k + 1 position's
+        market_value $7k ≈ $30k equity, vs the real $111k).  Fixed in Phase 73
+        (2026-05-04).
+
+        We cannot easily mock the full `_load_persisted_state` chain (it touches
+        many ORM tables in series), so this test makes a structural assertion
+        against the source: the `for pos, ticker in open_rows:` block in
+        `apps/api/main.py` MUST contain a `positions[ticker] = PortfolioPosition(...)`
+        node in its body.  If the dict assignment ever escapes the loop again,
+        this test fails.
+        """
+        import ast
+        from pathlib import Path
+
+        main_py = Path(__file__).resolve().parents[2] / "apps" / "api" / "main.py"
+        tree = ast.parse(main_py.read_text(encoding="utf-8"))
+
+        def _find_target_for(node):
+            """Recursively find: for pos, ticker in open_rows: ..."""
+            for child in ast.walk(node):
+                if isinstance(child, ast.For):
+                    target = child.target
+                    iter_node = child.iter
+                    if (
+                        isinstance(target, ast.Tuple)
+                        and len(target.elts) == 2
+                        and isinstance(target.elts[0], ast.Name)
+                        and target.elts[0].id == "pos"
+                        and isinstance(target.elts[1], ast.Name)
+                        and target.elts[1].id == "ticker"
+                        and isinstance(iter_node, ast.Name)
+                        and iter_node.id == "open_rows"
+                    ):
+                        return child
+            return None
+
+        for_node = _find_target_for(tree)
+        assert for_node is not None, (
+            "Could not find 'for pos, ticker in open_rows:' in apps/api/main.py — "
+            "the portfolio_state restore loop has been removed or renamed."
+        )
+
+        # Walk the for-loop body and confirm a `positions[ticker] = PortfolioPosition(...)`
+        # subscript-assignment lives inside it.
+        found_dict_assign = False
+        for stmt in ast.walk(for_node):
+            if isinstance(stmt, ast.Assign):
+                for tgt in stmt.targets:
+                    if (
+                        isinstance(tgt, ast.Subscript)
+                        and isinstance(tgt.value, ast.Name)
+                        and tgt.value.id == "positions"
+                    ):
+                        # Confirm RHS is a PortfolioPosition() call
+                        if (
+                            isinstance(stmt.value, ast.Call)
+                            and isinstance(stmt.value.func, ast.Name)
+                            and stmt.value.func.id == "PortfolioPosition"
+                        ):
+                            found_dict_assign = True
+                            break
+
+        assert found_dict_assign, (
+            "Phase 73 regression: `positions[ticker] = PortfolioPosition(...)` is "
+            "NOT inside the `for pos, ticker in open_rows:` loop body in "
+            "apps/api/main.py.  This is the Phase 72 indentation bug — only the "
+            "last position will be restored, every other open position is lost on "
+            "every API restart.  Fix by re-indenting the assignment INTO the loop."
+        )
+
     def test_portfolio_position_fields(self):
         """PortfolioPosition dataclass has expected fields."""
         from services.portfolio_engine.models import PortfolioPosition

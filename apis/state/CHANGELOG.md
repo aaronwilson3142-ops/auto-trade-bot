@@ -3,6 +3,33 @@ Format: [YYYY-MM-DD] | file/module | description
 
 ---
 
+## [2026-05-04] Phase 73 — Position-Restore Indentation Fix + Alertmanager 30m Defense
+
+**Context:** 3 consecutive Sunday/Saturday deep-dives (DEC-064 / DEC-065 / DEC-068) all flagged `DrawdownCritical` re-firing within ~2 minutes of every stack restart. Prior runs misdiagnosed the cause as a "dual-snapshot baseline row" being read by the Prometheus equity gauge.
+
+**Actual root cause:** Phase 72 (`1759455`, 2026-05-01) introduced a comment block at the wrong indentation level inside the `for pos, ticker in open_rows:` loop in `apps/api/main.py`'s portfolio_state restore block. The dedent dragged the dict-assignment `positions[ticker] = PortfolioPosition(...)` OUT of the for-loop body. Result: only the LAST iteration's position was added to the dict, so on every API boot only 1 of N open positions was restored. With 12 open positions and `cash=$23,050.76`, the gauge reported `$23,050.76 + $7,366.54 (SLB only) = $30,417.30` — well below the `DrawdownCritical` $90,500 threshold (`for: 1m`), firing the alert.
+
+**Verification:** Live Prometheus before fix: `apis_portfolio_positions=1, apis_portfolio_equity_usd=30417.30`. After fix + API restart: `apis_portfolio_positions=12, apis_portfolio_equity_usd=111051.98` (matches DB latest snapshot exactly). Alertmanager `firing=0`.
+
+| File | Change |
+|------|--------|
+| `apps/api/main.py` | Re-indent `_db_os` lookup + `positions[ticker] = PortfolioPosition(...)` block from column 16 to column 20 (INSIDE the for-loop body). Phase 73 comment marker explaining the prior regression. |
+| `tests/unit/test_phase59_state_persistence.py` | New `test_restore_loop_dict_assignment_is_inside_for_loop` — AST-based regression assertion that prevents future re-introduction of the same indentation bug. |
+| `infra/monitoring/prometheus/rules/apis_alerts.yaml` | Defense-in-depth: `DrawdownAlert` `for:` 5m → 30m; `DrawdownCritical` `for:` 1m → 30m. Phase 73 comment explaining rationale. Prometheus reloaded; rules now show `duration=1800s`. |
+
+**Why CI didn't catch it:** The pre-existing `test_restore_with_snapshot_and_positions` only passed ONE position and asserted `True`. The new AST regression test would have caught the Phase 72 indentation drift at PR review time.
+
+**Pytest smoke (`tests/unit/ -k "deep_dive or phase22 or phase57 or phase59"` `APIS_PYTEST_SMOKE=1`):** **397 passed / 0 failed** in 74.57s. (361 prior baseline + my new phase59 test.)
+
+**Validation timeline:**
+1. 01:00 UTC — Indentation fix applied to `apps/api/main.py`.
+2. 01:00 UTC — `docker restart docker-api-1`. Prometheus immediately reports correct `positions=12, equity=$111,051.98`.
+3. 01:15 UTC — Alertmanager `firing=0`.
+4. 01:17 UTC — `for: 30m` rules applied + Prometheus reloaded; rules show `duration=1800s`.
+5. 01:20 UTC — Pytest smoke 397 passed / 0 failed.
+
+---
+
 ## [2026-04-26] Phase 67 — Worker RED Fix: Anti-Churn Cap + Signal Quality + Sector Rebalance Trims
 
 **Context:** Worker readiness gate RED — `min_sharpe_estimate = -3.3935` (threshold >= 0.50). ODFL churn pattern (buy 66 → trim 66 every cycle) was the primary Sharpe destroyer.

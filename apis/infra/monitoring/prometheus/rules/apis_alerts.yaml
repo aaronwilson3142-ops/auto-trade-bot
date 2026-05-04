@@ -136,8 +136,14 @@ groups:
         # Alert when portfolio equity drops more than 8% from $100k baseline.
         # Threshold is intentionally below the hard 10% kill-switch drawdown
         # so operators can intervene before the hard stop fires.
+        # Phase 73 (2026-05-04): `for:` raised 5m → 30m as defense-in-depth
+        # against transient post-restart equity-gauge anomalies.  The
+        # underlying root cause (position-restore indentation bug) was fixed
+        # in apps/api/main.py the same day, but this guard catches any
+        # similar future class of false positive without delaying genuine
+        # 30m+ sustained drawdowns.
         expr: apis_portfolio_equity_usd < 92000
-        for: 5m
+        for: 30m
         labels:
           severity: warning
           team: trading
@@ -149,8 +155,16 @@ groups:
             The hard kill-switch triggers at 10% drawdown (~$90,000).
 
       - alert: DrawdownCritical
+        # Phase 73 (2026-05-04): `for:` raised 1m → 30m as defense-in-depth.
+        # Recurring post-restart false positives between 2026-05-02 and
+        # 2026-05-04 were caused by a position-restore indentation bug
+        # (only 1 of N positions restored, producing a phantom $30k equity
+        # gauge until the first paper cycle ran).  The bug is fixed, but
+        # any future class of transient equity anomaly is now suppressed
+        # for 30 minutes — long enough to ride out post-restart resync,
+        # short enough to still page on a genuine drawdown chase.
         expr: apis_portfolio_equity_usd < 90500
-        for: 1m
+        for: 30m
         labels:
           severity: critical
           team: trading
