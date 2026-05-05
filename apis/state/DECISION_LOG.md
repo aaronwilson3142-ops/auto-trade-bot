@@ -3,6 +3,43 @@ Format: timestamp | decision | alternatives considered | rationale | consequence
 
 ---
 
+## [2026-05-05] Phase 77 — Alembic UNIQUE (security_id, opened_at) on positions (DEC-077)
+
+### DEC-077: Add DB-level UNIQUE constraint on `positions(security_id, opened_at)` via Alembic migration `q7r8s9t0u1v2`
+- **Decision:** Add a new Alembic migration `q7r8s9t0u1v2_add_positions_unique_security_opened_at.py` (down_revision = `p6q7r8s9t0u1`) that calls `op.create_unique_constraint("uq_positions_security_id_opened_at", "positions", ["security_id", "opened_at"])`. Mirror the constraint at the SQLAlchemy ORM layer in `Position.__table_args__` so `Base.metadata` reflection and Alembic autogenerate both see it. Constraint name + table name pulled into module-level constants `_CONSTRAINT_NAME` / `_TABLE_NAME` so the upgrade and downgrade halves can never drift.
+- **Alternatives considered:**
+  - **Leave as Python-only guard (Phase 75 status quo).** Rejected — the operator-deferred follow-up explicitly listed the migration as the natural next step now that the 2026-05-05 cleanup eliminated the historical duplicates. A DB-level guard catches any future regression of the Phase 75 `_persist_positions` upsert at the engine boundary, even if a refactor later drops the Python check.
+  - **Partial unique index `WHERE status='open'` only.** Rejected — Phase 75's reopen-if-closed semantics rely on uniqueness across both open and closed rows for one ownership episode (so a closed row can be revived rather than producing a second insert). A status-conditional index would not catch the bug class Phase 75 fixed.
+  - **Defer until next deploy window.** Rejected per operator preference: cleanup already ran, dup count is zero, and the api entrypoint runs `alembic upgrade head` on every boot anyway, so the constraint will auto-apply at next compose recreate. Applying it now during the same session as Phase 78 keeps the audit trail tight.
+- **Rationale:** Phase 75 fixed the row-inflation bug at the persistence layer with a `(security_id, opened_at)` idempotent upsert + close-loop safe-list. Phase 75's NEXT_STEPS explicitly listed this migration as the operator-deferred follow-up because it would have FAILED until duplicates were cleared. The 2026-05-05 cleanup transaction collapsed 395 dup closed-position rows down to one canonical row per `(security_id, opened_at)` group, so the constraint is now safe. Adding it converts a Python invariant into a schema invariant — the same belt-and-braces pattern Phase 76 used for `inactive_ticker`.
+- **Consequence:**
+  - Live schema gains `uq_positions_security_id_opened_at` (verified post-migration via `\d+ positions`). Any future regression of the Phase 75 upsert that tries to INSERT a duplicate row will now fail at the engine boundary with a `UniqueViolation` rather than silently accumulating.
+  - The api entrypoint's `alembic upgrade head` will be a no-op on subsequent boots; `alembic current` reports `q7r8s9t0u1v2 (head)`.
+  - 5 new pytest regression tests in `tests/unit/test_phase77_78_unique_and_is_active.py::TestPhase77*` lock the ORM and migration shape in. Static-only — no DB hit, runs under smoke mode.
+  - Downgrade path (`drop_constraint(...)`) included for completeness; not expected to be exercised.
+
+---
+
+## [2026-05-05] Phase 78 — Strategy-side `is_active=True` Filter (DEC-078)
+
+### DEC-078: Add `Security.is_active=True` filter at both `signal_engine._load_security_ids()` and `ranking_engine._load_signals_from_db()`
+- **Decision:** Add `.where(Security.is_active.is_(True))` to two call sites:
+  1. **Primary** — `services/signal_engine/service.py::SignalEngineService._load_security_ids()`. Filters out delisted tickers at the candidate-resolution boundary so they never enter the signal pipeline.
+  2. **Defensive** — `services/ranking_engine/service.py::RankingEngineService._load_signals_from_db()`. Catches any stale `security_signals` rows for a ticker that was deactivated mid-episode (so they can't be ranked into a proposal even if signal generation fired before the deactivation).
+- Diagnostic log line added at the primary site (`signal_engine_inactive_or_unknown_tickers_dropped`) listing up to 20 tickers when resolution drops anything, so operator universe-overrides on inactive tickers don't fail silently.
+- **Alternatives considered:**
+  - **Risk-engine-only (Phase 76 status quo).** Originally chosen by the operator on 2026-05-05 to keep the gate in a single chokepoint. Reversed today now that proposal-layer noise (HOLX getting PROPOSED 6/6 cycles before the risk engine blocks it) is established as a recurring triage burden. Phase 76's risk-engine gate stays in place — Phase 78 sits in front of it.
+  - **Single-place at signal engine only.** Rejected — defence-in-depth is cheap (two ~one-line edits, two regression tests) and protects against the case where an inactive ticker's pre-existing signal rows survive across a deactivation.
+  - **Single-place at ranking engine only.** Rejected — would still let signal generation write rows for inactive tickers (DB noise), and would break the symmetry with Phase 76 (gate inactive at every layer that surfaces a ticker).
+- **Rationale:** With Phase 77 now closing the persistence-layer hole and Phase 76 closing the order-execution hole, the only remaining noise about HOLX (and the 13 stale delisted S&P 500 names: JNPR, MMC, WRK, PARA, K, HES, PKI, IPG, DFS, MRO, CTLT, PXD, ANSS) is at the proposal layer — they keep getting PROPOSED each cycle and rejected with `risk_inactive_ticker_blocked` log lines. Filtering at the candidate selector eliminates the noise without weakening the downstream gates.
+- **Consequence:**
+  - Inactive tickers are now suppressed at three layers: candidate selection (Phase 78), risk validation (Phase 76), and persistence (Phase 75 + 77). Defence-in-depth complete.
+  - `signal_engine_inactive_or_unknown_tickers_dropped` log line will fire roughly once per signal-generation run (universe of ~488 vs active subset ≈ 475) — bounded count + capped ticker list keeps the line small.
+  - 4 new pytest regression tests in `tests/unit/test_phase77_78_unique_and_is_active.py::TestPhase78*` verify the WHERE clause includes `securities.is_active` via compiled-SQL inspection.
+  - CLOSE / SELL flows are unaffected — they read from `PortfolioState.positions` (in-memory paper-broker state), never from `securities`.
+
+---
+
 ## [2026-05-05] Phase 76 — HOLX Universe-Filter Defence-in-Depth (DEC-076)
 
 ### DEC-076: Add `inactive_ticker` violation rule to risk engine via injected `is_active_fn` callable

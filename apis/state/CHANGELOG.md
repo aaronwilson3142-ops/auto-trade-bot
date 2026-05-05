@@ -3,6 +3,32 @@ Format: [YYYY-MM-DD] | file/module | description
 
 ---
 
+## [2026-05-05 ~21:00 UTC] Phase 77 + 78 — DB UNIQUE on positions + Strategy-side is_active filter (DEC-077 / DEC-078)
+
+**Files changed:**
+
+| File | Change |
+|------|--------|
+| `apis/infra/db/versions/q7r8s9t0u1v2_add_positions_unique_security_opened_at.py` | NEW Alembic migration. `revision='q7r8s9t0u1v2'`, `down_revision='p6q7r8s9t0u1'`. `upgrade()` calls `op.create_unique_constraint("uq_positions_security_id_opened_at", "positions", ["security_id", "opened_at"])`. `downgrade()` drops it. Constraint name + table name pulled into module-level constants so upgrade/downgrade can never drift. |
+| `apis/infra/db/models/portfolio.py` | `Position.__table_args__` now includes `sa.UniqueConstraint("security_id", "opened_at", name="uq_positions_security_id_opened_at")` so `Base.metadata` reflection and Alembic autogenerate diffs see the constraint. Existing `ix_position_status` index preserved. |
+| `apis/services/signal_engine/service.py` | `SignalEngineService._load_security_ids()` now adds `.where(Security.is_active.is_(True))` to the candidate-resolution SELECT. Inactive tickers (HOLX + 13 stale delisted S&P 500 names) never enter the signal pipeline. New `signal_engine_inactive_or_unknown_tickers_dropped` info-level log line lists up to 20 dropped tickers when resolution shrinks the universe (caps log line size). |
+| `apis/services/ranking_engine/service.py` | `RankingEngineService._load_signals_from_db()` now adds `.where(Security.is_active.is_(True))` to the signal-load JOIN. Defensive layer in case stale signal rows exist for a recently-deactivated ticker. |
+| `apis/tests/unit/test_phase77_78_unique_and_is_active.py` | NEW test file with 10 tests across 4 classes: `TestPhase77UniqueConstraintORM` (2 tests — ORM `__table_args__` + `__table__.constraints` reflection); `TestPhase77MigrationModule` (4 tests — module-importable, constants match ORM, upgrade/downgrade body shape); `TestPhase78SignalEngineIsActiveFilter` (2 tests — compiled-SQL inspection + return-dict shape); `TestPhase78RankingEngineIsActiveFilter` (2 tests — compiled-SQL inspection + empty-rows return). All DB-free; runs under `APIS_PYTEST_SMOKE=1`. |
+
+**Why:**
+- **Phase 77** — Phase 75 fixed the row-inflation bug at the Python persistence layer; the 2026-05-05 cleanup transaction collapsed 395 historical duplicate closed-position rows; the constraint is now safe to enforce. DB-level guard catches any future regression of the `_persist_positions` upsert at the engine boundary.
+- **Phase 78** — Phase 76 added a risk-engine `inactive_ticker` rule (single-place gate). Proposal-layer noise (HOLX getting PROPOSED 6/6 cycles before being blocked) was established as a triage burden in the 2026-05-05 deep-dives. Adding `is_active` filters at the signal-engine + ranking-engine layers eliminates the noise without weakening the downstream Phase 76 gate.
+
+**Validation:**
+- `tests/unit/test_phase77_78_unique_and_is_active.py` — 10 passed in 9.5s under `APIS_PYTEST_SMOKE=1`.
+- Broader sweep `tests/unit/ -k "deep_dive or phase22 or phase57 or phase59 or phase64 or phase77_78 or signal_engine or ranking_engine or risk_engine or paper_trading"` — 587 passed / 1 pre-existing failure (`test_phase20_priority20::test_paper_trading_cycle_calls_persist_snapshot`, fails identically on baseline `main` without these changes; unrelated broker_health_invariant + production-DB read).
+- Ruff clean on all 5 changed files (1 trivial blank-line fix landed during the sweep).
+- `alembic upgrade head` ran cleanly: `p6q7r8s9t0u1 → q7r8s9t0u1v2`. Post-migration `pg_get_constraintdef` confirms `UNIQUE (security_id, opened_at)` on `positions`. Position counts unchanged at 189 total / 12 open / 0 dup groups.
+
+**Operational note:** No worker restart needed for Phase 77 (constraint sits at the schema layer, transparent to running code). Phase 78 changes are loaded into `docker-api-1` / `docker-worker-1` via the read-only bind mount on next signal-generation run; effective from the 06:30 ET / 10:30 UTC signal job tomorrow without intervention.
+
+---
+
 ## [2026-05-05 ~20:00 UTC] Phase 76 — HOLX Universe-Filter Defence-in-Depth (DEC-076)
 
 **Files changed:**

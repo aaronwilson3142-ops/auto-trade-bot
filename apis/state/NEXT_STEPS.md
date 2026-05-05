@@ -1,6 +1,22 @@
 # APIS — Next Steps
 
-Last Updated: 2026-05-05 20:25 UTC — Phase 76 (HOLX risk-engine defence-in-depth, DEC-076) deployed + Phase 75 bundled push + 395-row historical cleanup all completed in one operator session.
+Last Updated: 2026-05-05 ~21:00 UTC — Phase 77 (Alembic UNIQUE on positions, DEC-077) + Phase 78 (strategy-side `is_active=True` filter, DEC-078) shipped + applied + tested. Both items #1 and #2 from the prior "Open follow-ups" list now closed.
+
+## ✅ DONE 2026-05-05 ~21:00 UTC — Phase 77 (DEC-077) DB UNIQUE on positions + Phase 78 (DEC-078) Strategy-Side `is_active` Filter
+
+- **Phase 77** Alembic migration `q7r8s9t0u1v2_add_positions_unique_security_opened_at.py` (down_revision = `p6q7r8s9t0u1`) adds `UNIQUE (security_id, opened_at)` constraint named `uq_positions_security_id_opened_at`. ORM mirrored in `Position.__table_args__`. Migration applied to `docker-postgres-1`: `alembic current` now reports `q7r8s9t0u1v2 (head)`; `pg_get_constraintdef` confirms `UNIQUE (security_id, opened_at)`. DB unchanged at 189 total / 12 open / 0 dup groups.
+- **Phase 78** added `.where(Security.is_active.is_(True))` to two call sites for defence-in-depth: primary in `signal_engine._load_security_ids()` + defensive in `ranking_engine._load_signals_from_db()`. New `signal_engine_inactive_or_unknown_tickers_dropped` log line surfaces operator-override drops without spamming.
+- **Tests**: 10 new tests in `tests/unit/test_phase77_78_unique_and_is_active.py` (4 classes — ORM reflection, migration shape, signal-engine SQL, ranking-engine SQL). All DB-free. Broader sweep `tests/unit/ -k "deep_dive or phase22 or phase57 or phase59 or phase64 or phase77_78 or signal_engine or ranking_engine or risk_engine or paper_trading"` → 587 passed / 1 pre-existing failure (`test_phase20_priority20::test_paper_trading_cycle_calls_persist_snapshot`, fails identically on baseline `main`; unrelated).
+- **Ruff** clean on all 5 changed files.
+- **Commit + push** to `origin/main` — see "Pending verifications" below for first-cycle expectations.
+
+## Open follow-ups (operator-deferred, low priority)
+
+1. **Verify next signal-generation run** picks up Phase 78. Look for `signal_engine_inactive_or_unknown_tickers_dropped` log line in `docker-worker-1` after the next 06:30 ET / 10:30 UTC signal job. The line should appear once per run with `count` ≈ 13 (the 13 stale delisted S&P 500 names + HOLX vs the universe-of-record 488). Tighter dropped-count (or a missing line entirely) would suggest the worker is reading a stale code path.
+2. **Verify `broker_health_position_drift` clears** within 1-2 cycles as forecast in NEXT_STEPS dating back to the 2026-05-05 10:18 UTC pre-market entry. Phase 77 alone doesn't change broker drift behaviour; the close-loop reconciliation that does already landed in Phase 75. The constraint just enforces what the close-loop already maintains.
+3. **`scheduler.job_count=36`** — single-job drift from the documented baseline of 35 in `feedback_apis_deep_dive_probes.md`. Pre-existing carry-forward; investigate if it persists. Not blocking.
+
+---
 
 ## ✅ DONE 2026-05-05 ~20:00 UTC — Phase 76 (DEC-076) HOLX Universe-Filter Defence-in-Depth + Phase 75 Bundled Push + Historical Cleanup
 
@@ -9,12 +25,12 @@ Last Updated: 2026-05-05 20:25 UTC — Phase 76 (HOLX risk-engine defence-in-dep
 - **Historical cleanup** — 395 duplicate closed-position rows deleted in single transaction. Adapted SQL (UUID id, no `MAX(uuid)`): used `ROW_NUMBER() OVER (PARTITION BY security_id, opened_at ORDER BY (status='open') DESC, closed_at DESC NULLS FIRST, id DESC)`. Re-pointed 15 orphan orders to canonical id BEFORE delete (FK is RESTRICT, not CASCADE). Final state: positions 584 → 189 (12 open / 177 closed), zero dup groups, zero orphan orders.
 - **Validation:** 175 tests pass under `APIS_PYTEST_SMOKE=1`; ruff clean. Worker + api restarted 20:19:55 UTC; `apis_worker_started` shows `job_count=36`.
 
-## Open follow-ups (operator-deferred, low priority)
+## Closed-on-2026-05-05 follow-ups (Phase 77/78)
 
-1. **Optional Alembic migration to enforce `UNIQUE (security_id, opened_at)`.** Now safe to run since the cleanup eliminated all duplicates. Would prevent any future regression at the DB level even if Phase 75's Python guards regress.
-2. **Optional strategy-side `is_active=true` filter on candidate-universe selector.** Operator chose risk-engine-only for Phase 76 (single-place defence-in-depth). Adding a strategy-side filter would also eliminate the proposal-layer noise (HOLX still gets PROPOSED each cycle, just blocked at risk validation). Worth doing if log/metric noise becomes a triage burden.
-3. **Verify next paper cycle runs cleanly** with the new `inactive_ticker` rule. Look for `risk_inactive_ticker_blocked` log lines on HOLX (or any of the 13 stale delisted S&P 500 names). `broker_health_position_drift` carry-forward should narrow as Phase 75 dedup is enforced.
-4. **`scheduler.job_count=36`** — single-job drift from the documented baseline of 35 in `feedback_apis_deep_dive_probes.md`. Investigate if it persists; not blocking.
+1. ✅ **Optional Alembic migration to enforce `UNIQUE (security_id, opened_at)`** — landed as Phase 77, migration applied to docker-postgres-1.
+2. ✅ **Optional strategy-side `is_active=true` filter on candidate-universe selector** — landed as Phase 78 with defence-in-depth (signal-engine + ranking-engine).
+3. **Verify next paper cycle runs cleanly** with the new `inactive_ticker` rule (Phase 76). Carry-forward from this morning's deep-dive — see "Verify next signal-generation run" above.
+4. **`scheduler.job_count=36`** — single-job drift from the documented baseline of 35 in `feedback_apis_deep_dive_probes.md`. Carry-forward; not blocking.
 
 ---
 

@@ -2,6 +2,38 @@
 
 Auto-generated daily health check results.
 
+## Session Close — 2026-05-05 ~21:00 UTC (Tuesday 4:00 PM CT) — Phase 77 + Phase 78 SHIPPED (NEXT_STEPS items #1 + #2)
+
+**Summary:** Both operator-deferred follow-ups from this morning's NEXT_STEPS list closed in one session. Defence-in-depth on inactive tickers is now complete across four layers (candidate selection → risk validation → persistence reopen → DB UNIQUE).
+
+**1) Phase 77 — Alembic UNIQUE on positions(security_id, opened_at) (DEC-077)**
+- New migration `apis/infra/db/versions/q7r8s9t0u1v2_add_positions_unique_security_opened_at.py`. `revision='q7r8s9t0u1v2'`, `down_revision='p6q7r8s9t0u1'`. Constraint name + table held in module constants so upgrade/downgrade halves never drift.
+- ORM mirrored in `Position.__table_args__` (`apis/infra/db/models/portfolio.py`) so `Base.metadata` + autogenerate see it.
+- **Migration applied:** `docker exec docker-api-1 python -m alembic upgrade head` — `Running upgrade p6q7r8s9t0u1 -> q7r8s9t0u1v2`. Post-apply: `alembic current` returns `q7r8s9t0u1v2 (head)`; `pg_get_constraintdef` returns `UNIQUE (security_id, opened_at)`. DB row counts unchanged: 189 total / 12 open / 0 dup groups.
+
+**2) Phase 78 — Strategy-side `is_active=True` filter (DEC-078)**
+- `services/signal_engine/service.py::SignalEngineService._load_security_ids()` now adds `.where(Security.is_active.is_(True))` (primary candidate-resolution filter). New `signal_engine_inactive_or_unknown_tickers_dropped` info log surfaces drops (capped at 20 tickers per line).
+- `services/ranking_engine/service.py::RankingEngineService._load_signals_from_db()` now adds the same filter (defensive — catches stale signal rows for a recently-deactivated ticker).
+- Defence-in-depth chosen over single-place per operator decision; cost is two ~1-line edits + 4 regression tests.
+
+**3) Tests + lint**
+- New file `apis/tests/unit/test_phase77_78_unique_and_is_active.py` — 10 tests across 4 classes (ORM + migration + signal-engine SQL + ranking-engine SQL). All DB-free; runs under `APIS_PYTEST_SMOKE=1` in 9.5s.
+- Broader sweep `tests/unit/ -k "deep_dive or phase22 or phase57 or phase59 or phase64 or phase77_78 or signal_engine or ranking_engine or risk_engine or paper_trading"` → **587 passed / 1 pre-existing failure** in 146.99s. The single failure (`test_phase20_priority20::test_paper_trading_cycle_calls_persist_snapshot`) reproduces identically on baseline `main` without these changes (verified by `git stash` of Phase 78 edits → 1 fail, `git stash pop` → 1 fail). Unrelated `broker_health_invariant` + production-DB-read issue, not introduced by Phase 77/78.
+- Ruff clean on all 5 changed files (1 trivial blank-line fix landed during the sweep).
+
+**4) Inactive-ticker suppression layers (post-Phase-78)**
+
+| Layer | Phase | What blocks |
+|-------|-------|-------------|
+| Candidate selection | 78 | `signal_engine._load_security_ids()` + `ranking_engine._load_signals_from_db()` filter `Security.is_active=True` |
+| Risk validation | 76 | `RiskEngineService.check_inactive_ticker()` hard-blocks OPEN on `securities.is_active=False` |
+| Persistence reopen | 75 | `_persist_positions` upserts on `(security_id, opened_at)` with reopen-if-closed |
+| DB schema | 77 | `UNIQUE (security_id, opened_at)` rejects duplicate inserts at engine boundary |
+
+**5) Action items rolled forward** — see NEXT_STEPS.md.
+
+---
+
 ## Session Close — 2026-05-05 20:25 UTC (Tuesday 3:25 PM CT) — Phase 75 + Phase 76 BUNDLED PUSH + Historical Cleanup
 
 **Summary:** Three "fix once and for all" tasks closed in one session.
