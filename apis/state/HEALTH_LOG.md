@@ -2,6 +2,35 @@
 
 Auto-generated daily health check results.
 
+## Session Close — 2026-05-05 20:25 UTC (Tuesday 3:25 PM CT) — Phase 75 + Phase 76 BUNDLED PUSH + Historical Cleanup
+
+**Summary:** Three "fix once and for all" tasks closed in one session.
+
+**1) Phase 76 — HOLX universe-filter defence-in-depth (DEC-076)** — commit `caa497d` on `main`, pushed to `origin/main`.
+- `apis/services/risk_engine/service.py`: added `is_active_fn: Callable[[str], bool] | None = None` constructor param (mirrors `kill_switch_fn`); added `check_inactive_ticker(action)` method that hard-blocks OPEN actions when `is_active_fn(ticker) == False`. CLOSE/TRIM never blocked. Wired into `validate_action()` between `kill_switch` and `portfolio_limits`. New log line `risk_inactive_ticker_blocked`. Backward-compatible (None → check skipped). Exceptions in callable swallowed with warning (defensive, not authoritative).
+- `apis/apps/worker/jobs/paper_trading.py::run_paper_trading_cycle`: snapshots `securities.is_active=False` tickers once per cycle into `_inactive_tickers: set[str]` and passes `lambda t: t not in _inactive_tickers` as `is_active_fn` when constructing `RiskEngineService`. Snapshot failure logs `paper_cycle_inactive_ticker_snapshot_failed` and falls back to empty set (no false positives).
+- `apis/tests/unit/test_risk_engine.py`: `TestInactiveTicker` class with 8 tests. Also fixed 2 pre-existing env-drift failures (`test_blocks_open_at_max_positions`, `test_single_violation_blocks_action`) by pinning `max_positions=10` explicitly.
+- Operator chose risk-engine-only (over dual risk-engine+strategy candidate filter); single-place defence-in-depth is cleaner.
+
+**2) Phase 75 — bundled commit + push** — commit `d6be5ea`. Was already in working tree pending commit; bundled into the same push. Push range: `9db28ae..caa497d`. Both Phase 75 and Phase 76 land on origin together.
+
+**3) Historical cleanup — 395 duplicate closed-position rows deleted.**
+- Original recommendation SQL `DELETE WHERE id NOT IN (SELECT MAX(id) GROUP BY security_id, opened_at)` doesn't work (positions.id is UUID, no MAX(uuid)). Adapted with `ROW_NUMBER() OVER (PARTITION BY security_id, opened_at ORDER BY (status='open') DESC, closed_at DESC NULLS FIRST, id DESC)`.
+- FK on `orders.position_id` is RESTRICT (no CASCADE) — re-pointed 15 orphan orders to canonical (keeper) position id BEFORE the DELETE.
+- All in single `BEGIN; ... COMMIT;` transaction. Final state: positions 584 → 189 (12 open / 177 closed), zero remaining `(security_id, opened_at)` dup groups, zero orphan orders.
+- "~140" estimate from 2026-05-04 21:30 UTC HEALTH_LOG was low — by 2026-05-05 ~20:00 UTC the actual count was 395 (additional 2026-05-04 cycles ran before Phase 75 deployed at 01:41:58 UTC 2026-05-05).
+
+**Validation:** 175 tests pass (risk_engine 63, paper_trading 63, phase64 7, deep_dive_step5 16, execution_engine 23, plus 3 others) under `APIS_PYTEST_SMOKE=1` in `docker-api-1`. Ruff clean on changed files.
+
+**Operational:** worker + api restarted 2026-05-05 20:19:55 UTC. `apis_worker_started` log shows `job_count=36`. Next paper cycle exercises the new gate.
+
+**Remaining context for next session:**
+- 12 open positions all `origin_strategy=rebalance` — `broker_health_position_drift` carry-forward will likely take 1–2 more cycles to clear naturally now that Phase 75 + 76 are live.
+- HOLX issue: previously recurring proposals will now be hard-blocked at validate_action with `rule_name=inactive_ticker` instead of relying on Alpaca rejection + daily cap.
+- Strategy candidate-universe selector still does NOT honour `securities.is_active=false` — out of scope per operator choice. If proposal-layer noise becomes a triage burden, add a strategy-side filter as a secondary defence (see `project_phase76_holx_risk_engine_fix.md` in memory).
+
+---
+
 ## Health Check — 2026-05-05 19:12 UTC (Tuesday 2:12 PM CT, market open ~5.6h, 6/12 cycles fired)
 
 **Overall Status:** YELLOW — same two carry-forward issues from this morning's 15:09 UTC entry, no new regressions, no escalation. (1) `broker_health_position_drift` fired on every paper cycle today (6/6: 13:35, 14:30, 15:30, 16:00, 17:30, 18:30 UTC) on the same 12 operator-restored rebalance tickers — strategy continues to BUY toward the DB target rather than CLOSE; drift will narrow gradually as broker accumulates over many cycles. (2) HOLX proposed + rejected on every cycle (6/6) — strategy still proposes inactive ticker; risk_engine blocks on `max_new_positions_per_day=5` (consumed by today's 5 BUY fills), Alpaca is the final safety net. Both issues triaged in the 15:09 UTC report; no new code/operator action since. Everything else GREEN: 8/8 containers healthy 16h uptime RestartCount=0, /health all 7 ok at 19:08:15Z, worker 24h log scan = 68 ERR / api = 43 ERR (all known yfinance stale + drift warnings, **0 crash-triad regressions** across all 5 patterns), Prometheus 2/2 up, Alertmanager firing=0 (Phase 73 `for: 30m` debounce holding all day), pytest deep_dive+phase22+phase57 → **360p/0f/3662d in 22.12s** ✅, alembic `p6q7r8s9t0u1` single head, CI on `9db28ae` `conclusion=success`, 12 OPEN positions all `origin_strategy=rebalance` ✅, 0 new positions today, kill_switch=false, mode=paper, 0 idempotency dupes, evaluation_runs=97 (≥80 floor), all 11 critical APIS_* flags correct, scheduler `job_count=36` + liveness heartbeat firing every 5 min (last 19:11:20 UTC). Phase 75 functional code still loaded in worker bind-mount (`grep -c phase75_position_row_reopened ... = 1`); zero `phase75_*` events today (expected — strategy hasn't reopened any closed ticker at the same `opened_at`).

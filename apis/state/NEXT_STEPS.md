@@ -1,6 +1,22 @@
 # APIS — Next Steps
 
-Last Updated: 2026-05-04 ~21:42 UTC — Phase 75 deployed (DEC-075). Position row-inflation fixed at the persistence layer.
+Last Updated: 2026-05-05 20:25 UTC — Phase 76 (HOLX risk-engine defence-in-depth, DEC-076) deployed + Phase 75 bundled push + 395-row historical cleanup all completed in one operator session.
+
+## ✅ DONE 2026-05-05 ~20:00 UTC — Phase 76 (DEC-076) HOLX Universe-Filter Defence-in-Depth + Phase 75 Bundled Push + Historical Cleanup
+
+- **Phase 76 commit `caa497d`** added `is_active_fn: Callable[[str], bool] | None = None` constructor param to `RiskEngineService` (mirrors `kill_switch_fn` injection pattern). New `check_inactive_ticker(action)` method hard-blocks OPEN actions on `securities.is_active=false` tickers. CLOSE/TRIM never blocked. `paper_trading.run_paper_trading_cycle` snapshots inactive tickers once per cycle and passes a closure as `is_active_fn`. 8 new tests in `TestInactiveTicker`. Also fixed 2 pre-existing env-drift failures by pinning `max_positions=10` explicitly.
+- **Phase 75 commit `d6be5ea`** bundled into the same push. Push range `9db28ae..caa497d` to `origin/main`. CI-green base preserved.
+- **Historical cleanup** — 395 duplicate closed-position rows deleted in single transaction. Adapted SQL (UUID id, no `MAX(uuid)`): used `ROW_NUMBER() OVER (PARTITION BY security_id, opened_at ORDER BY (status='open') DESC, closed_at DESC NULLS FIRST, id DESC)`. Re-pointed 15 orphan orders to canonical id BEFORE delete (FK is RESTRICT, not CASCADE). Final state: positions 584 → 189 (12 open / 177 closed), zero dup groups, zero orphan orders.
+- **Validation:** 175 tests pass under `APIS_PYTEST_SMOKE=1`; ruff clean. Worker + api restarted 20:19:55 UTC; `apis_worker_started` shows `job_count=36`.
+
+## Open follow-ups (operator-deferred, low priority)
+
+1. **Optional Alembic migration to enforce `UNIQUE (security_id, opened_at)`.** Now safe to run since the cleanup eliminated all duplicates. Would prevent any future regression at the DB level even if Phase 75's Python guards regress.
+2. **Optional strategy-side `is_active=true` filter on candidate-universe selector.** Operator chose risk-engine-only for Phase 76 (single-place defence-in-depth). Adding a strategy-side filter would also eliminate the proposal-layer noise (HOLX still gets PROPOSED each cycle, just blocked at risk validation). Worth doing if log/metric noise becomes a triage burden.
+3. **Verify next paper cycle runs cleanly** with the new `inactive_ticker` rule. Look for `risk_inactive_ticker_blocked` log lines on HOLX (or any of the 13 stale delisted S&P 500 names). `broker_health_position_drift` carry-forward should narrow as Phase 75 dedup is enforced.
+4. **`scheduler.job_count=36`** — single-job drift from the documented baseline of 35 in `feedback_apis_deep_dive_probes.md`. Investigate if it persists; not blocking.
+
+---
 
 ## ✅ DONE 2026-05-04 ~21:30 UTC — Phase 75 Position Row-Inflation Fix shipped + worker restarted
 
