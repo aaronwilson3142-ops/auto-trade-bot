@@ -49,6 +49,17 @@ class Position(Base, TimestampMixin):
     __tablename__ = "positions"
     __table_args__ = (
         sa.Index("ix_position_status", "status"),
+        # Phase 77 (DEC-077): DB-level guard against the row-inflation bug
+        # Phase 75 fixed at the persistence layer.  ``_persist_positions``
+        # already upserts on (security_id, opened_at) with reopen-if-closed
+        # semantics; this constraint catches any future regression at the
+        # engine boundary.  Migration q7r8s9t0u1v2 adds the matching unique
+        # constraint to the live schema.
+        sa.UniqueConstraint(
+            "security_id",
+            "opened_at",
+            name="uq_positions_security_id_opened_at",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
