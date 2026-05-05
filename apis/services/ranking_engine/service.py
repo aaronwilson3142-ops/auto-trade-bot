@@ -353,7 +353,15 @@ class RankingEngineService:
         session: Session,
         signal_run_id: uuid.UUID,
     ) -> list[SignalOutput]:
-        """Load SecuritySignal rows and reconstruct SignalOutput objects."""
+        """Load SecuritySignal rows and reconstruct SignalOutput objects.
+
+        Phase 78 (DEC-078): filters out signals whose security has been
+        marked ``is_active=False`` (delisted / removed).  Defensive layer in
+        case stale signal rows for a recently-deactivated ticker still exist
+        from before the inactivation; primary filter lives upstream in
+        ``SignalEngineService._load_security_ids`` so these rows will not
+        normally be produced.
+        """
         from infra.db.models import Strategy
 
         rows = session.execute(
@@ -366,6 +374,7 @@ class RankingEngineService:
             .join(Security, Security.id == SecuritySignal.security_id)
             .join(Strategy, Strategy.id == SecuritySignal.strategy_id)
             .where(SecuritySignal.signal_run_id == signal_run_id)
+            .where(Security.is_active.is_(True))
         ).all()
 
         outputs = []

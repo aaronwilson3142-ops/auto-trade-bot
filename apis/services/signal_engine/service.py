@@ -263,9 +263,30 @@ class SignalEngineService:
         session: Session,
         tickers: list[str],
     ) -> dict[str, uuid.UUID]:
+        """Resolve tickers to security UUIDs, dropping inactive (delisted) names.
+
+        Phase 78 (DEC-078): adds ``Security.is_active = True`` to the WHERE
+        clause as defence-in-depth alongside Phase 76's risk-engine
+        ``inactive_ticker`` rule.  Inactive tickers (e.g. HOLX and the 13
+        legacy S&P 500 names that fail yfinance daily) never enter the
+        signal pipeline, so they cannot generate proposals downstream.
+        Operator-added universe overrides on inactive tickers will be
+        silently dropped here — surface that with the diagnostic log line
+        below if it ever fires unexpectedly.
+        """
         from infra.db.models import Security
         rows = session.execute(
-            sa.select(Security.ticker, Security.id).where(Security.ticker.in_(tickers))
+            sa.select(Security.ticker, Security.id)
+            .where(Security.ticker.in_(tickers))
+            .where(Security.is_active.is_(True))
         ).all()
-        return {ticker: sid for ticker, sid in rows}
+        result = {ticker: sid for ticker, sid in rows}
+        if len(result) < len(tickers):
+            missing = sorted(set(tickers) - set(result.keys()))
+            logger.info(
+                "signal_engine_inactive_or_unknown_tickers_dropped count=%d tickers=%s",
+                len(missing),
+                missing[:20],  # cap at 20 to keep log line bounded
+            )
+        return result
 
