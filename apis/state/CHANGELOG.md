@@ -3,6 +3,59 @@ Format: [YYYY-MM-DD] | file/module | description
 
 ---
 
+## [2026-05-04 ~21:30 UTC] Phase 75 — Position Row-Inflation Fix in `_persist_positions` (DEC-075)
+
+**Files changed:**
+
+| File | Change |
+|------|--------|
+| `apis/apps/worker/jobs/paper_trading.py` | `_persist_positions`: (1) PRIMARY — added `(security_id, opened_at)` same-episode lookup BEFORE the legacy `status='open'` lookup; if found and `status != 'open'`, REOPEN by clearing `closed_at`/`exit_price`/`realized_pnl` and setting `status='open'`. New log line `phase75_position_row_reopened`. (2) DEFENSE-IN-DEPTH — track every `security_id` upserted/reopened in `_persist_touched_sec_ids: set`; in the close-loop, skip any row whose `security_id` is in that set even if `held_tickers` doesn't contain its ticker. New log line `phase75_close_skipped_just_upserted`. |
+| `apis/tests/unit/test_phase64_position_persistence.py` | New `TestPhase75ReopenIdempotency` class with 2 regression tests: `test_reopens_closed_row_with_same_opened_at` (the primary CSCO/BK/UNP/ODFL inflation case) + `test_close_loop_skips_just_upserted_security` (defense-in-depth for the upstream `held_tickers` mutation case). |
+
+**Context:** While triaging the user's "Phase 65c CSCO momentum_v1 churn" item from the 2026-05-04 19:08 UTC HEALTH_LOG entry, a deeper DB query revealed this is NOT new — the same row-inflation pattern has been firing since at least 2026-04-20 across many tickers:
+
+| Ticker | Rows | Episode | Origin |
+|--------|------|---------|--------|
+| BK     | 22   | 2026-04-20 → 04-24 | momentum_v1 |
+| UNP    | 20   | 2026-04-20 → 04-23 | momentum_v1 |
+| ODFL   | 20   | 2026-04-20 → 04-22 | momentum_v1 |
+| HOLX   | 19   | 2026-04-20 → 04-22 | momentum_v1 |
+| MRVL   | 17   | 2026-04-29 → 05-04 | rebalance |
+| BE/STT/WDC/NUE | 13 each | 2026-05-01 → 05-04 | rebalance |
+| SLB/CAT | 12 each | 2026-05-01 → 05-04 | rebalance |
+| AMD    | 11   | 2026-04-29 → 05-04 | rebalance |
+| CSCO   | 7    | 2026-05-04 (today) | momentum_v1 |
+
+All share `COUNT(DISTINCT opened_at)=1` per ticker-episode with only `closed_at` varying. The `momentum_v1`/`rebalance` origin is incidental — the bug is in the persistence layer (`_persist_positions`), not in any strategy.
+
+**Root cause:** The upsert path in `_persist_positions` queried for `status='open'` only. When an upstream code path closed the row mid-episode (broker drift via the close-loop with `held_tickers` empty/wrong, OR the in-memory `PortfolioPosition.opened_at` value preserved across cycles via broker-sync's update branch), the next cycle's upsert found nothing and INSERT'd a duplicate row with the original `opened_at` value.
+
+**Fix:** Match the upsert against `(security_id, opened_at)` regardless of status; reopen if closed. Plus track touched security_ids in the same call so the close-loop cannot re-close a row we just upserted (defense-in-depth even if upstream drops a ticker from `portfolio_state.positions` between the two loops).
+
+**Validation (live, against `docker-api-1` with `APIS_PYTEST_SMOKE=1`):**
+1. Pytest `tests/unit/test_phase64_position_persistence.py tests/unit/test_paper_trading.py tests/unit/test_deep_dive_step5_origin_strategy_wiring.py`: **87 passed / 0 failed in 11.68s** ✅. Includes 5 pre-existing Phase 64 tests + 66 paper_trading + 16 origin-strategy + 2 NEW Phase 75 regression tests.
+2. Pytest `tests/unit/test_phase64_position_persistence.py -v`: **7 passed** including both new `TestPhase75ReopenIdempotency` tests ✅.
+3. Ruff `--no-cache` clean on edited files ✅.
+4. Worker restart at 01:41:58 UTC; `docker logs --since 5m` shows clean startup with `apis_worker_started job_count=36`; `phase75_*` symbols visible in code via `grep -n phase75 /app/apis/apps/worker/jobs/paper_trading.py`.
+
+**Carry-forward:** Historical duplicate rows (16 ticker-episodes with COUNT(*)>1) remain in DB as audit trail. Optional operator-approved cleanup SQL: `DELETE FROM positions WHERE id NOT IN (SELECT MAX(id) FROM positions GROUP BY security_id, opened_at) AND id IN (SELECT id FROM positions WHERE status='closed')` (would collapse to one closed row per episode, preserving newest). Not required for the runtime fix.
+
+**Companion expectation:** `broker_health_position_drift` should clear within 1-2 paper cycles tomorrow (Tue 2026-05-05 09:35 ET) because the close-loop will correctly close the 12 operator-restored rebalance positions that the worker's broker doesn't have. No code change to broker startup seeding (deferred as an orthogonal fix per DEC-075 alternative (c)).
+
+---
+
+## [2026-05-04 19:13 UTC] Operations | docker restart docker-api-1 — clear broker adapter drift cache (DEC-074)
+
+**Action:** `docker restart docker-api-1`. No code change.
+
+**Context:** `broker_health_position_drift` warning fired on every paper cycle today (6 hits / 6 cycles) since the 12:25 UTC DEC-071 cleanup transaction restored 12 production positions in the DB without resyncing the broker adapter's in-memory position cache. Per standing autonomous-fix authority for container restarts.
+
+**Verification:** post-restart api `Up About a minute (healthy)`; /health all 7 components ok at 19:14:39Z; Prometheus `apis_portfolio_positions=12, equity_usd=110718.73, cash_usd=23050.74` matches DB latest snapshot exactly; Phase 73 indentation fix held; Alertmanager firing=0; Phase 73 `for: 30m` debounce active.
+
+**Companion finding (no code change applied — operator review required):** Phase 65c CSCO momentum_v1 churn — 6 position rows persisted today, all CSCO, identical opened_at/entry_price/quantity, only closed_at differs. Breaches `APIS_MAX_NEW_POSITIONS_PER_DAY=5`. Recommended fix: extend Phase 65b intra-cycle OPEN+CLOSE dedup to momentum_v1 strategy.
+
+---
+
 ## [2026-05-04] CI Lint Auto-Fix (DEC-073)
 
 **Commit:** `3bdbe64 fix(lint): I001 import-sort in tests/conftest.py from Phase 74`

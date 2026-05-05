@@ -2,6 +2,84 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-05-05 19:12 UTC (Tuesday 2:12 PM CT, market open ~5.6h, 6/12 cycles fired) — YELLOW
+
+**Overall Status:** YELLOW — same two carry-forward issues from this morning's 15:09 UTC entry, no new regressions, no escalation. (1) `broker_health_position_drift` fired on every paper cycle today (6/6) on the same 12 operator-restored rebalance tickers — strategy continues to BUY toward DB target rather than CLOSE; drift will narrow gradually. (2) HOLX proposed + rejected on every cycle (6/6) — strategy still proposes inactive ticker; risk_engine blocks on `max_new_positions_per_day=5`; Alpaca is final safety net. Both issues triaged in 15:09 UTC report; no new code/operator action since. All other subsystems GREEN: 8/8 containers healthy 16h uptime RestartCount=0, /health 7/7 ok, **0 crash-triad**, Prometheus 2/2 up, Alertmanager firing=0, pytest **360p/0f in 22.12s**, alembic single head `p6q7r8s9t0u1`, **CI run #25327395434 on `9db28ae` conclusion=success**, 12 OPEN positions all `origin_strategy=rebalance`, 0 new today, kill_switch=false mode=paper, 0 idempotency dupes, evaluation_runs=97 (≥80), all 11 critical APIS_* flags correct, scheduler `job_count=36` + liveness heartbeat 19:11:20 UTC. **NO autonomous fixes applied — no escalation since morning.** Email: YELLOW Gmail draft created (manual send required).
+
+Full deep-dive report mirrored from `apis/state/HEALTH_LOG.md` — see that file for the §1–§4 breakdown.
+
+---
+
+## Health Check — 2026-05-05 15:09 UTC (Tuesday 10:09 AM CT, market open ~1.6h) — YELLOW
+
+**Overall Status:** YELLOW — first-cycle Phase 75 validation reveals two carry-over patterns and one strategy-layer regression. (1) `broker_health_position_drift` fired on BOTH Tue cycles (13:35 + 14:30 UTC) on the same 12 tickers — Phase 75's close-loop is NOT naturally closing the operator-restored rebalance rows because the strategy is rebalancing in the OPPOSITE direction (5 BUY fills today bringing broker partially up to DB target rather than closing the rows). (2) HOLX still being PROPOSED by strategy (action_type=open) despite Phase 72's `is_active=false` (DB confirms `f`); risk_engine blocks only on `max_new_positions_per_day=5` (already at cap from today's 5 fills). Defense-in-depth holds (Alpaca rejects + risk-cap blocks) but Phase 72's "FULLY RESOLVED" claim is incomplete at the proposal layer. (3) Phase 75 functional code still uncommitted (intentional operator-defer carry-forward). Everything else GREEN: 8/8 containers healthy 12h uptime RestartCount=0, /health all 7 ok at 15:09:02Z, Worker 24h log scan = 34 ERROR (all known-stale yfinance + 7 drift warns; 0 crash-triad regressions), Prometheus 2/2 up, Alertmanager firing=0, pytest 360/0 in 25.18s, alembic single head `p6q7r8s9t0u1`, CI `9db28ae` `conclusion=success`, 12 OPEN positions all `origin_strategy=rebalance`, kill_switch=false, mode=paper, 0 idempotency dupes, evaluation_runs=97 (≥80 floor), all 11 critical APIS_* flags correct, scheduler `job_count=36` + liveness firing every 5 min, signal/ranking staleness FULLY CLEARED (06:30/06:45 ET jobs ran today). Today's 5 fills: INTC=64@$103.10, MU=10@$616.48, AMZN=24@$277.01, EQIX=6@$1086.05, NUE=29@$228.48 (all add-ons against existing rebalance positions; no new rows; rebalance-target semantics preserved). YELLOW email sent.
+
+### Issues Found
+- **[YELLOW] HOLX universe-filter regression vs Phase 72.** Strategy proposing inactive ticker; only `max_new_positions_per_day` cap stops it from reaching broker. Recommend adding `inactive_ticker` violation to risk_engine + `is_active=true` filter to strategy universe.
+- **[YELLOW] Phase 75 close-loop forecast miss.** Drift not clearing as forecasted because strategy rebalances toward DB target (BUY) instead of closing operator-restored rows. Will resolve naturally as broker accumulates over many cycles.
+- **[INFO] Phase 75 code change still uncommitted.** Tree state matches yesterday — operator commit/push pending.
+
+### Action Required from Aaron
+1. Triage HOLX universe-filter regression (preferred fix: `inactive_ticker` violation in risk_engine).
+2. Commit + push Phase 75 when ready.
+3. Monitor next 4–5 cycles for broker-drift trajectory.
+
+Full details in `apis/state/HEALTH_LOG.md`.
+
+---
+
+## Health Check — 2026-05-05 10:18 UTC (Tuesday 5:18 AM CT, pre-market) — GREEN
+
+**Overall Status:** GREEN — clean pre-market run after the Phase 75 deploy. 8/8 containers healthy and recreated together at 03:31:12 UTC (RestartCount=0; most likely operator `docker compose up -d` after the Mon 01:42 UTC Phase 75 worker restart). Phase 75 code path confirmed in worker. /health all 7 ok. 0 crash-triad regressions in worker/api logs. Prometheus 2/2 up. Alertmanager firing=0. 12 OPEN positions all `origin_strategy=rebalance`. Pytest **400p/0f in 70.43s** (deep_dive + phase22 + phase57 + phase59) **+ Phase 64/75 7p/0f in 6.83s**. Alembic single head `p6q7r8s9t0u1`. CI on `9db28ae` GREEN. All 11 critical APIS_* flags at expected values. Scheduler `job_count=36` with liveness heartbeat firing. Phase 75 fix awaiting first-cycle integration validation at 13:35 UTC today (~3.25h from this report). 7 `broker_health_position_drift` hits in the 24h window are all Mon-afternoon carry-forward (no cycles since the 01:42 UTC worker restart). signal_runs/ranking_runs still stale at 2026-05-01 — 06:30 ET (10:30 UTC) signal job fires in ~12 min. Dual-snapshot writer pattern still present and matches yesterday's report (no new regression). 0 fixes applied (no issues to fix). Email silent per GREEN rule.
+
+### §1 Infrastructure GREEN
+- Containers: 8/8 healthy. All 4 core services started 2026-05-05T03:31:12Z (RestartCount=0 = compose recreate, not daemon restart). Phase 75 code verified loaded in worker.
+- /health: all 7 components ok at 10:08:18Z. mode=paper, kill_switch=ok.
+- Worker log scan (24h): 34 ERROR pattern matches (yfinance stale-ticker carry-forward). **0 crash-triad**. **7 `broker_health_position_drift` hits — all Mon afternoon, pre-Phase-75-deploy.**
+- API log scan (5000 tail): 33 ERROR matches, 0 crash-triad.
+- Prometheus 2/2 up; Alertmanager firing=0.
+- Resource usage all under threshold; DB 171 MB.
+
+### §2 Execution + Data GREEN
+- Paper cycles: 0 today (first scheduled 13:35 UTC). evaluation_runs total = 97 (≥80 floor ✅).
+- 12 OPEN positions all `origin_strategy=rebalance`. 0 new positions today (CURRENT_DATE filter, expected pre-cycle).
+- Latest snapshot 2026-05-04 19:30:03 UTC: cash=$23,050.74 / equity=$110,500.08. Cash positive ✅. Dual-snapshot pattern (secondary $67k/$99.9k stream) carry-forward — same as yesterday.
+- daily_market_bars latest = 2026-05-04 (Mon close, 490 securities). signal_runs/ranking_runs latest = 2026-05-01 (Friday — Phase 74 cleanup collateral; will repopulate at 06:30 ET signal job in ~12 min).
+- Stale tickers: known 13 only. Kill-switch=false, mode=paper. Idempotency 0/0 dupes ✅.
+- Orders/fills 24h: 11 / 5 (Mon afternoon activity). Totals: 306 / 202.
+- Mon's 7 CSCO churn rows preserved (carry-forward pre-Phase-75; new churns prevented going forward).
+
+### §3 Code + Schema GREEN
+- Alembic `p6q7r8s9t0u1` single head ✅.
+- Pytest deep_dive+phase22+57+59 → **400p/0f in 70.43s** ✅. Phase 64+75 → **7p/0f in 6.83s** ✅.
+- Git tree DIRTY (Phase 75 functional + state-doc changes — operator-deferred per ACTIVE_CONTEXT). HEAD `9db28ae`, 0 unpushed.
+- **CI run #25327395434 on `9db28ae` conclusion=success** ✅.
+
+### §4 Config + Gates GREEN
+- All 11 critical APIS_* flags at expected values.
+- Scheduler `job_count=36`. Liveness heartbeat last seen 10:16:20 UTC.
+
+### Issues Found
+- None worthy of YELLOW. Carry-forward observations only (broker drift to be cleared by today's first cycle; dual-snapshot writer; signal/ranking staleness; uncommitted Phase 75).
+
+### Fixes Applied
+- None — clean run, no autonomous fixes needed.
+
+### Action Required from Aaron
+1. Confirm Tue 2026-05-05 13:35 UTC first cycle runs cleanly with Phase 75; watch for `phase75_position_row_reopened` / `phase75_close_skipped_just_upserted` log lines and `broker_health_position_drift` clearance within 1–2 cycles.
+2. Commit + push Phase 75 when ready.
+3. Optional historical cleanup SQL still available in yesterday's HEALTH_LOG.
+
+---
+
+## Health Check — 2026-05-04 19:08 UTC (Monday 2:08 PM CT, market mid-afternoon) — YELLOW
+
+**Overall Status:** YELLOW — see `apis/state/HEALTH_LOG.md` for full detail. Two YELLOW items: (a) `broker_health_position_drift` firing on every cycle (6 hits today) — carry-forward from 12:25 UTC cleanup, **autonomous-fix applied** via `docker restart docker-api-1` at 19:13 UTC, post-restart verified healthy; (b) NEW Phase 65c CSCO momentum_v1 churn — 6 rows today (one per cycle, identical `opened_at`/`entry_price=$91.43`/`quantity=72`, only `closed_at` differs) breaches `APIS_MAX_NEW_POSITIONS_PER_DAY=5`. Net 0 OPEN. Recommended: extend Phase 65b intra-cycle OPEN+CLOSE dedup to momentum_v1. Everything else GREEN: 8/8 containers healthy, /health all 7 ok, Alertmanager firing=0, pytest 360/360 in 20.55s, alembic single head `p6q7r8s9t0u1`, CI runs #25327148433 (`3bdbe64`) + #25327395434 (`9db28ae`) both `conclusion=success`, all 11 critical APIS_* flags correct, scheduler `job_count=36`, evaluation_runs=96, 12 OPEN positions all `origin_strategy=rebalance`, kill_switch=false, mode=paper, no idempotency dupes, no crash-triad regressions.
+
+(Full §1–§4 detail + Issues/Fixes/Action sections in `apis/state/HEALTH_LOG.md`.)
+
+---
+
 ## Health Check — 2026-05-04 15:15 UTC (Monday 10:15 AM CT, market open ~45 min) — YELLOW
 
 **Overall Status:** YELLOW — CI Lint failure on Phase 74 commit `37191c3` (I001 import-sort in `apis/tests/conftest.py`) auto-fixed at `3bdbe64` and pushed; CI rerun #25327148433 queued. Two `broker_health_position_drift` warnings fired in 24h (cycles 13:35 + 14:30 UTC) — known carry-forward artifact from the 12:25 UTC operator-approved cleanup (broker adapter cache not resynced after DB UPDATE). Today's signal_runs/ranking_runs are stale at 2026-05-01 — collateral damage from the cleanup `DELETE … >= 2026-05-04 01:00:00` clause; paper cycles still ran successfully. Everything else GREEN: 8/8 containers healthy 15h, /health all 7 ok, Alertmanager firing=0 (Phase 73 defense holding), 12 open positions correctly restored, Prom matches DB exactly, equity $110,872.56 / cash $23,050.74, pytest 360/360, all 6 critical APIS_* flags correct, git tree clean.

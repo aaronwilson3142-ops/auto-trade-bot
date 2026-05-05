@@ -1,6 +1,27 @@
 # APIS — Next Steps
 
-Last Updated: 2026-05-04 12:25 UTC — DEC-071 cleanup landed (DB clean, in-memory state preserved). Phase 74 promoted to URGENT.
+Last Updated: 2026-05-04 ~21:42 UTC — Phase 75 deployed (DEC-075). Position row-inflation fixed at the persistence layer.
+
+## ✅ DONE 2026-05-04 ~21:30 UTC — Phase 75 Position Row-Inflation Fix shipped + worker restarted
+
+`apis/apps/worker/jobs/paper_trading.py::_persist_positions` now matches the upsert by `(security_id, opened_at)` regardless of status and REOPENS a closed row instead of inserting a duplicate. Defense-in-depth `_persist_touched_sec_ids` set protects rows from being closed in the same call. 2 new regression tests in `apis/tests/unit/test_phase64_position_persistence.py::TestPhase75ReopenIdempotency`. 87/87 broader tests pass (test_phase64 + test_paper_trading + test_deep_dive_step5_origin_strategy_wiring) in 11.68s under `APIS_PYTEST_SMOKE=1`. Ruff clean. Worker restarted at 01:41:58 UTC; next paper cycle Tue 2026-05-05 09:35 ET. DEC-075 logged. See `state/HEALTH_LOG.md` Phase 75 Deploy entry.
+
+## Phase 75 follow-ups (operator-actionable, low priority)
+
+1. **Optional historical cleanup (~140 duplicate rows):**
+   ```sql
+   DELETE FROM positions
+   WHERE id NOT IN (SELECT MAX(id) FROM positions GROUP BY security_id, opened_at)
+     AND id IN (SELECT id FROM positions WHERE status='closed');
+   ```
+   Collapses 16 ticker-episodes (BK=22, UNP=20, ODFL=20, HOLX=19, MRVL=17, BE/STT/WDC/NUE=13, SLB/CAT=12, AMD=11, CSCO=7, etc.) down to one closed row each (keeping most recent). Pure audit-trail trim; not required for runtime correctness.
+2. **Optional Alembic migration to enforce `UNIQUE (security_id, opened_at)`** AFTER the cleanup above runs. Would prevent any future regression at the DB level even if Phase 75's Python guards regress. Filed as a follow-up because the migration would FAIL until duplicates are cleared.
+3. **Verify Tue 2026-05-05 09:35 ET first cycle** runs cleanly. Look for `phase75_position_row_reopened` or `phase75_close_skipped_just_upserted` log lines (will only fire if the strategy reopens a previously-closed ticker at the SAME `opened_at`, which is rare on day one). Primary expected effect: `broker_health_position_drift` clears within 1-2 cycles as the close-loop closes the 12 operator-restored rebalance positions the worker's broker doesn't have.
+4. **`git add` + `git commit` + `git push` of the Phase 75 changes when ready.** I deliberately left these for the operator per the deep-dive convention. Files touched: `apis/apps/worker/jobs/paper_trading.py`, `apis/tests/unit/test_phase64_position_persistence.py`, `apis/state/HEALTH_LOG.md`, `apis/state/DECISION_LOG.md`, `apis/state/CHANGELOG.md`, `apis/state/ACTIVE_CONTEXT.md`, `apis/state/NEXT_STEPS.md`, plus memory files in the Cowork sessions dir.
+
+---
+
+## ✅ DONE 2026-05-04 12:25 UTC — DEC-071 Test-Pollution Cleanup Executed (operator-approved)
 
 ## ✅ DONE 2026-05-04 12:25 UTC — DEC-070 Test-Pollution Cleanup Executed (operator-approved)
 

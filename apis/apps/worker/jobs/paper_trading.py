@@ -184,6 +184,16 @@ def _persist_positions(
                 sec_by_ticker = {s.ticker: s for s in sec_rows}
 
             # ── Upsert open positions ────────────────────────────────────────
+            # Phase 75 (2026-05-04): track every (security_id) we touched in the
+            # upsert so the close-loop below CANNOT re-close a row we just
+            # opened/reopened in the same call.  This is defense-in-depth on
+            # top of the (security_id, opened_at) idempotency below: even if
+            # `held_tickers` is somehow missing an entry, the just-touched set
+            # protects the row.  Without this, the row-inflation pattern
+            # observed since 2026-04-20 (BK=22, UNP=20, ODFL=20, CSCO=7 etc.
+            # rows per ownership episode) re-fires every cycle.
+            _persist_touched_sec_ids: set = set()
+
             for ticker, pos in portfolio_state.positions.items():
                 sec = sec_by_ticker.get(ticker)
                 sec_id = getattr(pos, "security_id", None) or (sec.id if sec else None)
@@ -194,7 +204,28 @@ def _persist_positions(
                     )
                     continue
 
-                existing = db.execute(
+                # Phase 75 (2026-05-04): (security_id, opened_at) is the
+                # natural unique key for one ownership episode.  The previous
+                # query was `status='open'` only, so when an upstream bug
+                # closed a row mid-episode the next cycle inserted a *new*
+                # row with the same opened_at — producing the row-inflation
+                # we saw on CSCO (7 rows / single broker fill, 2026-05-04)
+                # and on BK/UNP/ODFL/HOLX/MRVL/etc. for weeks before.  Match
+                # on (security_id, opened_at) and reopen if closed.
+                _pos_opened_at = getattr(pos, "opened_at", None) or run_at
+                same_episode = db.execute(
+                    _select(_DBPosition)
+                    .where(_DBPosition.security_id == sec_id)
+                    .where(_DBPosition.opened_at == _pos_opened_at)
+                    .order_by(_DBPosition.created_at.desc())
+                    .limit(1)
+                ).scalar_one_or_none()
+
+                # Fall back to the legacy "any open row for this security"
+                # match — this preserves prior behaviour when the in-memory
+                # PortfolioPosition.opened_at was set later than the DB row's
+                # opened_at (e.g. via broker-sync after a restart).
+                existing = same_episode or db.execute(
                     _select(_DBPosition)
                     .where(_DBPosition.security_id == sec_id)
                     .where(_DBPosition.status == "open")
@@ -218,7 +249,7 @@ def _persist_positions(
                 if existing is None:
                     db.add(_DBPosition(
                         security_id=sec_id,
-                        opened_at=getattr(pos, "opened_at", None) or run_at,
+                        opened_at=_pos_opened_at,
                         status="open",
                         entry_price=entry,
                         quantity=qty,
@@ -228,6 +259,28 @@ def _persist_positions(
                         origin_strategy=_os,
                     ))
                 else:
+                    # Phase 75 (2026-05-04): if the matching row is CLOSED,
+                    # reopen it instead of inserting a duplicate.  This is
+                    # the primary fix for the row-inflation bug.  The audit
+                    # trail is preserved (created_at unchanged); only the
+                    # status / closed_at / exit_price / realized_pnl are
+                    # cleared because the position is now considered live
+                    # again.
+                    if existing.status != "open":
+                        logger.info(
+                            "phase75_position_row_reopened",
+                            ticker=ticker,
+                            opened_at=str(_pos_opened_at),
+                            prior_closed_at=(
+                                str(existing.closed_at)
+                                if existing.closed_at is not None
+                                else None
+                            ),
+                        )
+                        existing.status = "open"
+                        existing.closed_at = None
+                        existing.exit_price = None
+                        existing.realized_pnl = None
                     existing.quantity = qty
                     existing.entry_price = entry
                     existing.cost_basis = cost
@@ -239,6 +292,8 @@ def _persist_positions(
                     if existing.origin_strategy in (None, "") and _os:
                         existing.origin_strategy = _os
 
+                _persist_touched_sec_ids.add(sec_id)
+
             # ── Close DB positions that are no longer in portfolio_state ─────
             open_db_rows = db.execute(
                 _select(_DBPosition, _Security.ticker)
@@ -248,6 +303,24 @@ def _persist_positions(
             held_tickers = set(portfolio_state.positions.keys())
             for row, ticker in open_db_rows:
                 if ticker in held_tickers:
+                    continue
+                # Phase 75 (2026-05-04): never close a row whose security
+                # was just upserted/reopened in this same _persist_positions
+                # call.  Defense-in-depth — without this, an upstream bug
+                # that drops the ticker from `portfolio_state.positions`
+                # *between* the upsert loop above and this close loop would
+                # immediately close the row we just inserted, perpetuating
+                # the row-inflation pattern.
+                if row.security_id in _persist_touched_sec_ids:
+                    logger.warning(
+                        "phase75_close_skipped_just_upserted",
+                        ticker=ticker,
+                        security_id=str(row.security_id),
+                        note=(
+                            "upstream dropped ticker from portfolio_state "
+                            "between upsert and close — row preserved"
+                        ),
+                    )
                     continue
                 ct = ct_by_ticker.get(ticker)
                 row.status = "closed"

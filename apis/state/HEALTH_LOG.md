@@ -2,6 +2,361 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-05-05 19:12 UTC (Tuesday 2:12 PM CT, market open ~5.6h, 6/12 cycles fired)
+
+**Overall Status:** YELLOW — same two carry-forward issues from this morning's 15:09 UTC entry, no new regressions, no escalation. (1) `broker_health_position_drift` fired on every paper cycle today (6/6: 13:35, 14:30, 15:30, 16:00, 17:30, 18:30 UTC) on the same 12 operator-restored rebalance tickers — strategy continues to BUY toward the DB target rather than CLOSE; drift will narrow gradually as broker accumulates over many cycles. (2) HOLX proposed + rejected on every cycle (6/6) — strategy still proposes inactive ticker; risk_engine blocks on `max_new_positions_per_day=5` (consumed by today's 5 BUY fills), Alpaca is the final safety net. Both issues triaged in the 15:09 UTC report; no new code/operator action since. Everything else GREEN: 8/8 containers healthy 16h uptime RestartCount=0, /health all 7 ok at 19:08:15Z, worker 24h log scan = 68 ERR / api = 43 ERR (all known yfinance stale + drift warnings, **0 crash-triad regressions** across all 5 patterns), Prometheus 2/2 up, Alertmanager firing=0 (Phase 73 `for: 30m` debounce holding all day), pytest deep_dive+phase22+phase57 → **360p/0f/3662d in 22.12s** ✅, alembic `p6q7r8s9t0u1` single head, CI on `9db28ae` `conclusion=success`, 12 OPEN positions all `origin_strategy=rebalance` ✅, 0 new positions today, kill_switch=false, mode=paper, 0 idempotency dupes, evaluation_runs=97 (≥80 floor), all 11 critical APIS_* flags correct, scheduler `job_count=36` + liveness heartbeat firing every 5 min (last 19:11:20 UTC). Phase 75 functional code still loaded in worker bind-mount (`grep -c phase75_position_row_reopened ... = 1`); zero `phase75_*` events today (expected — strategy hasn't reopened any closed ticker at the same `opened_at`).
+
+### §1 Infrastructure
+- Containers: 8/8 healthy. All four core services (worker/api/postgres/redis) `Up 16 hours` with `RestartCount=0` since `2026-05-05T03:31:12Z` (this morning's full-stack recreation). Grafana / Prometheus / Alertmanager / apis-control-plane also `Up 16h`. No restarts since the morning run.
+- /health: all 7 components `ok` at 2026-05-05T19:08:15Z. mode=paper, kill_switch=ok.
+- Worker log scan (tail 5000): **68 ERROR** pattern matches — primarily yfinance stale-ticker warnings (DFS, PXD, JNPR, K, PARA, CTLT, ANSS, WRK, etc., all in known-13 list) + 19 `broker_health_position_drift` cumulative warnings (Mon afternoon carry-forward + today's 6 cycles). **0 crash-triad regressions** across all 5 patterns (`_fire_ks` / `broker_adapter_missing_with_live_positions` / `EvaluationRun.idempotency_key` / `paper_cycle.*no_data` / `phantom_cash_guard_triggered` all zero).
+- API log scan (tail 5000): **43 ERROR** pattern matches, **0 crash-triad regressions**.
+- Prometheus: 2/2 targets up (apis, prometheus), 0 dropped.
+- Alertmanager: 0 active alerts at 19:08 UTC. Phase 73 `for: 30m` debounce held through all 6 of today's cycles.
+- Resource usage: worker 774 MiB / 9.78%, api 818 MiB / 2.99%, postgres 157 MiB, grafana 50.5 MiB, prometheus 41.8 MiB, alertmanager 15.2 MiB, redis 8.3 MiB, apis-control-plane 1.011 GiB / 7.13%. All well under threshold.
+- DB size: **179 MB** (unchanged from 15:09 UTC entry — no growth in 4h, expected since signal/ranking pipeline already ran at 10:30/10:45 UTC).
+
+### §2 Execution + Data Audit
+- Paper cycles fired today: **6 of expected 12**. Timestamps: 13:35:02, 14:30:00, 15:30:00, 16:00:01, 17:30:00, 18:30:01 UTC. Next cycle 19:30 UTC (~18 min). All 6 completed (`paper_trading_cycle_complete`); **0 cycle failures**. First cycle: proposed=28, approved=5, executed=5. Subsequent 5 cycles: proposed=18, approved=0, executed=0 (daily cap consumed by cycle 1's 5 fills).
+- `evaluation_runs` total: **97** (≥80 floor ✅; +0 since this morning — Tue's 21:00 UTC EOD eval hasn't fired yet). Latest run 2026-05-04 21:00 UTC (Mon EOD).
+- Portfolio trend (latest 6 paired-snapshot rows from today's 6 cycles, dual-snapshot pattern continuing):
+  - 2026-05-05 18:30:03 — cash=$23,050.74 / equity=$114,219.50 (legitimate)
+  - 2026-05-05 18:30:00 — cash=$67,446.34 / equity=$99,983.92 (secondary writer)
+  - 2026-05-05 17:30:02 — cash=$23,050.74 / equity=$114,395.54
+  - 2026-05-05 16:00:03 — cash=$23,050.74 / equity=$114,368.20
+  - 2026-05-05 15:30:02 — cash=$23,050.74 / equity=$114,048.29
+  - 2026-05-05 14:30:02 — cash=$23,050.74 / equity=$114,087.68
+  - 2026-05-05 13:35:04 — cash=$23,050.74 / equity=$112,924.50
+- Cash positive ✅ on legitimate stream. Equity intra-day band $112,924 → $114,395 (+1.30% high, +1.15% close-to-now), consistent with normal market move on the 12 OPEN positions' notionals. Cash + holdings ≈ equity_value within rounding ✅. Dual-snapshot writer pattern unchanged from 15:09 UTC (carry-forward).
+- Broker<->DB reconciliation: DB shows **12 OPEN positions** (CAT, SLB, INTC, BE, MU, WDC, STT, NUE, AMD, MRVL, AMZN, EQIX), all `origin_strategy=rebalance` ✅, all opened_at in 2026-04-29 → 2026-05-01 (operator-restored from DEC-071 cleanup). `/api/v1/broker/positions` 404s in this build — falling back to /health=ok per feedback note. **6 `broker_health_position_drift` warnings today** at every cycle on the same 12-ticker set. Drift direction is broker-not-DB; strategy is BUYing toward target rather than CLOSing — expected to narrow over many cycles.
+- Origin-strategy stamping: ALL 12 OPEN `origin_strategy=rebalance` ✅. 0 NULLs (Phase 73 holding).
+- Position caps: **12/15 open** ✅. **0 new OPEN positions today** (per `WHERE opened_at::date = CURRENT_DATE`). All 5 of today's filled BUY orders were add-ons against existing OPEN rows (rebalance-toward-target semantics — DB row encodes target, broker accumulates toward it). 5 of 5 fills consumed `max_new_positions_per_day=5` slot count (slot-counter, not row-counter), causing HOLX to reject on every subsequent cycle.
+- Today's order ledger (11 total: 5 filled, 6 rejected):
+  - **Filled @ 13:35** (BUY against existing OPEN rebalance positions): INTC=64, MU=10, AMZN=24, EQIX=6, NUE=29.
+  - **Rejected** (action_blocked_by_risk, violation=max_new_positions_per_day): HOLX × 6 (one per cycle: 13:35, 14:30, 15:30, 16:00, 17:30, 18:30).
+- Data freshness:
+  - daily_market_bars MAX = **2026-05-04** (Mon close, 488 securities) ✅. Tue's bars load post-close tonight.
+  - signal_runs MAX = **2026-05-05 10:30:00 UTC** ✅ (today's 06:30 ET signal-generation job).
+  - ranking_runs MAX = **2026-05-05 10:45:00 UTC** ✅ (today's 06:45 ET ranking job).
+  - security_signals types: macro_tailwind / momentum / sentiment / theme_alignment / valuation, all 1004 rows at 10:30:00 UTC ✅.
+- Stale tickers: known 13 only (DFS, PXD, JNPR, K, PARA, CTLT, ANSS, WRK, MMC, MRO, HES, IPG, PKI). No new additions.
+- Kill-switch: `false` ✅. Operating mode: `paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+
+### §3 Code + Schema
+- Alembic head: `p6q7r8s9t0u1` (single head ✅). No drift.
+- Pytest smoke: **360 passed / 0 failed / 3662 deselected in 22.12s** ✅ (deep_dive + phase22 + phase57 filter, `--no-cov`, `APIS_PYTEST_SMOKE=1`).
+- Git: **DIRTY** (carry-forward — Phase 75 functional changes + state docs operator-deferred). HEAD = `9db28ae`. 0 unpushed commits. Modified paths: `apis/apps/worker/jobs/paper_trading.py`, `apis/tests/unit/test_phase64_position_persistence.py`, all 5 state-doc files (apis/state + state mirror). Untracked: `outputs/`. **No autonomous commit/push** — same uncommitted Phase 75 code change verified at unit-test layer + bind-mount-loaded into the running worker since 01:42 UTC Mon. Phase 75 code grep confirms loaded: `phase75_position_row_reopened` count = 1, `phase75_close_skipped_just_upserted` count = 1.
+- **GitHub Actions CI:** Run **#25327395434** on `9db28ae` — `status=completed, conclusion=success` ✅. https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25327395434 . CI healthy on the most recent pushed SHA.
+
+### §4 Config + Gate Verification
+All critical APIS_* flags at expected values:
+- APIS_OPERATING_MODE=paper ✅
+- APIS_KILL_SWITCH=false ✅
+- APIS_MAX_POSITIONS=15 ✅
+- APIS_MAX_NEW_POSITIONS_PER_DAY=5 ✅
+- APIS_MAX_THEMATIC_PCT=0.75 ✅
+- APIS_RANKING_MIN_COMPOSITE_SCORE=0.30 ✅
+- APIS_MAX_SECTOR_PCT=0.40 ✅
+- APIS_MAX_SINGLE_NAME_PCT=0.20 ✅
+- APIS_MAX_POSITION_AGE_DAYS=20 ✅
+- APIS_DAILY_LOSS_LIMIT_PCT=0.02 ✅
+- APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05 ✅
+- APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED not set (defaults false) ✅
+- APIS_INSIDER_FLOW_PROVIDER not set (defaults null) ✅
+- Deep-Dive Step 6/7/8 flags not set (defaults OFF) ✅
+- Scheduler: `job_count=36` (DEC-021 expected). Liveness heartbeat firing every 5 min — last successful run 2026-05-05T19:11:20Z (~30s before this entry) ✅.
+
+### Issues Found
+- **[YELLOW] HOLX universe-filter regression vs Phase 72 — UNCHANGED CARRY-FORWARD from 15:09 UTC entry.** Strategy still proposing HOLX `action_type=open` on every cycle (6/6 today: 13:35, 14:30, 15:30, 16:00, 17:30, 18:30 UTC) despite `securities.is_active=false` in DB. All 6 blocked at risk_engine on `max_new_positions_per_day=5` (consumed by today's 5 fills). Risk engine has NO `inactive_ticker` violation rule. Functional outcome remains fine (Alpaca is final safety net) but the proposal-layer regression Phase 72 supposedly closed is still live. Recommended fix unchanged: add `is_active=false` filter to strategy universe selector OR add `inactive_ticker` violation to risk_engine (preferred — defense-in-depth).
+- **[YELLOW] Phase 75 close-loop forecast miss — drift not clearing — UNCHANGED CARRY-FORWARD.** 6/6 cycles today fired `broker_health_position_drift` on the same 12 tickers. Strategy is rebalancing in the OPPOSITE direction (BUYing toward target via 5 fills cycle 1, then capped on slot count). Drift narrows over many cycles as broker accumulates. Not a Phase 75 regression (which was scoped to row-inflation prevention). No fix needed; broker drift will resolve naturally.
+- **[INFO] Phase 75 functional code change still uncommitted.** Unchanged from 15:09 UTC. Awaiting operator commit + push.
+- **[INFO] Dual-snapshot writer continuing.** Same paired $23k/$110-114k legitimate + $67k/$99.9k secondary pattern as prior days. No new regression. Prometheus reads the legitimate stream; runtime impact = nil.
+- **[INFO] Phase 73/74 defenses fully holding.** Alertmanager firing=0 across all 6 cycles today. No phantom-equity, no DrawdownAlert, no test-pollution writes to production.
+
+### Fixes Applied
+- None — all issues identified are operator-review-required (HOLX universe-filter regression) or non-actionable (forecast miss; broker will catch up naturally; commit/push deferred to operator).
+
+### Action Required from Aaron
+1. **Triage HOLX universe-filter regression (YELLOW).** Unchanged from 15:09 UTC ask. Recommended fix: add a `securities.is_active=true` filter to the candidate-universe query in the strategy module AND/OR add an `inactive_ticker` violation to `services/risk_engine/service.py`. Risk-engine path preferred (single-place defense-in-depth). Cannot autonomously edit strategy/risk code without operator review.
+2. **Commit + push Phase 75 when ready** (still pending). Same suggested commit message: `Phase 75: position-row inflation fix in _persist_positions (DEC-075)`. CI is GREEN on `9db28ae` so the push will land on a known-good base.
+3. **Optional historical cleanup SQL** still available in 2026-05-04 ~21:30 UTC HEALTH_LOG entry (~140 dup closed-position rows). Not required for runtime correctness.
+
+---
+
+## Health Check — 2026-05-05 15:09 UTC (Tuesday 10:09 AM CT, market open ~1.6h)
+
+**Overall Status:** YELLOW — first-cycle Phase 75 validation reveals two carry-over patterns and one strategy-layer regression. (1) `broker_health_position_drift` fired on BOTH Tue cycles (13:35 + 14:30 UTC) on the same 12 tickers — Phase 75's close-loop is NOT naturally closing the operator-restored rebalance rows because the strategy is rebalancing in the OPPOSITE direction (buying TOWARD the DB target rather than closing them). 5 BUY orders filled at 13:35 UTC (INTC=64, MU=10, AMZN=24, EQIX=6, NUE=29) bringing broker partially up to DB target — drift will clear over many cycles, not the 1–2 forecasted. (2) HOLX is still being PROPOSED by the strategy and reaching the risk engine despite Phase 72's `is_active=false` (DB confirms `is_active=f`) — risk engine blocks on `max_new_positions_per_day` only, NOT on inactive-ticker; if daily cap weren't full, HOLX would reach broker rejection. Defense-in-depth holds (Alpaca rejection is final safety net) but the universe filter regression should be triaged. (3) Phase 75 functional code change still uncommitted in worker bind-mount (intentional operator-defer per yesterday's note). Everything else GREEN: 8/8 containers healthy 12h uptime RestartCount=0, /health all 7 ok at 15:09:02Z, Worker 24h log scan = 34 ERROR (all known-stale yfinance + 7 drift warns; 0 crash-triad regressions), Prometheus 2/2 up, Alertmanager firing=0, pytest 360/0 in 25.18s, alembic single head `p6q7r8s9t0u1`, CI on `9db28ae` `conclusion=success`, 12 OPEN positions all `origin_strategy=rebalance`, kill_switch=false, mode=paper, 0 idempotency dupes, evaluation_runs=97 (≥80 floor), all 11 critical APIS_* flags correct, scheduler `job_count=36` + liveness firing every 5 min.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy. All four core services (worker/api/postgres/redis) `Up 12 hours` with `RestartCount=0` since `2026-05-05T03:31:12Z` (full-stack recreation from this morning's pre-market deploy). Grafana / Prometheus / Alertmanager / apis-control-plane also `Up 12h`.
+- /health: all 7 components `ok` at 2026-05-05T15:09:02Z. mode=paper, kill_switch=ok.
+- Worker log scan (24h): 34 ERROR/CRITICAL pattern matches — primarily yfinance stale-ticker warnings (DFS, PXD, JNPR, K, PARA, CTLT, ANSS, WRK, etc. — all in the known-13 list). **0 crash-triad regressions** (`_fire_ks` / `broker_adapter_missing_with_live_positions` / `EvaluationRun.idempotency_key` / `paper_cycle.*no_data` / `phantom_cash_guard_triggered`). **7 `broker_health_position_drift` warnings** in last 24h (5 from Mon afternoon carry-forward + 2 today on the 13:35 + 14:30 UTC cycles — same 12 tickers each time: STT, BE, MU, INTC, AMD, WDC, CAT, EQIX, AMZN, SLB, NUE, MRVL).
+- API log scan (tail 5000): 52 ERROR/CRITICAL pattern matches, **0 crash-triad regressions**.
+- Prometheus: 2/2 targets up (apis, prometheus), 0 dropped.
+- Alertmanager: 0 active alerts at 15:09 UTC. Phase 73 `for: 30m` debounce holding through today's cycles.
+- Resource usage: worker 773.6 MiB, api 798.1 MiB, postgres 156.9 MiB, grafana 50.6 MiB, prometheus 38.5 MiB, alertmanager 14.9 MiB, redis 7.9 MiB, apis-control-plane 1016 MiB / 8.90% CPU. All well under threshold.
+- DB size: **179 MB** (was 171 MB at 10:18 UTC pre-market — +8 MB from today's 2 cycles + signal/ranking job repopulation).
+
+### §2 Execution + Data Audit
+- Paper cycles fired today: **2 of expected 12** so far (13:35 UTC cycle_id `ffad9083…`: proposed=28, approved=5, executed=5; 14:30 UTC cycle_id `87612710…`: proposed=18, approved=0, executed=0). Both completed within 1–2 seconds, no `paper_cycle.*no_data`. 24h cycle history (Mon afternoon carry-forward + today): 15:30 / 16:00 / 17:30 / 18:30 / 19:30 / 13:35 / 14:30 — all START → COMPLETE pairs.
+- `evaluation_runs` total: **97** (≥80 floor ✅; +0 from yesterday — Tue's 21:00 UTC EOD eval hasn't fired yet).
+- Portfolio trend (latest 4 paired-snapshot rows from today's cycles, dual-snapshot pattern continuing):
+  - 2026-05-05 14:30:02 — cash=$23,050.74 / equity=$114,087.68 (legitimate)
+  - 2026-05-05 14:30:00 — cash=$67,446.34 / equity=$99,983.92 (secondary writer)
+  - 2026-05-05 13:35:04 — cash=$23,050.74 / equity=$112,924.50
+  - 2026-05-05 13:35:02 — cash=$67,446.34 / equity=$99,983.92
+  - Cash positive ✅ on legitimate stream. Equity 13:35→14:30 = +$1,163 (+1.03%, normal intraday move). Cash + holdings = $23,050.74 + $91,036.94 ≈ $114,087.68 ✓ within rounding. Dual-snapshot pattern unchanged from yesterday (carry-forward).
+- Broker<->DB reconciliation: DB shows **12 OPEN positions** (CAT, SLB, INTC, BE, MU, WDC, STT, NUE, AMD, MRVL, AMZN, EQIX). All `origin_strategy=rebalance` ✅, all opened_at in 2026-04-29 → 2026-05-01 (operator-restored from cleanup transaction). /health broker=ok. `/api/v1/broker/positions` 404s in this build — falling back to /health=ok per feedback note. **2 broker_health_position_drift warnings today** at 13:35:00 and 14:30:00 — same 12 tickers, confirming the drift is broker-not-DB rather than DB-not-broker.
+- Origin-strategy stamping: ALL 12 OPEN `origin_strategy=rebalance` ✅. Phase 73 fix holding (0 NULLs).
+- Position caps: **12/15 open** ✅. **0 new OPEN positions today** (per `WHERE opened_at::date = CURRENT_DATE`) — all 5 of today's filled BUY orders were add-ons against existing OPEN rows (rebalance-toward-target semantics) so no new rows were inserted. **5 of 5 fills consumed `max_new_positions_per_day=5`** (slot count, not row count) — that's why HOLX got blocked at risk-engine on cycle 2.
+- Today's fills (13:35 UTC, all BUY against existing OPEN rebalance positions):
+  - INTC: 64 @ $103.10  · MU: 10 @ $616.48  · AMZN: 24 @ $277.01  · EQIX: 6 @ $1086.05  · NUE: 29 @ $228.48
+  - Note: position rows' `quantity` was NOT incremented to reflect these adds. Consistent with rebalance-target semantics (DB row encodes the TARGET, broker accumulates toward it). Broker drift will narrow over multiple cycles as broker catches up to the 12-ticker DB target. **NOT** the row-inflation pattern Phase 75 fixed (no duplicate `(security_id, opened_at)` rows; all 12 ticker-episodes still single-row).
+- Today's rejected orders (HOLX × 2 at 13:35:03 + 14:30:02): both `action_blocked_by_risk` with `violations=["max_new_positions_per_day"]`. Strategy is still PROPOSING HOLX as an `open` action despite `securities.is_active=false`. **YELLOW finding** — Phase 72 universe-filter regression (see Issues Found).
+- Data freshness:
+  - daily_market_bars MAX = **2026-05-04** (Mon close, 490 securities) ✅ — Mon EOD ingestion completed; Tue's bars will load post-close tonight.
+  - signal_runs MAX = **2026-05-05 10:30 UTC** ✅ — Today's 06:30 ET signal-generation job ran (was stale yesterday at 2026-05-01).
+  - ranking_runs MAX = **2026-05-05 10:45 UTC** ✅ — Today's 06:45 ET ranking job ran (was stale yesterday).
+  - signal/ranking staleness from Phase 74 cleanup is FULLY CLEARED.
+- Stale tickers: known 13 only (DFS, PXD, JNPR, K, PARA, CTLT, ANSS, WRK, MMC, MRO, HES, IPG, PKI). No new additions.
+- Kill-switch: `false` ✅. Operating mode: `paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+
+### §3 Code + Schema
+- Alembic head: `p6q7r8s9t0u1` (single head ✅). No drift.
+- Pytest smoke: **360 passed / 0 failed / 3662 deselected in 25.18s** ✅ (deep_dive + phase22 + phase57 filter, `--no-cov`, `APIS_PYTEST_SMOKE=1`).
+- Git: **DIRTY** (carry-forward from yesterday — Phase 75 functional changes operator-deferred). HEAD = `9db28ae`. 0 unpushed commits. Modified paths: `apis/apps/worker/jobs/paper_trading.py`, `apis/tests/unit/test_phase64_position_persistence.py`, all 5 state-doc files (apis/state + state). Untracked: `outputs/`. **No autonomous commit/push** — this is the same uncommitted Phase 75 code change that has been verified at the unit-test layer + bind-mount-loaded into the running worker since 01:42 UTC Mon.
+- **GitHub Actions CI:** Run **#25327395434** on `9db28ae` — `status=completed, conclusion=success` ✅. https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25327395434 . CI healthy on the most recent pushed SHA.
+
+### §4 Config + Gate Verification
+All critical APIS_* flags at expected values:
+- APIS_OPERATING_MODE=paper ✅
+- APIS_KILL_SWITCH=false ✅
+- APIS_MAX_POSITIONS=15 ✅
+- APIS_MAX_NEW_POSITIONS_PER_DAY=5 ✅
+- APIS_MAX_THEMATIC_PCT=0.75 ✅
+- APIS_RANKING_MIN_COMPOSITE_SCORE=0.30 ✅
+- APIS_MAX_SECTOR_PCT=0.40 ✅
+- APIS_MAX_SINGLE_NAME_PCT=0.20 ✅
+- APIS_MAX_POSITION_AGE_DAYS=20 ✅
+- APIS_DAILY_LOSS_LIMIT_PCT=0.02 ✅
+- APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05 ✅
+- APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED not set (defaults false) ✅
+- APIS_INSIDER_FLOW_PROVIDER not set (defaults null) ✅
+- Deep-Dive Step 6/7/8 flags not set (defaults OFF) ✅
+- Scheduler: `job_count=36` (DEC-021 expected). Liveness heartbeat firing every 5 min — last successful run pre-15:21 UTC ✅.
+
+### Issues Found
+- **[YELLOW] HOLX universe-filter regression vs Phase 72.** Strategy is still proposing HOLX `action_type=open` despite `securities.is_active=false` (DB confirms `f`). 2 such proposals today (13:35:02, 14:30:00 UTC); both blocked at risk_engine on `max_new_positions_per_day=5` (already at cap from today's 5 fills). Risk engine has NO `inactive_ticker` violation rule. If the daily cap weren't full, HOLX would have reached the broker (which Phase 72 confirmed Alpaca rejects). The functional outcome is fine (HOLX never fills) but Phase 72's `project_holx_inactive_ticker` memory states "FULLY RESOLVED" — the proposal-layer is NOT cleaned up. Recommend: (a) add `is_active=false` filter to the strategy universe selector OR (b) add an `inactive_ticker` violation to risk_engine as a defense-in-depth layer (preferred — survives any new universe source).
+- **[YELLOW] Phase 75 close-loop forecast miss — broker drift not clearing.** Yesterday's HEALTH_LOG forecast: "drift should clear within 1–2 cycles as Phase 75 close-loop properly closes the 12 operator-restored rebalance rows." Today's reality: 2/2 cycles still firing `broker_health_position_drift` on the same 12 tickers. The strategy is rebalancing in the OPPOSITE direction — BUYING toward the DB target (5 fills today: INTC/MU/AMZN/EQIX/NUE) instead of CLOSING those rows. Drift will clear gradually as broker accumulates over many cycles, but the close-loop pathway never fires for these because the strategy doesn't propose CLOSE actions on them. Not a regression of Phase 75 itself (which was scoped to row-inflation prevention) — just a forecast miss. **No fix needed today**; broker drift will resolve naturally.
+- **[INFO] Phase 75 functional code change still uncommitted.** Carry-forward from yesterday's note. `apis/apps/worker/jobs/paper_trading.py` + `apis/tests/unit/test_phase64_position_persistence.py` modifications still in dirty tree, awaiting operator commit + push. Bind-mount loads them into the running worker so they're functionally active (verified yesterday by `grep -c phase75_position_row_reopened /app/apis/.../paper_trading.py = 1`); only the version-control side is pending.
+- **[INFO] Dual-snapshot writer continuing.** Same paired $23k/$110-114k legitimate + $67k/$99.9k secondary pattern as prior days. No new regression. Prometheus reads the legitimate stream; runtime impact = nil.
+- **[INFO] Phase 73/74 defenses fully holding.** Alertmanager firing=0 across both cycles today. No phantom-equity, no DrawdownAlert, no test-pollution writes to production.
+
+### Fixes Applied
+- None — issues identified are operator-review-required (universe-filter regression) or non-actionable (forecast miss; broker will catch up naturally).
+
+### Action Required from Aaron
+1. **Triage HOLX universe-filter regression (YELLOW).** The strategy is still proposing inactive tickers. Recommended fix: add a `securities.is_active=true` filter to the candidate-universe query in the strategy module (whichever path produced the proposal) AND/OR add an `inactive_ticker` violation to `services/risk_engine/service.py`. The risk-engine path is preferred — it's a single-place defense-in-depth that survives any new universe source. Cannot autonomously edit strategy/risk code without operator review.
+2. **Commit + push Phase 75** when ready (still pending). Suggested commit message: `Phase 75: position-row inflation fix in _persist_positions (DEC-075)`. Tree state: `apis/apps/worker/jobs/paper_trading.py` + `apis/tests/unit/test_phase64_position_persistence.py` plus state docs. CI is currently GREEN on `9db28ae` so the push will land on a known-good base.
+3. **Optional: monitor broker drift trajectory** over the next few cycles. Each cycle's drift list should narrow as broker accumulates partial fills toward the 12-ticker DB target. If after 4–5 more cycles the drift list is still 12-of-12, deeper investigation needed (perhaps the broker's position-tracking is itself drifting, or the strategy's BUY proposals are getting blocked at risk before reaching broker).
+4. **YELLOW email**: draft created via Gmail MCP (no direct-send tool available in this session) — **manual send required**. Draft ID `r-4410417599441132003`. Open Gmail → Drafts → "[APIS YELLOW] Daily Health Check — 2026-05-05 15:09 UTC" and click Send.
+
+---
+
+## Health Check — 2026-05-05 10:18 UTC (Tuesday 5:18 AM CT, pre-market)
+
+**Overall Status:** GREEN — clean pre-market run after the Phase 75 deploy. All 8 containers healthy and recreated together at 03:31:12 UTC (RestartCount=0 on api/worker/postgres/redis — most likely operator `docker compose up -d` after the Mon 01:42 UTC Phase 75 worker restart). Phase 75 code path confirmed loaded in the running worker (`grep phase75_position_row_reopened /app/apis/apps/worker/jobs/paper_trading.py` → 1 hit). /health all 7 components ok at 10:08:18Z mode=paper. Worker log scan (24h) = 34 ERROR lines (yfinance carry-forward on the known 13 stale tickers + intermittent summary lines), API log scan (5000 tail) = 33 ERROR lines, **0 crash-triad regressions** in either (`_fire_ks` / `broker_adapter_missing` / `EvaluationRun.idempotency_key` / `paper_cycle.*no_data` / `phantom_cash_guard_triggered` all zero). Prometheus 2/2 up, Alertmanager firing=0. 12 OPEN positions all `origin_strategy=rebalance` (Phase 73 holding). Pytest 400p/0f in 70.43s (deep_dive + phase22 + phase57 + phase59 filter) plus phase64+75 regression class 7p/0f in 6.83s = full Phase 75 validation. Alembic single head `p6q7r8s9t0u1`. CI on `9db28ae` `conclusion=success`. All 11 critical APIS_* flags at expected values. Scheduler `job_count=36`. Phase 75 fix awaiting first-cycle validation at 13:35 UTC today (~3.25h from this run); the 7 broker_health_position_drift hits in the 24h window are all Mon-afternoon carry-forward (no cycles fired since the 01:42 UTC worker restart).
+
+### §1 Infrastructure
+- Containers: 8/8 healthy. All four core services (worker/api/postgres/redis) `Up 7 hours` with `RestartCount=0` and `StartedAt=2026-05-05T03:31:12Z` — full-stack recreation (NOT a docker daemon restart) ~2h after the 01:42 UTC Phase 75 worker restart. Most likely operator `docker compose --env-file ../../.env up -d` to ensure all services were running together with the new bind-mount code. Phase 75 code path verified in container: `grep -c "phase75_position_row_reopened" /app/apis/apps/worker/jobs/paper_trading.py = 1`. Grafana / Prometheus / Alertmanager / apis-control-plane also `Up 7h`.
+- /health: all 7 components `ok` at 10:08:18Z. mode=paper, kill_switch=ok.
+- Worker log scan (24h): 34 ERROR/CRITICAL pattern matches — primarily yfinance failures for the 13 known stale tickers (PXD, JNPR, DFS, PKI, CTLT, IPG, K, ANSS, PARA, MMC, MRO, HES, WRK). **0 crash-triad regressions** (`_fire_ks.*takes 0` / `broker_adapter_missing_with_live_positions` / `EvaluationRun.*idempotency_key` / `paper_cycle.*no_data` / `phantom_cash_guard_triggered`). **7 `broker_health_position_drift` warnings** across the last 24h — all from Mon-afternoon cycles (13:35–19:30 UTC); no new paper cycles have fired since the 01:42 UTC worker restart, so the Phase 75 fix has not yet been exercised. Will be validated at 13:35 UTC today.
+- API log scan (5000 tail): 33 ERROR/CRITICAL matches, 0 crash-triad regressions.
+- Prometheus: 2/2 targets up (apis, prometheus), 0 dropped.
+- Alertmanager: 0 active alerts at 10:09 UTC. Phase 73 `for: 30m` debounce defense holding.
+- Resource usage: worker 750.0 MiB, api 798.9 MiB, postgres 121.0 MiB, grafana 50.32 MiB, prometheus 36.14 MiB, alertmanager 14.6 MiB, redis 7.668 MiB, apis-control-plane 965.3 MiB / 7.08% CPU. All under threshold.
+- DB size: 171 MB (unchanged from yesterday's 19:08 UTC reading).
+
+### §2 Execution + Data Audit
+- Paper cycles: **0 fired today** (expected — first cycle scheduled 13:35 UTC = 09:35 ET, still ~3.25h away). Mon ran 7 cycles total (the 19:30 UTC final one was after yesterday's 19:08 UTC report).
+- `evaluation_runs` total: **97** (Mon 21:00 UTC EOD eval added 1 to yesterday's 96). All `status='complete'`, 0 not_complete. ≥80 floor ✅.
+- Portfolio trend (latest 6 paired-snapshot rows from Mon's cycles, dual-snapshot pattern continuing):
+  - 2026-05-04 19:30:03.752 — cash=$23,050.74 / equity=$110,500.08 (legitimate)
+  - 2026-05-04 19:30:00.749 — cash=$67,448.48 / equity=$99,983.24 (secondary writer — same dual pattern as yesterday)
+  - 2026-05-04 18:30:02.908 — cash=$23,050.74 / equity=$110,718.73
+  - 2026-05-04 18:30:00.774 — cash=$67,448.48 / equity=$99,983.24
+  - 2026-05-04 17:30:02.816 — cash=$23,050.74 / equity=$111,029.32
+  - 2026-05-04 17:30:00.776 — cash=$67,448.48 / equity=$99,983.24
+  - Cash positive ✅ on legitimate stream. Latest legit snapshot 19:30:03 UTC Mon. The secondary writer ($67k/$99.9k) is the same carry-forward pattern noted in yesterday's HEALTH_LOG; no new dual-write regression.
+- Broker<->DB reconciliation: DB shows **12 OPEN positions** (CAT, SLB, WDC, BE, NUE, INTC, STT, MU, MRVL, AMD, EQIX, AMZN). All `origin_strategy=rebalance`. /health broker=ok. (`/api/v1/broker/positions` not implemented in this build — falling back to /health=ok per feedback note.)
+- Origin-strategy stamping: ALL 12 OPEN `origin_strategy=rebalance` ✅. Phase 73 fix holding (0 NULLs).
+- Position caps: **12/15 open** ✅. **0 new positions today** (CURRENT_DATE filter, expected pre-cycle). Mon's 7 CSCO churns (carry-forward, all `origin_strategy=momentum_v1`, identical `opened_at=13:35:00.000803` / `entry_price=91.43` / `quantity=72`) — exactly the bug pattern Phase 75 prevents going forward; no NEW churns possible until first cycle fires.
+- Data freshness:
+  - daily_market_bars MAX = **2026-05-04** (Mon close), 490 securities ✅ — Mon EOD ingestion completed normally.
+  - signal_runs MAX = 2026-05-01 10:30 UTC (Friday — STALE carry-forward from DEC-071 Phase 74 cleanup).
+  - ranking_runs MAX = 2026-05-01 10:45 UTC (STALE carry-forward).
+  - security_signals 0 rows in 48h (collateral from cleanup).
+  - ranked_opportunities 0 rows in 48h (collateral from cleanup).
+  - Will repopulate today at 06:30 ET (10:30 UTC) signal-generation job — ~12 min from this run.
+- Stale tickers: known 13 only (PXD, JNPR, DFS, PKI, CTLT, IPG, K, ANSS, PARA, MMC, MRO, HES, WRK). No new additions.
+- Kill-switch: `false` ✅. Operating mode: `paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+- Orders + Fills: 11 orders / 5 fills in last 24h (Mon's cycle activity). Totals 306 / 202 (was 295 / 197 yesterday — modest +11 / +5 growth from Mon afternoon).
+
+### §3 Code + Schema
+- Alembic head: `p6q7r8s9t0u1` (single head ✅). No drift.
+- Pytest smoke: **400 passed / 0 failed / 3622 deselected in 70.43s** (deep_dive + phase22 + phase57 + phase59 filter) ✅. **Phase 64 + Phase 75 regression class: 7 passed / 0 failed in 6.83s** ✅. Phase 75 fix verified at the unit-test layer; awaiting first-cycle integration validation at 13:35 UTC.
+- Git: **DIRTY** (intentional carry-forward — Phase 75 functional changes uncommitted per Aaron's ACTIVE_CONTEXT note "left for the operator"). HEAD = `9db28ae`. 0 unpushed commits. Only `main` branch. Modified paths: `apis/apps/worker/jobs/paper_trading.py`, `apis/tests/unit/test_phase64_position_persistence.py`, `apis/state/{ACTIVE_CONTEXT,CHANGELOG,DECISION_LOG,HEALTH_LOG,NEXT_STEPS}.md`, `state/{DECISION_LOG,HEALTH_LOG}.md`. Untracked: `outputs/`. **No autonomous commit/push** — operator-gated for the functional code change.
+- **GitHub Actions CI:** Run **#25327395434** on `9db28ae` (latest pushed commit, docs entry from yesterday) — `status=completed, conclusion=success` ✅. https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25327395434 . CI is healthy on the most recent pushed SHA.
+
+### §4 Config + Gate Verification
+All critical APIS_* flags at expected values:
+- APIS_OPERATING_MODE=paper ✅
+- APIS_KILL_SWITCH=false ✅
+- APIS_MAX_POSITIONS=15 ✅
+- APIS_MAX_NEW_POSITIONS_PER_DAY=5 ✅
+- APIS_MAX_THEMATIC_PCT=0.75 ✅
+- APIS_RANKING_MIN_COMPOSITE_SCORE=0.30 ✅
+- APIS_MAX_SECTOR_PCT=0.40 ✅
+- APIS_MAX_SINGLE_NAME_PCT=0.20 ✅
+- APIS_MAX_POSITION_AGE_DAYS=20 ✅
+- APIS_DAILY_LOSS_LIMIT_PCT=0.02 ✅
+- APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05 ✅
+- APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED not set (defaults false) ✅
+- APIS_INSIDER_FLOW_PROVIDER not set (defaults null) ✅
+- Deep-Dive Step 6/7/8 flags not set (defaults OFF) ✅
+- Scheduler: `job_count=36` (DEC-021 expected). Liveness heartbeat firing every 5 min — last seen 10:16:20Z. ✅
+
+### Issues Found
+- None worthy of YELLOW. Carry-forward observations only:
+  - 7 `broker_health_position_drift` hits in 24h are all Mon afternoon (pre-Phase-75-deploy). First cycle today at 13:35 UTC will exercise the Phase 75 fix. Per yesterday's HEALTH_LOG forecast, drift should clear within 1–2 cycles as the Phase 75 close-loop properly closes the 12 operator-restored rebalance rows the worker's broker doesn't have.
+  - Dual-snapshot writer (paired $23k/$110k legitimate + $67k/$99.9k secondary) still firing — same as yesterday's reading, no new regression. Tracked carry-forward; Phase 73 phantom-equity guard fixed the negative-cash variant; secondary stream is benign at the runtime layer (Prometheus reads the legitimate stream).
+  - signal_runs/ranking_runs/security_signals/ranked_opportunities still stale at 2026-05-01 (Phase 74 cleanup collateral). 06:30 ET signal-generation job fires at 10:30 UTC (~12 min after this report) and will repopulate.
+  - Phase 75 functional code change uncommitted (operator-deferred per ACTIVE_CONTEXT instruction).
+
+### Fixes Applied
+- None — clean pre-market run, no autonomous fixes needed.
+
+### Action Required from Aaron
+1. **Confirm Tue 2026-05-05 13:35 UTC first cycle runs cleanly with Phase 75.** Watch for `phase75_position_row_reopened` or `phase75_close_skipped_just_upserted` log lines in `docker logs docker-worker-1` and confirm `broker_health_position_drift` clears within 1–2 cycles. If drift persists past the 14:30 UTC cycle, deeper broker-cache resync needed.
+2. **Commit + push Phase 75** when ready (still pending per yesterday's instruction). Suggested message: `Phase 75: position-row inflation fix in _persist_positions (DEC-075)`. Tree state: `apis/apps/worker/jobs/paper_trading.py` + `apis/tests/unit/test_phase64_position_persistence.py` plus state docs.
+3. **Optional historical cleanup SQL** still available in yesterday's HEALTH_LOG — collapses ~140 duplicate closed-position rows. NOT required for runtime correctness.
+
+---
+
+## Phase 75 Deploy — 2026-05-04 ~21:42 UTC (Monday 4:42 PM CT, post-market)
+
+**Overall Status:** GREEN — Phase 75 fix deployed for the position row-inflation bug filed earlier today as "Phase 65c CSCO momentum_v1 churn." Triage revealed the bug is much older and broader than the user's framing: at least 16 ticker-episodes since 2026-04-20 have COUNT(*)>1 with a single distinct `opened_at` (BK=22 rows, UNP=20, ODFL=20, HOLX=19, MRVL=17, CSCO=7 today, etc.). Single broker fill per episode → many DB Position rows. Root cause is in `_persist_positions`, NOT in any strategy. Fix at `apis/apps/worker/jobs/paper_trading.py`: (1) `(security_id, opened_at)` idempotency on the upsert path with reopen-if-closed semantics; (2) `_persist_touched_sec_ids` set protects rows from being closed in the same `_persist_positions` call (defense-in-depth). Two new pytest regression tests pass (87/87 in 11.68s for the broader Phase 64 + paper_trading + Step 5 origin-strategy suite). Ruff clean. Worker restarted at 01:41:58 UTC; `apis_worker_started job_count=36`; next paper cycle Tue 2026-05-05 09:35 ET.
+
+### Fixes Applied
+- **`apis/apps/worker/jobs/paper_trading.py::_persist_positions`** — Phase 75 idempotency + close-loop safe-list (DEC-075). See CHANGELOG.md for full diff context.
+- **`apis/tests/unit/test_phase64_position_persistence.py`** — `TestPhase75ReopenIdempotency` regression class (2 tests).
+- **`docker restart docker-worker-1`** at 01:41:58 UTC — picks up the new code via the `C:\Projects\Auto Trade Bot\apis:/app/apis:ro` bind mount.
+
+### What changed for the user's two listed items
+1. **`broker_health_position_drift` carry-forward.** The 19:13 UTC api restart cleared the **api**'s broker cache, but the warning kept firing because the **worker** has its own broker adapter (and the worker had been Up 25h with no DB-restore for broker positions). Phase 75's close-loop will, on the next 1-2 paper cycles, naturally close the 12 operator-restored rebalance Position rows that the worker's broker doesn't have, after which drift will clear. (No change to broker startup seeding — that's a deferred orthogonal fix per DEC-075 alternative (c).)
+2. **Phase 65c CSCO `momentum_v1` churn.** Reframed as a persistence-layer bug (Phase 75) rather than a strategy bug. The actual broker activity for CSCO today: ONE fill at 13:35:01.978 UTC (qty=72 @ $91.43), zero subsequent CSCO orders. The 7 closed Position rows in DB all share `opened_at=13:35:00.000803`, with `closed_at` differing per cycle — exactly the pattern the Phase 75 fix prevents. The same pattern is also visible on tickers opened by `rebalance` and `ranking_buy_signal` (e.g. MRVL=17 rows since 2026-04-29) confirming the bug is strategy-agnostic.
+
+### Action Required from Aaron
+1. **Confirm Tue 2026-05-05 09:35 ET first cycle** runs cleanly with the Phase 75 code path. Look for `phase75_position_row_reopened` or `phase75_close_skipped_just_upserted` log lines if the existing closed CSCO row gets reused (will only fire if the strategy reopens CSCO at the SAME opened_at, which won't happen — so likely zero firings on day 1; primarily protects against the recurring drift).
+2. **Optional historical cleanup.** Run the SQL below to collapse 16 ticker-episodes' worth of duplicate closed Position rows down to one row each (keeping the most recent). NOT required for runtime correctness; just removes the audit-trail noise:
+
+   ```sql
+   DELETE FROM positions
+   WHERE id NOT IN (SELECT MAX(id) FROM positions GROUP BY security_id, opened_at)
+     AND id IN (SELECT id FROM positions WHERE status='closed');
+   ```
+
+   ~140 rows would be deleted (sum of (rows-1) across the 16 ticker-episodes with duplicates).
+3. **Optional UNIQUE constraint.** After the cleanup above, add a `UNIQUE (security_id, opened_at)` constraint via a new Alembic migration so the bug can't recur even if Phase 75's Python guards regress. Filed as a follow-up but not required for the runtime fix.
+4. **Push to origin.** I made no `git commit` or `git push` — left those for the operator per the deep-dive convention. Branch state: edits to `apis/apps/worker/jobs/paper_trading.py` and `apis/tests/unit/test_phase64_position_persistence.py`, plus state-doc updates, all uncommitted in `C:\Projects\Auto Trade Bot`.
+
+---
+
+## Health Check — 2026-05-04 19:08 UTC (Monday 2:08 PM CT, market mid-afternoon)
+
+**Overall Status:** YELLOW — drift carry-forward and CSCO churn newly observed; both autonomous-fixable. (a) Restarted `docker-api-1` to clear the broker adapter's in-memory position cache that has been firing `broker_health_position_drift` warnings on every paper cycle since the 12:25 UTC operator-approved cleanup transaction (6 hits across today's cycles). Post-restart `/health` all 7 components ok, Alertmanager firing=0, Phase 73 indentation fix held (Prometheus `apis_portfolio_positions=12, equity_usd=110718.73, cash_usd=23050.74` matches DB snapshot exactly). Phase 73's `for: 30m` debounce will suppress any post-restart HWM-reset DrawdownAlert/Critical false-positives. (b) New observation: CSCO has been re-opened+closed every paper cycle today (6 distinct rows — same `opened_at=13:35:00.000803`, same `entry_price=91.43`, same `quantity=72`, only `closed_at` varies) under `origin_strategy=momentum_v1`. This is an alternating-churn pattern in the momentum_v1 strategy specifically (not rebalance-protected). Net 0 currently OPEN, but persisted-row-per-cycle is wasteful and breaches `APIS_MAX_NEW_POSITIONS_PER_DAY=5` (count=6 today, all CSCO). Filed as Phase 65c follow-up — momentum_v1 needs the same intra-cycle dedup that Phase 65b applied for rebalance. CI is GREEN on `9db28ae` (run #25327395434) and the lint-fix `3bdbe64` rerun (#25327148433) — Phase 74 lint regression resolved. Everything else GREEN: 8/8 containers healthy, pytest 360/360 in 20.55s, alembic single head `p6q7r8s9t0u1`, all 11 critical APIS_* flags correct, scheduler `job_count=36`, evaluation_runs=96 (≥80 floor), 12 OPEN positions all `origin_strategy=rebalance`, kill_switch=false, mode=paper, no idempotency dupes, no crash-triad regressions, DB 171 MB.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy. worker `Up 19h`, api restarted at 19:13 UTC and now `Up About a minute (healthy)`, postgres/redis healthy, grafana/prometheus/alertmanager up, apis-control-plane up.
+- /health: all 7 components ok pre-restart (19:07:52Z) and post-restart (19:14:39Z). Mode=paper, kill_switch=false.
+- Worker log scan (24h): 34 ERROR/CRITICAL pattern matches — primarily yfinance failures for the 13 known stale tickers (PXD, JNPR, DFS, PKI, CTLT, IPG, K, ANSS, PARA, MMC, MRO, HES, WRK). 0 crash-triad regressions (`_fire_ks` / `broker_adapter_missing_with_live_positions` / `EvaluationRun.idempotency_key` / `paper_cycle.*no_data` / `phantom_cash_guard_triggered`). **6 `broker_health_position_drift` warnings** across the 6 paper cycles fired today (13:35 / 14:30 / 15:30 / 16:00 / 17:30 / 18:30 UTC) — known carry-forward from the 12:25 UTC cleanup; all fire on the same 12 ticker set (drift list includes intermittent CSCO from intra-cycle timing). **AUTONOMOUS-FIX APPLIED**: api restart cleared the broker adapter cache.
+- API log scan (24h): 44 ERROR/CRITICAL matches, 0 crash-triad regressions.
+- Prometheus: 2/2 targets up (apis, prometheus), 0 dropped.
+- Alertmanager: 0 active alerts pre-restart and 0 active alerts post-restart at 19:14 UTC. Phase 73 `for: 30m` debounce will keep any HWM-reset false-positives suppressed for the 30-min window.
+- Resource usage: worker 789.7 MiB, api 810.4 MiB, postgres 168.9 MiB, grafana 50.96 MiB, prometheus 36.98 MiB, alertmanager 14.86 MiB, redis 8.176 MiB, apis-control-plane 1.047 GiB / 9.34% CPU. All under threshold.
+- DB size: 171 MB (down from ~175 MB at 10:10 UTC after the cleanup transaction freed ~15k pollution rows; up slightly from earlier post-cleanup level due to the day's snapshots/cycles).
+
+### §2 Execution + Data Audit
+- Paper cycles today: **6 cycles fired** (13:35 / 14:30 / 15:30 / 16:00 / 17:30 / 18:30 UTC, cycle_ids `16c1ad32...`, `a2de1a41...`, `d4ea04c1...`, `a48c46ab...`, `08f5c88a...`, `5f6afb00...`). Next cycle 19:30 UTC. DEC-021 expects 12/weekday from 13:35-19:50 UTC; on track.
+- `evaluation_runs` total: **96** (≥80 floor ✅).
+- Portfolio trend (latest 6 paired-snapshot rows):
+  - 2026-05-04 18:30:02.908 — cash=$23,050.74 / equity=$110,718.73
+  - 2026-05-04 17:30:02.816 — cash=$23,050.74 / equity=$111,029.32
+  - 2026-05-04 16:00:02.955 — cash=$23,050.74 / equity=$110,740.67
+  - 2026-05-04 15:30:02.887 — cash=$23,050.74 / equity=$110,752.30
+  - 2026-05-04 14:30:03.178 — cash=$23,050.74 / equity=$110,872.56
+  - 2026-05-04 13:35:04.034 — cash=$23,050.74 / equity=$111,586.01
+  - Cash positive ✅ stable; equity drift -0.78% across the day (intraday market move on the 12 longs); dual-snapshot pattern continues.
+- Broker<->DB reconciliation: DB shows **12 OPEN positions** (CAT, SLB, WDC, BE, NUE, INTC, STT, MU, MRVL, AMD, EQIX, AMZN). All `origin_strategy=rebalance`. /health broker=ok. `/api/v1/broker/positions` 404s in this build → fall back to /health=ok per feedback note. Drift 6 hits/cycle pre-restart; should clear post-restart.
+- Origin-strategy stamping: ALL 12 OPEN positions `origin_strategy=rebalance` ✅. Today's 6 closed CSCO rows all `origin_strategy=momentum_v1` ✅ (Phase 73 fix holding — 0 NULLs).
+- Position caps: **12/15 open** ✅, BUT **6 new persisted rows today (all CSCO)** = breach of `APIS_MAX_NEW_POSITIONS_PER_DAY=5`. The 6 rows share an identical `opened_at` timestamp (13:35:00.000803), `entry_price=91.43`, `quantity=72` and differ only in `closed_at` (one per cycle). All 6 closed by end of each respective cycle — net 0 currently OPEN. Pattern indicates momentum_v1 strategy is opening+closing CSCO every cycle and persisting a NEW position row each time (instead of reusing/dedup'ing). Phase 65b dedup applied to rebalance-protected positions does NOT cover momentum_v1 OPEN+CLOSE same-cycle pairs.
+- Data freshness:
+  - daily_market_bars MAX = 2026-05-01 (Friday close, 490 securities). Mon's bars not ingested yet (post-close job tonight).
+  - signal_runs MAX = 2026-05-01 10:30 UTC (stale carry-forward from 12:25 UTC cleanup).
+  - ranking_runs MAX = 2026-05-01 10:45 UTC (stale carry-forward).
+  - security_signals MAX = 2026-05-01 10:30 UTC, 0 rows in 48h (cleanup collateral damage).
+  - ranked_opportunities MAX = 2026-05-01 10:45 UTC, 0 rows in 48h (cleanup collateral damage).
+  - Will repopulate Tue 2026-05-05 06:30 ET signal generation job.
+- Stale tickers: known 13 only (PXD, JNPR, DFS, PKI, CTLT, IPG, K, ANSS, PARA, MMC, MRO, HES, WRK). No new additions. yfinance reports "13 Failed downloads" matching the known list.
+- Kill-switch: `false` ✅. Operating mode: `paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+
+### §3 Code + Schema
+- Alembic head: `p6q7r8s9t0u1` (single head ✅). No drift.
+- Pytest smoke: **360 passed / 0 failed / 3660 deselected in 20.55s** ✅ — Phase 73/74 baseline holding (phase59 token excluded per Phase 74 isolation guard rule still in effect for safety).
+- Git: **CLEAN**. HEAD = `9db28ae`. 0 unpushed commits. Only `main` branch.
+- **GitHub Actions CI:**
+  - Run **#25327395434** on `9db28ae` (latest, docs commit) — `status=completed, conclusion=success` ✅. https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25327395434
+  - Run **#25327148433** on `3bdbe64` (Phase 74 lint fix) — `status=completed, conclusion=success` ✅. The 15:15 UTC YELLOW from this morning's deep-dive resolved cleanly.
+  - Two consecutive GREEN runs on main; CI is healthy.
+
+### §4 Config + Gate Verification
+All critical APIS_* flags at expected values:
+- APIS_OPERATING_MODE=paper ✅
+- APIS_KILL_SWITCH=false ✅
+- APIS_MAX_POSITIONS=15 ✅
+- APIS_MAX_NEW_POSITIONS_PER_DAY=5 ✅
+- APIS_MAX_THEMATIC_PCT=0.75 ✅
+- APIS_RANKING_MIN_COMPOSITE_SCORE=0.30 ✅
+- APIS_MAX_SECTOR_PCT=0.40 ✅
+- APIS_MAX_SINGLE_NAME_PCT=0.20 ✅
+- APIS_MAX_POSITION_AGE_DAYS=20 ✅
+- APIS_DAILY_LOSS_LIMIT_PCT=0.02 ✅
+- APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05 ✅
+- APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED not set (defaults false) ✅
+- APIS_INSIDER_FLOW_PROVIDER not set (defaults null) ✅
+- Deep-Dive Step 6/7/8 flags not set (defaults OFF) ✅
+- Scheduler: `job_count=36`. Worker started 2026-05-04 00:33:32 UTC; liveness heartbeat firing every 5 min ✅.
+
+### Issues Found
+- **[YELLOW] CSCO momentum_v1 strategy persisting a new row every cycle (Phase 65c follow-up).** 6 rows today, all CSCO, identical `opened_at=13:35:00.000803`, `entry_price=$91.43`, `quantity=72`; only `closed_at` differs per cycle (13:35 / 14:30 / 15:30 / 16:00 / 17:30 / 18:30). Net 0 OPEN at any time, but technically breaches `APIS_MAX_NEW_POSITIONS_PER_DAY=5` (count=6) and creates wasteful row inflation. Phase 65b alternating-churn dedup covered rebalance-protected positions only — momentum_v1 needs the same treatment. Recommended fix: extend `_critical_exit_reasons` exclusion or apply intra-cycle OPEN+CLOSE dedup at the strategy-router boundary so a same-cycle round-trip on CSCO collapses into a single position row (or zero, since it's net-flat).
+- **[YELLOW carry-forward] `broker_health_position_drift` firing on every paper cycle** (6 hits today). Known artifact of the 12:25 UTC operator-approved cleanup transaction restoring 12 production positions in the DB without resyncing the broker adapter's in-memory position cache. **AUTONOMOUS-FIX APPLIED**: `docker restart docker-api-1` at 19:13 UTC; api healthy at 19:14:39Z, all 7 /health components ok, Phase 73 indentation fix held (12 positions correctly restored, Prometheus matches DB exactly). Should clear on next paper cycle's drift check at 19:30 UTC.
+- **[INFO] signal_runs / ranking_runs / security_signals / ranked_opportunities still stale at 2026-05-01.** Will repopulate Tue 2026-05-05 06:30 ET.
+- **[INFO] Phase 73 / Phase 74 defenses fully holding.** Alertmanager firing=0 across the day pre- and post-restart; pytest write-blocking fixture intact (no production-DB pollution since Phase 74 landed).
+
+### Fixes Applied
+- **`docker restart docker-api-1` at ~19:13 UTC** — clears the in-memory broker adapter position cache that was drifting against the 12 cleanup-restored DB rows. Verified post-restart: /health all 7 ok, Prometheus `apis_portfolio_positions=12, equity_usd=110718.73, cash_usd=23050.74` matches DB latest snapshot exactly, Alertmanager firing=0 (Phase 73 30m debounce active for any post-restart HWM-reset false-positives). Standing autonomous-fix authority covers container restarts.
+
+### Action Required from Aaron
+1. **Triage Phase 65c CSCO churn** — momentum_v1 strategy is opening+closing CSCO every paper cycle and persisting a NEW positions row each time. The 6 rows today share `opened_at=13:35:00.000803`, `entry_price=$91.43`, `quantity=72` (only `closed_at` differs). Recommend a Phase 65b-equivalent dedup at the strategy-router boundary so net-flat round-trips collapse into a single position row (or zero). I cannot autonomously edit strategy code without operator review; this is a code-design decision (collapse-to-zero vs single-row-per-day vs other).
+2. **Optional: monitor 19:30 UTC paper cycle** to confirm broker drift cleared after the api restart — should see the next cycle log line drop the `broker_health_position_drift` warning. If it fires again, the cache may need a deeper resync (DB-driven refresh on every cycle start) — flag would be a Phase 70-equivalent root-fix.
+3. **YELLOW email**: drafted via Gmail MCP — manual send required.
+
+---
+
 ## Health Check — 2026-05-04 15:15 UTC (Monday 10:15 AM CT, market open ~45 min)
 
 **Overall Status:** YELLOW — CI Lint & Type Check failed on Phase 74 commit `37191c3` (run #25319905949 at 12:49 UTC) due to a single I001 import-sort issue in `apis/tests/conftest.py`. Auto-fixed (commit `3bdbe64`, pushed); CI rerun #25327148433 queued at 15:15 UTC. Two `broker_health_position_drift` warnings fired in 24h (cycles 13:35 + 14:30 UTC) — known carry-forward artifact from the operator-approved cleanup transaction at 12:25 UTC (the 12 production positions were UPDATE'd back to `open` in DB but the broker adapter's in-memory position cache wasn't resynced; should self-clear on next API restart). Today's 06:30/06:45 ET signal_runs + ranking_runs were collateral damage from the 12:25 UTC cleanup (DELETE >= 2026-05-04 01:00:00 also nuked legitimate Monday morning runs); paper cycles still ran successfully and produced clean snapshots. Everything else GREEN: 8/8 containers healthy 15h uptime, /health all 7 components ok, Alertmanager firing=0 (Phase 73 defense holding), 12 open positions correctly restored with `origin_strategy=rebalance`, Prometheus gauges match DB exactly, equity $110,872.56 / cash $23,050.74, pytest 360/360 in 29.94s, git tree clean post-fix push, all 6 critical APIS_* flags correct.

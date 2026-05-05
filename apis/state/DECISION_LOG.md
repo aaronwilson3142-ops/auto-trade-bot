@@ -3,6 +3,26 @@ Format: timestamp | decision | alternatives considered | rationale | consequence
 
 ---
 
+## [2026-05-04] Phase 75 — Position Row-Inflation Fix (DEC-075)
+
+### DEC-075: `_persist_positions` idempotency on `(security_id, opened_at)` + close-loop safe-list of just-touched security_ids
+- **Decision:** Two-layer fix in `apis/apps/worker/jobs/paper_trading.py::_persist_positions`:
+  1. **Primary** — replace the `status='open'`-only upsert lookup with a `(security_id, opened_at)` lookup regardless of status (legacy `status='open'` lookup retained as fallback). When the matching row is `closed`, REOPEN it (clear `closed_at`/`exit_price`/`realized_pnl`, set `status='open'`) instead of inserting a new row. New log line `phase75_position_row_reopened`.
+  2. **Defense-in-depth** — track every `security_id` upserted/reopened in this call in `_persist_touched_sec_ids: set`; in the close-loop, skip any row whose `security_id` is in that set even if `held_tickers` doesn't contain its ticker. New log line `phase75_close_skipped_just_upserted`.
+- **Alternatives considered:**
+  - (a) Add a SQL `UNIQUE (security_id, opened_at)` constraint on the `positions` table. Rejected as the FIRST move because today's DB has many existing duplicates (BK=22 rows / UNP=20 / ODFL=20 / HOLX=19 / MRVL=17 / 7 today's CSCO etc.) — a `UNIQUE` migration would FAIL until those duplicates are cleaned up. Filed as a follow-up after operator-approved historical cleanup.
+  - (b) Fix in the strategy code (extend Phase 65b dedup to `momentum_v1`). Rejected because the actual cycle-1 evidence (`docker logs docker-worker-1 --since 14h | grep CSCO`) showed CSCO had ONE broker fill today (13:35:01.978 UTC at $91.43, qty=72) and ZERO subsequent CSCO orders/fills despite 7 DB Position rows. So the strategy isn't churning — the persistence layer is. The right fix is in `_persist_positions`, not the strategy router.
+  - (c) Add a startup hook on the worker to seed `broker_adapter._positions` from DB. Deferred — orthogonal fix for the broker drift symptom; would require careful cash reconciliation and a separate ticket. Phase 75's close-loop will naturally close stale broker rows that were never re-filled, so the drift will clear over the next few cycles even without seeding.
+- **Rationale:** The DB query `SELECT s.ticker, COUNT(*) FROM positions p JOIN securities s ON s.id=p.security_id GROUP BY s.ticker, opened_at HAVING COUNT(*)>1 ORDER BY rows DESC` showed this bug has been firing since at least 2026-04-20 (BK=22 rows for the Apr 20 ownership episode, UNP=20, ODFL=20, etc.) but was only filed today as Phase 65c after a single `momentum_v1` ticker (CSCO) breached `APIS_MAX_NEW_POSITIONS_PER_DAY=5`. The pattern is identical across all rows: one logical ownership episode → many DB rows with the SAME `opened_at` and only `closed_at` differing. The `(security_id, opened_at)` lookup is the natural unique key for one ownership episode.
+- **Consequence:**
+  - Going forward: each ownership episode = exactly one DB row (created_at preserves insert audit; status/closed_at/exit_price/realized_pnl reflect the latest state).
+  - Daily-cap accounting (`APIS_MAX_NEW_POSITIONS_PER_DAY=5` via `_today_opens + _today_closed` in Phase 69 startup-aware seed) will no longer be inflated by row-inflation, so legitimate same-day churn will be detectable again.
+  - `broker_health_position_drift` should clear within 1-2 paper cycles after deploy because the close-loop will correctly close the 12 operator-restored rebalance positions that the worker's broker doesn't have.
+  - Two new pytest regression tests in `apis/tests/unit/test_phase64_position_persistence.py::TestPhase75ReopenIdempotency` (`test_reopens_closed_row_with_same_opened_at` + `test_close_loop_skips_just_upserted_security`) lock the behaviour in.
+  - Historical duplicates (16 ticker-episodes with COUNT(*)>1 as of 2026-05-04) remain in the DB as audit trail; an operator-approved DELETE could collapse them later, but this is non-blocking and not required for the runtime fix.
+
+---
+
 ## [2026-04-26] Phase 67 — Worker RED Fix
 
 ### DEC-049: Anti-churn cap — cap OPEN target_notional to rebalance target weight × equity
