@@ -3,6 +3,23 @@ Format: timestamp | decision | alternatives considered | rationale | consequence
 
 ---
 
+## [2026-05-05] Phase 76 — HOLX Universe-Filter Defence-in-Depth (DEC-076)
+
+### DEC-076: Add `inactive_ticker` violation rule to risk engine via injected `is_active_fn` callable
+- **Decision:** Add a new `check_inactive_ticker(action)` method to `RiskEngineService`. The method hard-blocks OPEN actions when `is_active_fn(ticker)` returns False. CLOSE/TRIM are never blocked. The callable is injected via `__init__` (mirrors the existing `kill_switch_fn` pattern) so the risk engine itself stays free of DB coupling. The production caller (`run_paper_trading_cycle`) snapshots `securities.is_active=False` tickers once per cycle into a closure-captured set. When `is_active_fn=None` the check is a no-op (backward compat). Exceptions raised by the callable are swallowed with a warning — the check is defensive, not authoritative; a transient DB blip must not stall the entire validate_action pipeline.
+- **Alternatives considered:**
+  - **Strategy candidate-universe filter only.** Rejected: less defensive — if a new universe source (rankings restore, signals replay, manual override path) bypasses the candidate selector later, HOLX returns. Risk engine is the single chokepoint every action passes through.
+  - **Both layers (strategy + risk engine).** Rejected for now per operator preference (single-place defence-in-depth is cleaner; eliminates noise from logs is a nice-to-have, not a correctness need). Can be revisited if proposal-layer noise becomes a triage burden.
+  - **Settings-based static blocklist (env-var of inactive tickers).** Rejected: requires manual maintenance every time a ticker is delisted; the DB `is_active` flag is already the canonical source.
+  - **DB query inline inside `check_inactive_ticker`.** Rejected: adds DB coupling to risk_engine which is currently pure (operates only on in-memory state). Callable injection mirrors `kill_switch_fn` and keeps the boundary clean.
+- **Rationale:** The 2026-05-05 deep-dive showed HOLX *still* being proposed as `action_type=open` despite Phase 72's universe removal + 2026-05-01 DB `is_active=false`. Only Alpaca rejection and the daily-cap (`max_new_positions_per_day=5`) were preventing fills. Risk engine is the last line before the broker — making it honour `is_active` ensures any future strategy bug that leaks an inactive ticker still cannot send the order.
+- **Consequence:**
+  - Inactive tickers (currently HOLX, plus the 13 stale delisted S&P 500 names: JNPR, MMC, WRK, PARA, K, HES, PKI, IPG, DFS, MRO, CTLT, PXD, ANSS) will be hard-blocked at risk-engine validation with `rule_name=inactive_ticker`. CLOSE actions on those tickers continue to flow through unimpeded.
+  - Worker restart required for next paper cycle to pick up the new wiring (snapshot is constructed once per cycle, but the RiskEngineService instance is built fresh each cycle so the next cycle picks it up).
+  - Going forward, when removing a ticker the operator only needs to flip `securities.is_active=false`; both order rejection AND ranking suppression will follow within one cycle, even if the strategy's candidate selector still leaks the name.
+
+---
+
 ## [2026-05-04] Phase 75 — Position Row-Inflation Fix (DEC-075)
 
 ### DEC-075: `_persist_positions` idempotency on `(security_id, opened_at)` + close-loop safe-list of just-touched security_ids

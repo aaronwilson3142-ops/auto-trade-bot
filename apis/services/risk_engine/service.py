@@ -7,14 +7,15 @@ being handed to the ExecutionEngineService.
 
 Rules enforced (in order inside validate_action):
   1. kill_switch              — blocks everything when active
-  2. max_positions            — no more opens when portfolio is full
-  3. max_single_name_pct      — no single-name overconcentration
-  4. daily_loss_limit_pct     — halt new opens if today's loss limit is hit
-  5. weekly_drawdown_limit    — halt new opens if drawdown exceeds weekly cap
-  6. monthly_drawdown_limit   — halt new opens if MTD loss exceeds monthly cap
-  7. max_new_positions_per_day — halt new opens once daily open limit is reached
-  8. max_sector_pct           — halt opens that would push any sector over its cap
-  9. max_thematic_pct         — halt opens that would push any theme over its cap
+  2. inactive_ticker          — blocks OPEN actions on securities with is_active=false
+  3. max_positions            — no more opens when portfolio is full
+  4. max_single_name_pct      — no single-name overconcentration
+  5. daily_loss_limit_pct     — halt new opens if today's loss limit is hit
+  6. weekly_drawdown_limit    — halt new opens if drawdown exceeds weekly cap
+  7. monthly_drawdown_limit   — halt new opens if MTD loss exceeds monthly cap
+  8. max_new_positions_per_day — halt new opens once daily open limit is reached
+  9. max_sector_pct           — halt opens that would push any sector over its cap
+ 10. max_thematic_pct         — halt opens that would push any theme over its cap
 
 CLOSE actions are not blocked by position-count limits; they can always proceed
 (subject to kill switch and drawdown limits).
@@ -89,12 +90,21 @@ class RiskEngineService:
         self,
         settings: Settings,
         kill_switch_fn: Callable[[], bool] | None = None,
+        is_active_fn: Callable[[str], bool] | None = None,
     ) -> None:
         """Initialise the risk engine.
 
         Args:
             settings:       Application settings (provides env-var kill_switch and
                             all risk-limit thresholds).
+            is_active_fn:   Optional callable ``(ticker: str) -> bool`` that returns
+                            False when the security is inactive (delisted, suspended,
+                            tradability revoked) and must be blocked from new OPEN
+                            actions. Returning True means the ticker is active. When
+                            None, the inactive_ticker check is skipped (backward
+                            compat). Exceptions in the callable cause the check to
+                            be skipped with a warning, never a hard block — the
+                            check is defensive, not authoritative.
             kill_switch_fn: Optional zero-argument callable that returns True when
                             the *runtime* kill switch is active (e.g.
                             ``lambda: app_state.kill_switch_active``).  When None,
@@ -104,6 +114,7 @@ class RiskEngineService:
         """
         self._settings = settings
         self._kill_switch_fn = kill_switch_fn
+        self._is_active_fn = is_active_fn
         self._log = log.bind(service="risk_engine")
 
     # ── Master validator ──────────────────────────────────────────────────────
@@ -123,6 +134,7 @@ class RiskEngineService:
 
         checks = [
             self.check_kill_switch(),
+            self.check_inactive_ticker(action),
             self.check_portfolio_limits(action, portfolio_state),
             self.check_daily_loss_limit(portfolio_state),
             self.check_drawdown(portfolio_state),
@@ -179,6 +191,65 @@ class RiskEngineService:
                     RiskViolation(
                         rule_name="kill_switch",
                         reason=f"Kill switch is active ({source}) — no orders permitted.",
+                        severity=RiskSeverity.HARD_BLOCK,
+                    )
+                ],
+            )
+        return RiskCheckResult(passed=True)
+
+    def check_inactive_ticker(
+        self,
+        action: PortfolioAction,
+    ) -> RiskCheckResult:
+        """Block OPEN actions on securities flagged inactive (HOLX-class regression).
+
+        Defensive defence-in-depth: even if the strategy candidate-universe selector
+        leaks an inactive ticker into the proposal stream (e.g. via stale rankings,
+        signals, or an alternative universe source that bypasses securities.is_active),
+        the risk engine refuses to send the order to the broker.
+
+        Only OPEN actions are checked. CLOSE / TRIM actions on inactive tickers are
+        always permitted — once a security is delisted or suspended, exiting the
+        position is the priority and we must never block our own exit.
+
+        When ``is_active_fn`` is None (not wired) the check is skipped — preserves
+        backward compatibility for tests and callers that don't supply the hook.
+        Exceptions raised by the callable are swallowed with a warning; the check
+        is a defensive safety net, not the authoritative gatekeeper, so a transient
+        DB blip should not stall the entire validate_action pipeline.
+        """
+        if self._is_active_fn is None:
+            return RiskCheckResult(passed=True)
+
+        if action.action_type != ActionType.OPEN:
+            return RiskCheckResult(passed=True)
+
+        try:
+            is_active = bool(self._is_active_fn(action.ticker))
+        except Exception as exc:  # noqa: BLE001
+            return RiskCheckResult(
+                passed=True,
+                warnings=[
+                    f"inactive_ticker: check skipped due to error - {exc}"
+                ],
+            )
+
+        if not is_active:
+            self._log.warning(
+                "risk_inactive_ticker_blocked",
+                ticker=action.ticker,
+                action_type=action.action_type.value,
+            )
+            return RiskCheckResult(
+                passed=False,
+                violations=[
+                    RiskViolation(
+                        rule_name="inactive_ticker",
+                        reason=(
+                            f"Security '{action.ticker}' is flagged inactive "
+                            f"(delisted/suspended/is_active=false). "
+                            f"No new opens permitted on inactive tickers."
+                        ),
                         severity=RiskSeverity.HARD_BLOCK,
                     )
                 ],

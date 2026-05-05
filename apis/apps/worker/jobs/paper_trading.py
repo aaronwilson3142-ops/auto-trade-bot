@@ -920,7 +920,39 @@ def run_paper_trading_cycle(
         _ks_fn = lambda: bool(getattr(app_state, "kill_switch_active", False))  # noqa: E731
 
         _portfolio_svc = portfolio_svc or PortfolioEngineService(settings=cfg)
-        _risk_svc = risk_svc or RiskEngineService(settings=cfg, kill_switch_fn=_ks_fn)
+
+        # Phase 76: snapshot inactive tickers once per cycle so the risk engine
+        # can hard-block OPEN proposals on securities flagged is_active=false
+        # (HOLX-class regression — strategy candidate selector still leaks
+        # delisted/suspended names; risk engine is the defence-in-depth gate).
+        _inactive_tickers: set[str] = set()
+        try:
+            import sqlalchemy as _sa_active  # noqa: PLC0415
+
+            from infra.db.models import Security as _SecForActive  # noqa: PLC0415
+            from infra.db.session import db_session as _db_session_active  # noqa: PLC0415
+            with _db_session_active() as _db_active:
+                _rows = _db_active.execute(
+                    _sa_active.select(_SecForActive.ticker).where(
+                        _SecForActive.is_active.is_(False)
+                    )
+                ).all()
+                _inactive_tickers = {r[0] for r in _rows if r and r[0]}
+        except Exception as _e:  # noqa: BLE001
+            logger.warning(
+                "paper_cycle_inactive_ticker_snapshot_failed",
+                error=str(_e),
+            )
+            _inactive_tickers = set()
+        _is_active_fn = (
+            lambda t: t not in _inactive_tickers  # noqa: E731
+        )
+
+        _risk_svc = risk_svc or RiskEngineService(
+            settings=cfg,
+            kill_switch_fn=_ks_fn,
+            is_active_fn=_is_active_fn,
+        )
         _execution_svc = execution_svc or ExecutionEngineService(
             settings=cfg, broker=_broker, kill_switch_fn=_ks_fn
         )

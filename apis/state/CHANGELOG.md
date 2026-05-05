@@ -3,6 +3,24 @@ Format: [YYYY-MM-DD] | file/module | description
 
 ---
 
+## [2026-05-05 ~20:00 UTC] Phase 76 — HOLX Universe-Filter Defence-in-Depth (DEC-076)
+
+**Files changed:**
+
+| File | Change |
+|------|--------|
+| `apis/services/risk_engine/service.py` | Added `is_active_fn: Callable[[str], bool] \| None = None` param to `RiskEngineService.__init__()` (mirrors the `kill_switch_fn` injection pattern). New `check_inactive_ticker(action)` method hard-blocks OPEN actions when `is_active_fn(ticker)` returns False. CLOSE/TRIM never blocked (must always be able to exit a delisted name). Wired into `validate_action()` between `kill_switch` and `portfolio_limits`. New log line `risk_inactive_ticker_blocked`. Backward-compatible: when `is_active_fn` is None the check is skipped. Exceptions in the callable are swallowed with a warning. |
+| `apis/apps/worker/jobs/paper_trading.py` | `run_paper_trading_cycle` now snapshots `securities.is_active=False` tickers once per cycle into `_inactive_tickers` and passes a closure `lambda t: t not in _inactive_tickers` as `is_active_fn` when constructing `RiskEngineService`. DB-blip safe: snapshot failure logs `paper_cycle_inactive_ticker_snapshot_failed` and falls back to an empty set (no false-positive blocks). |
+| `apis/tests/unit/test_risk_engine.py` | New `TestInactiveTicker` class with 8 tests: hard-block on inactive OPEN, pass on active OPEN, no-op when fn=None, CLOSE on inactive always allowed, callable exception -> skipped + warning, end-to-end `validate_action` blocks inactive OPEN, end-to-end passes active ticker, set-lookup pattern matching the production wiring. Also fixed two pre-existing env-drift failures (`test_blocks_open_at_max_positions`, `test_single_violation_blocks_action`) by pinning `max_positions=10` explicitly to compensate for the 2026-04-15 `.env` cap raise to 15. |
+
+**Why:** HOLX was reported "FULLY RESOLVED 2026-05-01" by Phase 72 (removed from `config/universe.py`) + DB `securities.is_active=false`, but the 2026-05-05 deep-dive caught it still being proposed by the strategy as `action_type=open` on the 13:35 + 14:30 UTC paper cycles. Only `max_new_positions_per_day` and Alpaca rejection were preventing fills. The strategy candidate-universe selector does not currently honour `securities.is_active=false`. Risk engine is the defence-in-depth gate that survives any new universe source.
+
+**Validation:** 175 tests pass (risk_engine 63, paper_trading 63, phase64 7, deep_dive_step5 16, execution_engine 23, plus 3 others) under `APIS_PYTEST_SMOKE=1` in `docker-api-1`. Ruff clean on changed files.
+
+**Operational note:** Worker restart required for the new `is_active_fn` wiring to take effect — the callable is constructed once per `run_paper_trading_cycle` invocation, but the `RiskEngineService` instance is built at the top of each cycle, so the next paper cycle will use the new gate.
+
+---
+
 ## [2026-05-04 ~21:30 UTC] Phase 75 — Position Row-Inflation Fix in `_persist_positions` (DEC-075)
 
 **Files changed:**

@@ -190,7 +190,9 @@ class TestKillSwitch:
 
 class TestMaxPositions:
     def test_blocks_open_at_max_positions(self):
-        svc = RiskEngineService(settings=_settings())  # max_positions=10
+        # Pin max_positions=10 explicitly — production .env raises it to 15
+        # since 2026-04-15, so default-settings tests would be under-cap.
+        svc = RiskEngineService(settings=_settings(max_positions=10))
         state = _full_state(10)
         result = svc.check_portfolio_limits(_open_action(), state)
         assert result.passed is False
@@ -684,7 +686,9 @@ class TestValidateAction:
         assert action.risk_approved is True
 
     def test_single_violation_blocks_action(self):
-        svc = RiskEngineService(settings=_settings())
+        # Pin max_positions=10 explicitly — production .env raises it to 15
+        # since 2026-04-15, so default-settings tests would be under-cap.
+        svc = RiskEngineService(settings=_settings(max_positions=10))
         state = _full_state(10)   # max positions
         action = _open_action()
         result = svc.validate_action(action, state)
@@ -715,3 +719,100 @@ class TestValidateAction:
     def test_risk_approved_false_by_default(self):
         action = _open_action()
         assert action.risk_approved is False
+
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# TestInactiveTicker — Phase 76 HOLX defence-in-depth
+# ──────────────────────────────────────────────────────────────────────────
+
+class TestInactiveTicker:
+    """check_inactive_ticker: defence-in-depth against HOLX-class regression.
+
+    Strategy candidate selector still leaks delisted/suspended tickers into
+    proposal stream; risk engine is the defence-in-depth gate.
+    """
+
+    def test_inactive_open_is_hard_blocked(self):
+        svc = RiskEngineService(
+            settings=_settings(),
+            is_active_fn=lambda t: False,  # everything inactive
+        )
+        result = svc.check_inactive_ticker(_open_action(ticker="HOLX"))
+        assert result.passed is False
+        assert result.is_hard_blocked is True
+        assert any(v.rule_name == "inactive_ticker" for v in result.violations)
+
+    def test_active_open_passes(self):
+        svc = RiskEngineService(
+            settings=_settings(),
+            is_active_fn=lambda t: True,
+        )
+        result = svc.check_inactive_ticker(_open_action(ticker="NVDA"))
+        assert result.passed is True
+        assert result.violations == []
+
+    def test_no_fn_skipped(self):
+        """When is_active_fn is None the check is a no-op (backward compat)."""
+        svc = RiskEngineService(settings=_settings(), is_active_fn=None)
+        result = svc.check_inactive_ticker(_open_action(ticker="HOLX"))
+        assert result.passed is True
+
+    def test_close_on_inactive_ticker_is_allowed(self):
+        """Must always allow CLOSE on a delisted ticker — never block our own exit."""
+        svc = RiskEngineService(
+            settings=_settings(),
+            is_active_fn=lambda t: False,
+        )
+        result = svc.check_inactive_ticker(_close_action(ticker="HOLX"))
+        assert result.passed is True
+        assert not any(v.rule_name == "inactive_ticker" for v in result.violations)
+
+    def test_callable_exception_skips_check(self):
+        """Transient errors in the lookup don't stall the pipeline."""
+        def _broken(_t: str) -> bool:
+            raise RuntimeError("db down")
+
+        svc = RiskEngineService(settings=_settings(), is_active_fn=_broken)
+        result = svc.check_inactive_ticker(_open_action(ticker="HOLX"))
+        assert result.passed is True
+        assert any("inactive_ticker" in w for w in result.warnings)
+
+    def test_validate_action_blocks_inactive_open(self):
+        """End-to-end: validate_action surfaces the inactive_ticker violation."""
+        svc = RiskEngineService(
+            settings=_settings(),
+            is_active_fn=lambda t: t != "HOLX",  # only HOLX is inactive
+        )
+        state = PortfolioState(cash=Decimal("100000.00"))
+        action = _open_action(ticker="HOLX")
+        result = svc.validate_action(action, state)
+        assert result.passed is False
+        assert any(v.rule_name == "inactive_ticker" for v in result.violations)
+        # And the action must NOT be flagged risk_approved
+        assert action.risk_approved is False
+
+    def test_validate_action_passes_active_ticker(self):
+        svc = RiskEngineService(
+            settings=_settings(),
+            is_active_fn=lambda t: True,
+        )
+        state = PortfolioState(cash=Decimal("100000.00"))
+        action = _open_action(ticker="NVDA")
+        result = svc.validate_action(action, state)
+        assert result.passed is True
+        assert action.risk_approved is True
+
+    def test_inactive_set_lookup_pattern(self):
+        """Mirror the production wiring: closure over a set of inactive tickers."""
+        inactive = {"HOLX", "PXD", "ANSS"}
+        svc = RiskEngineService(
+            settings=_settings(),
+            is_active_fn=lambda t: t not in inactive,
+        )
+        # HOLX should be blocked
+        r1 = svc.check_inactive_ticker(_open_action(ticker="HOLX"))
+        assert r1.passed is False
+        # NVDA should be allowed
+        r2 = svc.check_inactive_ticker(_open_action(ticker="NVDA"))
+        assert r2.passed is True
