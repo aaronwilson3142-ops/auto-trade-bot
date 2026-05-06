@@ -2,6 +2,273 @@
 
 Auto-generated daily health check results.
 
+## Phase 79 + 80 Deploy — 2026-05-06 ~20:30 UTC (Wednesday 3:30 PM CT, post-market)
+
+**Trigger:** Operator-initiated remediation of the 2026-05-06 19:30 HEALTH_LOG YELLOW findings (5 issues). Investigation reframed Issue 1 (root cause is rebalance-engine staleness, not theme_alignment_v1 churn) and resolved Issue 3 (broker is correctly flat; HEALTH_LOG misread the cash math).
+
+**Outcome:** Phase 79 (DEC-079) + Phase 80 (DEC-080) shipped. Issue 3 closed without a Phase 81 (no real bug). Issue 5 (stale tickers + scheduler audit) closed. Issue 4 (broker_health_position_drift) carry-forward — Phase 79 may incidentally reduce drift; track Thu 2026-05-07.
+
+### Code changes
+- `apis/apps/worker/jobs/paper_trading.py` — Phase 79 filter at line ~1622 (after rebalance generate). Phase 80 qty resolution at line ~399 + diagnostic warn. Both gated by env knob `phase79_rebalance_idempotency_enabled` (default True for Phase 79; Phase 80 unconditional since pure-improvement).
+- `apis/config/settings.py` — new `phase79_rebalance_idempotency_enabled: bool = Field(default=True)` field.
+- `apis/tests/unit/test_phase79_80_rebalance_idempotency_and_orders_qty.py` — NEW, 12 tests across 3 classes (5 Phase 79 + 6 Phase 80 + 1 round-trip).
+
+### Validation
+- `tests/unit/ -k "deep_dive or phase22 or phase57 or phase77_78 or phase79"` → **382 passed / 0 failed / 3670 deselected in 28.3s** under `APIS_PYTEST_SMOKE=1` in `docker-api-1`.
+- Standalone Phase 79+80 file → 12/12 pass in 6.5s.
+- Ruff clean on all 3 changed files.
+
+### DB cleanup
+- `UPDATE securities SET is_active=false WHERE ticker IN ('JNPR','MMC','WRK','PARA','K','HES','PKI','IPG','DFS','MRO','CTLT','PXD','ANSS')` → `UPDATE 13`. All 13 stale delisted S&P 500 names now inactive in DB. Phase 78 silent dropping will surface count≈14 (HOLX + 13) on next 10:30 UTC signal job. yfinance-404 noise should drop to zero.
+
+### Scheduler audit
+- `build_scheduler()` snapshot in `docker-worker-1` reports 36 jobs total. Identified `scheduler_heartbeat` (Phase 71, deployed 2026-04-30) as the legitimate +1 vs the documented baseline of 35 in `feedback_apis_deep_dive_probes.md`. Memory updated to baseline 36.
+
+### Issue 3 resolution (no bug)
+VRT order replay against `decision_snapshot_json->>'expected_price'` (`outputs/probe_broker.py`):
+| Time | Side | Shares | Price | qty_held |
+|------|------|--------|-------|----------|
+| 13:35 | BUY | 22 | $350.94 | 22 |
+| 14:30 | BUY | 22 | $345.13 | 44 |
+| 16:00 | SELL | 22 | $355.38 | 22 |
+| 17:30 | SELL | 22 | $352.57 | 0 |
+| 19:30 | BUY | 21 | $357.83 | 21 |
+
+Cash deltas in `portfolio_snapshots` confirm one-cycle settlement lag (BUY at 14:30 settles in 15:30 snapshot, SELL at 16:00 clears in 17:30 snapshot, etc.). Broker correctly held 22 → 44 → 22 → 0 → 21 across the day. **HEALTH_LOG misread:** the "$15,570 inflow on 22-share long" calc skipped cycle 2's 22-share BUY entirely. Paper-broker `_update_position` at `broker_adapters/paper/adapter.py:404` clamps to `max(0, qty)` — broker NEVER goes short. Memory `project_phase81_vrt_reconciliation_decision.md` records full investigation.
+
+### Action required from Aaron
+1. Worker restart to pick up new code: `docker compose up -d --force-recreate worker`. Env knob `APIS_PHASE79_REBALANCE_IDEMPOTENCY_ENABLED=true` is the new default; no `.env` change needed.
+2. Watch Thu 2026-05-07 09:35 ET first cycle for `phase79_rebalance_open_already_open_skipped` lines on any ticker the rebalance engine proposes against an already-held position.
+3. Confirm new orders rows have non-NULL quantity on FILLED status (Phase 80 verification).
+4. If `broker_health_position_drift` continues firing on the 11 operator-restored rebalance positions across multiple Thu cycles, escalate to Phase 81 (broker-DB resync on API restart).
+
+---
+
+
+
+## Health Check — 2026-05-06 19:30 UTC (Wednesday 2:30 PM CT, mid-afternoon market)
+
+**Overall Status:** YELLOW — clean infrastructure but TWO new data-integrity findings worth Aaron's review: (1) **VRT same-day churn** under `theme_alignment_v1` strategy — opened 14:30 UTC by cycle 2, closed 18:30 UTC by cycle 6, **re-opened 19:30 UTC by cycle 7** (cycle 7 just fired 6 min before this report). Same churn pattern Phase 65b mitigated for `momentum_v1` is now appearing for the new `theme_alignment_v1` strategy. (2) **Orders ledger NULL-quantity rows** for VRT — both BUY orders today written with `quantity=NULL` + 0 fill rows, and 2 SELL orders for `qty=22` each both marked `filled` (broker apparently sold 44 shares of a 22-share position, returning ~$15,570 cash for shares originally bought for $7,729). The NULL-quantity pattern is **pre-existing** (every weekday for past 14 days has 2-7 NULL-qty orders), and morning HEALTH_LOG didn't flag it because no NEW open positions had been written through this code path until today's `theme_alignment_v1` exercise. All other subsystems GREEN: 8/8 containers healthy 23h uptime RestartCount=0, /health 7/7 ok at 19:09:08Z, worker tail-5000 102 ERROR / api 36 ERROR (yfinance stale-13 + 20 `broker_health_position_drift` carry-forward — 0 crash-triad), Prometheus 2/2 up, Alertmanager firing=0, pytest deep_dive+phase22+phase57+phase77_78 → **370p/0f/3670d in 24.03s** ✅, alembic `q7r8s9t0u1v2` single head, **CI run #25401590762 on `ffd363e` conclusion=success** ✅, 11 OPEN positions all `origin_strategy=rebalance` (down from 12 morning — VRT closed and not yet repersisted from cycle 7's BUY), 1 new today (VRT, theme_alignment_v1), kill=false mode=paper, idempotency clean, evaluation_runs=98, all 11 critical APIS_* flags correct, scheduler `job_count=36`, liveness heartbeat fresh (`worker:scheduler_heartbeat=1778095522` ≈ 19:25:22 UTC). Cash ledger trajectory today: $23,050 (13:35) → $22,541 (14:30 VRT BUY1) → $14,949 (15:30 VRT BUY2 settled, -$7,592) → $14,949 (16:00 SELL1 issued) → $22,764 (17:30 SELL1 cleared, +$7,815) → $30,519 (18:30 SELL2 cleared, +$7,755). Net 13:35→18:30 = **+$7,469 cash gained on a 22-share VRT round-trip** — implies broker really sold 44 shares (or the SELL #2 cleared cash for shares the broker doesn't hold). Equity moved $116,777 → $116,197 (-0.50% MTM), within bounds. NO autonomous fixes applied — both YELLOW issues are operator-review-required. **Action required from Aaron:** (1) review VRT same-day churn pattern for `theme_alignment_v1` — if persistent, may need a Phase 65b-style suppression port for `theme_alignment_v1`; (2) decide whether to dig into orders-ledger NULL-quantity writer (pre-existing, now exposed by today's clean theme_alignment_v1 exercise); (3) confirm whether broker-side share-count on VRT matches DB position-row close (was 22; broker may have phantom -22 short).
+
+### §1 Infrastructure
+- Containers: 8/8 healthy. `docker-worker-1` + `docker-api-1` `Up 23 hours` since `2026-05-05T20:19:51Z` (Phase 77+78 deploy recreate). `docker-postgres-1` / `docker-redis-1` / grafana / prometheus / alertmanager / apis-control-plane `Up 40 hours` since `2026-05-05T03:31:12Z`. RestartCount=0 across all 4 core services.
+- /health: all 7 components `ok` at 2026-05-06T19:09:08Z. mode=paper, kill_switch=ok.
+- Worker log scan (5000 tail): **102 ERROR/CRITICAL** matches — yfinance stale-ticker on the known 13 + 20 `broker_health_position_drift` cumulative warnings (today's 6+ cycles ≈ 12-14 hits + Mon/Tue carry-forward). **0 crash-triad regressions** across all 5 patterns (the only `_fire_ks`/`broker_adapter`/`idempotency_key`/`paper_cycle.*no_data`/`phantom_cash` matches were 2 benign `persist_evaluation_run_skipped_duplicate` info-level events — pattern matched the JSON `idempotency_key` field, not a regression).
+- API log scan (5000 tail): **36 ERROR/CRITICAL** matches, 0 crash-triad.
+- Prometheus: 2/2 targets up (apis, prometheus), 0 dropped at 19:15:13Z.
+- Alertmanager: 0 active alerts at 19:09 UTC. Phase 73 `for: 30m` debounce holding.
+- Resource usage: worker 767.8 MiB / 0.00% CPU, api 766.8 MiB / 2.60%, postgres 170.2 MiB, grafana 50.75 MiB, prometheus 41.01 MiB, alertmanager 14.7 MiB, redis 8.8 MiB, apis-control-plane 1.196 GiB / 10.31%. All under threshold.
+- DB size: **187 MB** (unchanged from morning — no growth this period, expected).
+
+### §2 Execution + Data Audit
+- Paper cycles fired today: **7 of expected 12** (13:35 / 14:30 / 15:30 / 16:00 / 17:30 / 18:30 / 19:30 UTC). 0 failures. Cycle 1 prop=29 app=5 exec=5 (5 BUY fills: INTC qty=59, MU qty=10, AMZN qty=24, AMD qty=15, EQIX qty=6 — all TRIM-rebalance increments to existing OPEN positions, with proper fill rows). Cycles 2-7 prop=19 app=0 exec=0 (daily cap consumed).
+- `evaluation_runs` total: **98** (≥80 floor ✅; unchanged since morning).
+- Portfolio trend (paired-snapshot pattern continuing today, last 6 rows of legitimate stream):
+  - 2026-05-06 18:30:02 — cash=$30,519.19 / equity=$116,197.38
+  - 2026-05-06 17:30:02 — cash=$22,764.63 / equity=$116,182.38
+  - 2026-05-06 16:00:03 — cash=$14,949.05 / equity=$116,093.54
+  - 2026-05-06 15:30:02 — cash=$14,949.05 / equity=$116,480.66
+  - 2026-05-06 14:30:02 — cash=$22,541.91 / equity=$114,057.97
+  - 2026-05-06 13:35:03 — cash=$23,050.74 / equity=$116,777.41
+  - Cash positive ✅. Cash trajectory today: $23,050 (13:35) → $22,541 (14:30) → $14,949 (15:30 VRT BUY settled, -$7,592) → $14,949 (16:00) → $22,764 (17:30 first VRT SELL cleared, +$7,815) → $30,519 (18:30 second VRT SELL cleared, +$7,755). **Net 13:35→18:30 = +$7,469 cash gained** on a position that opened at qty=22 and closed at qty=22 (entry $351.34, $7,729 cost). Cash inflow ($7,815 + $7,755 = $15,570) is about **2× the original buy cost**, suggesting broker actually executed 44 shares of SELL on a 22-share long position. Equity intraday: $116,777 → $116,197 (-0.50%, normal MTM drift).
+- Broker<->DB reconciliation: DB shows **11 OPEN positions** (CAT, SLB, INTC, BE, MU, WDC, NUE, AMD, MRVL, AMZN, EQIX) — VRT (opened 14:30, closed 18:30) is NOT in the open set. Cycle 7's 19:30 BUY of VRT (NULL qty, status=filled) has not yet been persisted as a Position row at probe time (cycle just completed). /health broker=ok (`/api/v1/broker/positions` 404s in this build — falling back to /health=ok per feedback note).
+- **NEW finding 1: VRT same-day churn under `theme_alignment_v1`**. VRT was opened 14:30 UTC (cycle 2) by `theme_alignment_v1` "replacing" STT (which closed cycle 2), then sold qty=22 at 16:00 (cycle 4) AND qty=22 at 17:30 (cycle 5) — both filled — closed 18:30 UTC (cycle 6), then **re-opened by cycle 7 at 19:30 UTC**. This mirrors the alternating-churn pattern Phase 65b suppressed for `momentum_v1` but applied to a new strategy.
+- **NEW finding 2: Orders ledger NULL-quantity rows continue**. Today's 12 orders include 3 with `quantity=NULL` (both VRT BUYs + cycle 7's new BUY). 2 VRT SELL orders qty=22 both marked `filled` with 0 fill rows. Pre-existing pattern: orders by date for last 14 days show 2-7 NULL-quantity orders/day. Cycle-1 TRIM BUYs (INTC/MU/AMZN/AMD/EQIX) are properly logged with quantity AND fill rows — only the OPEN/CLOSE path appears affected.
+- Origin-strategy stamping: ALL 11 OPEN have `origin_strategy` stamped ✅ (10 `rebalance` opened 04-29/05-01 + 0 `theme_alignment_v1` after VRT closed). VRT closed row also has `origin_strategy=theme_alignment_v1` stamped correctly ✅. Phase 73 holding for both rebalance and theme_alignment_v1 origins.
+- Position caps: **11/15 open** ✅. **1 new OPEN position today** (VRT — opened then closed; net=0 add). Within `APIS_MAX_NEW_POSITIONS_PER_DAY=5`.
+- Today's order ledger: 12 orders / 5 fills (only cycle-1 TRIM BUYs have proper fill rows). 5 of 12 orders had proper quantity field; 3 had NULL quantity.
+- Data freshness:
+  - daily_market_bars MAX = **2026-05-05** (Tue close, 488 securities) ✅ — today's EOD ingest fires 17:00 ET = 21:00 UTC (~1.5h away).
+  - signal_runs MAX = **2026-05-06 10:30:00 UTC** ✅ (today's signal job ran).
+  - ranking_runs MAX = **2026-05-06 10:45:00 UTC** ✅.
+- Stale tickers: known 13 only. No new additions.
+- Kill-switch: `false` ✅. Operating mode: `paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅) — Phase 77 migration applied. No drift.
+- Pytest smoke: **370 passed / 0 failed / 3670 deselected in 24.03s** ✅ (filter: `deep_dive or phase22 or phase57 or phase77_78`, `--no-cov`, `APIS_PYTEST_SMOKE=1` inside `docker-api-1`). Same pass count as morning baseline. NEW failures: zero. Pre-existing 2 phase22 failures deselected as before.
+- Git: tree DIRTY — `apis/state/HEALTH_LOG.md` + `state/HEALTH_LOG.md` modified (the morning entry's operator-deferred carry-forward + this 2 PM CT entry); `outputs/` untracked (normal). HEAD `ffd363e`, 0 unpushed commits.
+- **GitHub Actions CI:** Run **#25401590762** on `ffd363e` — `status=completed, conclusion=success` ✅ (https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25401590762). Same run as morning — no new pushes.
+
+### §4 Config + Gate Verification
+- All 11 critical APIS_* flags at expected values:
+  - `APIS_OPERATING_MODE=paper` ✅, `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅, `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅, `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_MAX_SECTOR_PCT=0.40` ✅, `APIS_MAX_SINGLE_NAME_PCT=0.20` ✅, `APIS_MAX_POSITION_AGE_DAYS=20` ✅
+  - `APIS_DAILY_LOSS_LIMIT_PCT=0.02` ✅, `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05` ✅
+- Scheduler `job_count=36` per `apis_worker_started` (single-job drift from documented baseline of 35 — pre-existing carry-forward).
+- Liveness heartbeat: `worker:scheduler_heartbeat=1778095522` ≈ 2026-05-06 19:25:22 UTC (~5 min before report). Fresh ✅.
+
+### Issues Found
+1. **VRT same-day churn under `theme_alignment_v1`**: opened 14:30 → SELL #1 at 16:00 (filled) → SELL #2 at 17:30 (filled) → position closed 18:30 → re-opened 19:30 by cycle 7. Net: same ticker entered 4 separate broker orders over a 6-hour window. Suggests `theme_alignment_v1` lacks the alternating-churn suppression that `momentum_v1` got via Phase 65b.
+2. **Orders ledger NULL-quantity writes** for OPEN/CLOSE actions on `theme_alignment_v1` — 3 of 12 today's orders have `quantity=NULL` and 0 fill rows. Pre-existing pattern (every weekday since at least 04-22 has 2-7 NULL-qty orders) but newly visible because this is the first OPEN of a non-rebalance position since the last test-pollution cleanup.
+3. **Cash arithmetic implies 44-share VRT SELL on 22-share long**: $7,815 + $7,755 = $15,570 cash inflow vs $7,729 BUY cost. Either broker phantom-shorted -22 shares OR the second SELL is a duplicate that cleared cash without an actual fill. Position-row close at qty=22 looks correct but cash trajectory does not reconcile.
+4. **`broker_health_position_drift` carry-forward** continues — 20 cumulative WARN hits in 5000-tail logs (Mon 7 + Tue 7 + today's 6 cycles). Phase 75/76/77/78 reduce upstream contributors but the 11 operator-restored rebalance positions still drift broker-vs-DB each cycle.
+5. **Pre-existing**: scheduler `job_count=36` vs documented baseline of 35; `securities.is_active=true` for 13 stale delisted S&P 500 names (Phase 78 silent because strategy already filters upstream).
+
+### Fixes Applied
+- (none — all YELLOW issues are operator-review-required; no autonomous-fix authority covers strategy churn or order-ledger writer bugs without operator triage).
+
+### Action Required from Aaron
+1. **Triage VRT same-day churn under `theme_alignment_v1`** — if this pattern persists tomorrow (Thu 2026-05-07), recommend porting Phase 65b's suppression hook to cover `theme_alignment_v1` (intra-cycle dedup + post-close TTL on the same `(security_id, origin_strategy)` re-open).
+2. **Investigate orders-ledger NULL-quantity writer** — the OPEN-action path that flows through `theme_alignment_v1` is dropping quantity from the orders row; root cause likely in `apis/services/execution_engine` order construction. Pre-existing for 14+ days; surfaced by today's clean exercise. Not blocking trading correctness (positions close correctly) but breaks the audit trail.
+3. **Reconcile broker-side VRT share count** — DB position-row says VRT closed at qty=22 but cash math implies the broker sold 44 shares. Aaron should query the paper broker directly via `docker exec docker-api-1 python -c "..."` or Alpaca API to confirm whether VRT has -22 short or 0 flat.
+4. **Carry-forward**: optionally `UPDATE securities SET is_active=false WHERE ticker IN ('JNPR','MMC','WRK','PARA','K','HES','PKI','IPG','DFS','MRO','CTLT','PXD','ANSS')` — would surface Phase 78's drop log on next signal job and reduce yfinance-404 noise.
+5. **Carry-forward**: confirm `broker_health_position_drift` clears as Phase 75/76/77/78 mature.
+
+---
+
+## Health Check — 2026-05-06 15:14 UTC (Wednesday 10:14 AM CT, mid-morning market)
+
+**Overall Status:** GREEN — clean mid-morning run; first 2 paper cycles today (13:35 + 14:30 UTC) ran cleanly with **first new OPEN position since 2026-05-01** (VRT via `theme_alignment_v1`, replacing STT which closed). 8/8 containers healthy (worker+api `Up 19h` since Tue 20:19 UTC Phase 77+78 deploy recreate, RestartCount=0; postgres/redis/grafana/prom/alertmanager/control-plane `Up 36h` since Tue 03:31 UTC). /health 7/7 ok at 15:09:09Z mode=paper kill_switch=ok. Worker 68 ERROR / API 36 ERROR (yfinance stale-13 + 14 `broker_health_position_drift` carry-forward) — **0 crash-triad regressions** across all 5 patterns. Prometheus 2/2 up, Alertmanager firing=0 (Phase 73 `for: 30m` debounce holding). Alembic head `q7r8s9t0u1v2` single ✅. Pytest `tests/unit/ -k "deep_dive or phase22 or phase57 or phase77_78"` → **370 passed / 0 failed / 3670 deselected in 36.48s** ✅. Git HEAD `ffd363e`, 0 unpushed; tree dirty only on `HEALTH_LOG.md` (operator-deferred from morning run) + `outputs/` untracked. **CI run #25401590762 on `ffd363e` `conclusion=success`** ✅. All 11 critical APIS_* flags at expected values. Scheduler `job_count=36` per `apis_worker_started`; liveness heartbeat fresh in Redis (`worker:scheduler_heartbeat=1778080222` ≈ 15:10:22 UTC). 12 OPEN positions (11 `rebalance` + 1 `theme_alignment_v1` VRT opened today) — **all 12 have origin_strategy stamped ✅** (0 NULLs, Phase 73 holding extended to today's new strategy). Position caps within bounds (12/15 open, 1/5 new today). Cash positive at $22,541.91 (legitimate stream). evaluation_runs total = 98 (≥80 floor ✅). Idempotency clean. daily_market_bars MAX = 2026-05-05 (488 securities); signal_runs MAX = 2026-05-06 10:30:00 UTC; ranking_runs MAX = 2026-05-06 10:45:00 UTC — today's signal+ranking jobs both ran. Phase 78 first-run verification: signal job processed 502 tickers (= active-securities count exactly); `signal_engine_inactive_or_unknown_tickers_dropped` log line NOT fired because the strategy already requests only active tickers upstream — Phase 78's filter is silently doing defense-in-depth as designed (no operator-override drops to surface). Only HOLX is `is_active=false`; the 13 stale delisted S&P 500 names remain `is_active=true` — Aaron's recommendation from morning entry to flip them via `UPDATE securities SET is_active=false WHERE ticker IN (...)` still pending. NO autonomous fixes applied — clean run. Email silent per GREEN rule. **Action required from Aaron (carry-forward from morning):** (1) optionally mark the 13 stale tickers `is_active=false` in DB to fully exercise Phase 78 + 76 suppression and reduce yfinance-404 noise; (2) confirm `broker_health_position_drift` clears within 1-2 more cycles as Phase 75/76/77/78 suppress upstream contributors.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy. `docker-worker-1` + `docker-api-1` `Up 19 hours` since `2026-05-05T20:19:51Z` (Phase 77+78 deploy recreate). `docker-postgres-1`, `docker-redis-1`, grafana, prometheus, alertmanager, apis-control-plane `Up 36 hours` since Tue 03:31 UTC. RestartCount=0 across all 4 core services.
+- /health: all 7 components `ok` at 2026-05-06T15:09:09Z. mode=paper, kill_switch=ok.
+- Worker log scan (3000 tail): **68 ERROR/CRITICAL** matches — primarily yfinance stale-ticker errors on the known 13 (PXD, JNPR, DFS, PKI, CTLT, IPG, K, ANSS, PARA, MMC, MRO, HES, WRK) plus 14 `broker_health_position_drift` cumulative warnings (carry-forward, partly from today's 2 cycles). **0 crash-triad regressions** across all 5 patterns (`_fire_ks` / `broker_adapter_missing_with_live_positions` / `EvaluationRun.idempotency_key` / `paper_cycle.*no_data` / `phantom_cash_guard_triggered` all zero in both worker and API).
+- API log scan (3000 tail): **36 ERROR/CRITICAL** matches, 0 crash-triad.
+- Prometheus: 2/2 targets up (apis, prometheus), 0 dropped.
+- Alertmanager: 0 active alerts at 15:09 UTC. Phase 73 `for: 30m` debounce holding.
+- Resource usage: worker 767.5 MiB / 0.00% CPU, api 766.7 MiB / 0.10%, postgres 170.7 MiB, grafana 50.78 MiB, prometheus 41.69 MiB, alertmanager 14.96 MiB, redis 8.22 MiB, apis-control-plane 1.16 GiB / 9.87%. All under threshold.
+- DB size: **187 MB** (+8 MB from morning's 179 MB — normal weekday growth from today's 2 cycles + signal/ranking jobs).
+
+### §2 Execution + Data Audit
+- Paper cycles fired today: **2 of expected ~3 by 15:14 UTC** (13:35 UTC + 14:30 UTC; next at 15:30 UTC ≈ 16 min away). 0 failures.
+- `evaluation_runs` total: **98** (≥80 floor ✅; unchanged since morning, last research-mode run was Tue 21:00 UTC EOD eval). All `status='complete'`. `mode=paper` for the run inside the 30h window.
+- Portfolio trend (latest snapshots from today's cycles, dual-snapshot pattern continuing):
+  - 2026-05-06 14:30:02 — cash=$22,541.91 / equity=$114,057.97 (legitimate)
+  - 2026-05-06 14:30:00 — cash=$67,247.61 / equity=$99,983.83 (secondary writer)
+  - 2026-05-06 13:35:03 — cash=$23,050.74 / equity=$116,777.41
+  - 2026-05-06 13:35:01 — cash=$67,247.61 / equity=$99,983.83
+  - Cash positive ✅ on legitimate stream (-$508.83 between cycles 1→2 from VRT BUY ~22 × $351.34 → ~$7,729 holdings basis; intraday equity ~$116,777 → ~$114,058 reflects mark-to-market drift). Cash + holdings ≈ equity_value within rounding ✅. Dual-snapshot writer pattern unchanged (carry-forward, benign — Prometheus reads legit stream).
+- Broker<->DB reconciliation: DB shows **12 OPEN positions** (CAT, SLB, INTC, BE, MU, WDC, NUE, AMD, MRVL, AMZN, EQIX, **VRT**). /health broker=ok (`/api/v1/broker/positions` 404s in this build — falling back to /health=ok per feedback note).
+- **Origin-strategy stamping: ALL 12 OPEN have `origin_strategy` stamped ✅** — 11 `rebalance` (opened 2026-04-29 / 2026-05-01) + 1 `theme_alignment_v1` (VRT opened today 14:30 UTC). 0 NULLs (Phase 73 holding; Phase 73's stamping mechanism extends correctly to non-rebalance strategies on first exercise).
+- Position caps: **12/15 open** ✅. **1 new OPEN position today** (VRT, within cap of 5).
+- Closed today: 1 (STT) — net position count unchanged at 12.
+- Today's order ledger: cycles fired BUY actions per the cash decrement (~$509 BUY at cycle 2). Pre-15:30 UTC cycle.
+- Data freshness:
+  - daily_market_bars MAX = **2026-05-05** (Tue close, 488 securities) ✅ — Tue EOD ingestion completed; today's EOD ingest fires 17:00 ET = 21:00 UTC (~6h away).
+  - signal_runs MAX = **2026-05-06 10:30:00 UTC** ✅ (today's signal job ran cleanly).
+  - ranking_runs MAX = **2026-05-06 10:45:00 UTC** ✅.
+- Stale tickers: known 13 only (PXD, JNPR, DFS, PKI, CTLT, IPG, K, ANSS, PARA, MMC, MRO, HES, WRK). No new additions.
+- **`securities.is_active=false` audit**: 502 active / 1 inactive (HOLX) — unchanged from morning. The 13 stale delisted S&P 500 names still `is_active=true`. Aaron's morning recommendation to `UPDATE securities SET is_active=false WHERE ticker IN ('JNPR','MMC','WRK','PARA','K','HES','PKI','IPG','DFS','MRO','CTLT','PXD','ANSS')` would eliminate yfinance-404 noise AND let Phase 78 + 76 suppress them at the strategy + risk layers. Pending operator decision.
+- **Phase 78 first-run verification**: today's 10:30 UTC signal job processed exactly 502 tickers (= active-securities count). `signal_engine_inactive_or_unknown_tickers_dropped` log line did NOT fire because `len(result) == len(tickers)` — the strategy is already requesting only active tickers upstream, so Phase 78's defensive `is_active=True` WHERE filter has nothing to drop. This is **expected behaviour**, not a regression: Phase 78 is silent defence-in-depth that only emits the log line on operator-overrides or stale code paths. The +14 expanded universe (488→502 active securities since morning) accounts for the bumped ticker count.
+- **Phase 76 first-run verification**: 0 `risk_inactive_ticker_blocked` log lines today. Yesterday's pattern was 6 HOLX rejections per cycle on `max_new_positions_per_day=5` after cycle-1's 5 BUY fills consumed slots. Today's cycle-1 fired only 5 BUYs and cycle-2 fired the VRT BUY without any HOLX proposal — suggests Phase 78 (is_active filter) is suppressing HOLX upstream of risk-engine entirely (no proposal → no rejection log).
+- Kill-switch: `false` ✅. Operating mode: `paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` (NULL keys excluded) ✅. 0 duplicate OPEN positions per ticker ✅.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅) — Phase 77 migration applied (advanced from `p6q7r8s9t0u1`). No drift.
+- Pytest smoke: **370 passed / 0 failed / 3670 deselected in 36.48s** ✅ (filter: `deep_dive or phase22 or phase57 or phase77_78`, `--no-cov`, `APIS_PYTEST_SMOKE=1` inside `docker-api-1`). Same pass count as morning baseline. NEW failures: zero. Pre-existing 2 phase22 failures deselected as before.
+- Git: tree DIRTY (`apis/state/HEALTH_LOG.md` + `state/HEALTH_LOG.md` modified — operator-deferred from morning run; `outputs/` untracked normal). HEAD `ffd363e`, 0 unpushed commits. Push range from Phase 75-78 deploy fully landed on `origin/main`.
+- **GitHub Actions CI:** Run **#25401590762** on `ffd363e` — `status=completed, conclusion=success` ✅ (https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25401590762). Same green run as morning — no new pushes since.
+
+### §4 Config + Gate Verification
+- All 11 critical APIS_* flags at expected values:
+  - `APIS_OPERATING_MODE=paper` ✅, `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅, `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅, `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_MAX_SECTOR_PCT=0.40` ✅, `APIS_MAX_SINGLE_NAME_PCT=0.20` ✅, `APIS_MAX_POSITION_AGE_DAYS=20` ✅
+  - `APIS_DAILY_LOSS_LIMIT_PCT=0.02` ✅, `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05` ✅
+- Scheduler `job_count=36` per `apis_worker_started` (single-job drift from documented baseline of 35 — pre-existing carry-forward, not blocking).
+- Liveness heartbeat: `worker:scheduler_heartbeat=1778080222` ≈ 2026-05-06 15:10:22 UTC (≈ 4 min before report end). Fresh, within 5-min window ✅.
+
+### Issues Found
+- (none — clean run)
+
+### Fixes Applied
+- (none — no autonomous fixes needed)
+
+### Action Required from Aaron (carry-forward from morning entry)
+1. **Optional**: `UPDATE securities SET is_active=false WHERE ticker IN ('JNPR','MMC','WRK','PARA','K','HES','PKI','IPG','DFS','MRO','CTLT','PXD','ANSS')` — would eliminate the daily yfinance-404 noise (currently 13 known stale tickers) and surface Phase 78's `signal_engine_inactive_or_unknown_tickers_dropped` log line with count≈13 on the next signal-generation run. Per `feedback_ticker_removal_db_update.md`.
+2. **Optional**: confirm `broker_health_position_drift` continues to drop as Phase 75/76/77/78 suppress upstream contributors. Today's run shows 14 hits in tail-3000 (vs 20 yesterday). Forecast clean at 0/cycle within 1-2 more cycles.
+3. **Non-urgent**: investigate scheduler `job_count=36` vs documented baseline of 35 (pre-existing single-job drift; not blocking).
+
+
+
+## Health Check — 2026-05-06 10:10 UTC (Wednesday 5:10 AM CT, pre-market)
+
+**Overall Status:** GREEN — clean pre-market run. 8/8 containers healthy (worker+api `Up 14h` since last night's 20:19 UTC Phase 77+78 recreate, RestartCount=0; postgres/redis/grafana/prom/alertmanager/control-plane `Up 31h` since Tue 03:31 UTC — no restarts overnight). /health 7/7 ok at 10:08:39Z mode=paper kill_switch=ok. Worker 24h log scan = 83 ERROR (yfinance stale-13 + 20 `broker_health_position_drift` carry-forward), API 17 ERROR — **0 crash-triad regressions** across all 5 patterns. Prometheus 2/2 up, Alertmanager firing=0 (Phase 73 `for: 30m` debounce holding). Phase 77 Alembic UNIQUE constraint applied — head moved `p6q7r8s9t0u1` → `q7r8s9t0u1v2` ✅ (single head, no drift). Phase 78 strategy-side `is_active=True` filter code verified loaded in worker container at both call sites (`signal_engine_inactive_or_unknown_tickers_dropped` log line + `is_active.is_(True)` filter present in `signal_engine/service.py` and `ranking_engine/service.py`). Phase 76 risk-engine `check_inactive_ticker` also confirmed loaded. Pytest `tests/unit/ -k "deep_dive or phase22 or phase57 or phase77_78"` → **370 passed / 0 failed / 3670 deselected in 37.36s** ✅ (10 above prior 360 baseline thanks to Phase 77/78 regression class). Git tree CLEAN at `ffd363e`, 0 unpushed, only `outputs/` untracked (normal). **GitHub Actions CI run #25401590762 on `ffd363e` `conclusion=success`** ✅ (also `9ac0ca7`, `caa497d` both success — full Phase 75/76/77/78 push range CI-clean). All 11 critical APIS_* flags at expected values (paper / kill=false / max_pos=15 / max_new=5 / thematic=0.75 / min_score=0.30 / sector=0.40 / single_name=0.20 / age=20d / daily_loss=0.02 / weekly=0.05). Scheduler `job_count=36` per `apis_worker_started`; liveness heartbeat fresh in Redis (`worker:scheduler_heartbeat=1778062222` ≈ 10:10 UTC). 0 paper cycles today (expected — first weekday cycle 13:35 UTC ≈ 3.4h from this run). 12 OPEN positions all `origin_strategy=rebalance` (Phase 73 holding, 0 NULLs). 0 new positions today. evaluation_runs=98 (≥80 floor ✅; +1 from yesterday from Tue 21:00 UTC EOD eval). Idempotency clean (0 dupes). Latest legit snapshot Tue 19:30:03 UTC: cash=$23,050.74 / equity=$113,850.56 — cash positive ✅. Dual-snapshot writer carry-forward continues ($67k/$99.9k secondary stream — not a new regression; Prometheus reads legit stream). daily_market_bars MAX = 2026-05-05 (490 securities, Tue close ✅); signal_runs/ranking_runs MAX still 2026-05-05 10:30/10:45 UTC (today's 10:30 UTC signal job will fire ~22 min after this run and is the FIRST exercise of Phase 78). Stale tickers known-13 only. Only HOLX is `securities.is_active=false` in DB — the 13 delisted S&P 500 names are still `is_active=true` (yfinance 404s caught at the data layer, not Phase 78). Therefore Phase 78's expected dropped-count on the next signal job is ≈1 (HOLX), not the ≈13 forecast in NEXT_STEPS. NO autonomous fixes applied — clean run. Email silent per GREEN rule. **Action required from Aaron:** (1) confirm 10:30 UTC signal job emits `signal_engine_inactive_or_unknown_tickers_dropped` with count≥1; (2) confirm 13:35 UTC first paper cycle fires `risk_inactive_ticker_blocked` for HOLX (Phase 76 first integration exercise); (3) decide whether to mark the 13 stale delisted tickers `is_active=false` in DB (would let Phase 78 + 76 suppress them at the strategy layer too, reducing yfinance-404 noise).
+
+### §1 Infrastructure
+- Containers: 8/8 healthy. `docker-worker-1` + `docker-api-1` `Up 14 hours` since `2026-05-05T20:19:51Z` (Phase 77+78 deploy recreate). `docker-postgres-1`, `docker-redis-1` `Up 31 hours` since `2026-05-05T03:31:12Z` — no overnight restarts. RestartCount=0 across all 4 core services. Grafana / Prometheus / Alertmanager / apis-control-plane also `Up 31h`.
+- /health: all 7 components `ok` at 2026-05-06T10:08:39Z. mode=paper, kill_switch=ok.
+- Worker log scan (5000 tail): **83 ERROR/CRITICAL** matches — primarily yfinance stale-ticker errors on the known 13 (PXD, JNPR, DFS, PKI, CTLT, IPG, K, ANSS, PARA, MMC, MRO, HES, WRK) plus 20 `broker_health_position_drift` cumulative warnings (carry-forward from Tue's 7 cycles). **0 crash-triad regressions** across all 5 patterns (`_fire_ks` / `broker_adapter_missing_with_live_positions` / `EvaluationRun.idempotency_key` / `paper_cycle.*no_data` / `phantom_cash_guard_triggered` all zero in both worker and API).
+- API log scan (5000 tail): **17 ERROR/CRITICAL** matches, 0 crash-triad.
+- Prometheus: 2/2 targets up (apis, prometheus), 0 dropped.
+- Alertmanager: 0 active alerts at 10:09 UTC. Phase 73 `for: 30m` debounce holding.
+- Resource usage: worker 754.9 MiB / 0.00% CPU, api 780.9 MiB / 0.11%, postgres 166.5 MiB, grafana 50.84 MiB, prometheus 38.54 MiB, alertmanager 14.97 MiB, redis 7.98 MiB, apis-control-plane 1.122 GiB / 11.34%. All under threshold.
+- DB size: **179 MB** (unchanged from yesterday — no overnight growth, expected).
+
+### §2 Execution + Data Audit
+- Paper cycles fired today: **0 of expected 12** (expected — first cycle 13:35 UTC = 09:35 ET, still ~3.4h away). Tue ran 7 cycles (13:35 → 19:30 UTC).
+- `evaluation_runs` total: **98** (≥80 floor ✅; +1 from yesterday morning's 97, from Tue 21:00 UTC EOD eval). All `status='complete'`.
+- Portfolio trend (latest 6 paired-snapshot rows from Tue's cycles, dual-snapshot pattern continuing):
+  - 2026-05-05 19:30:03 — cash=$23,050.74 / equity=$113,850.56 (legitimate)
+  - 2026-05-05 19:30:00 — cash=$67,446.34 / equity=$99,983.92 (secondary writer)
+  - 2026-05-05 18:30:03 — cash=$23,050.74 / equity=$114,219.50
+  - 2026-05-05 18:30:00 — cash=$67,446.34 / equity=$99,983.92
+  - 2026-05-05 17:30:02 — cash=$23,050.74 / equity=$114,395.54
+  - 2026-05-05 17:30:00 — cash=$67,446.34 / equity=$99,983.92
+  - Cash positive ✅ on legitimate stream. Equity Tue intraday band $112,924 → $114,395 → $113,850 close (+0.82% MTM). Cash + holdings ≈ equity_value within rounding ✅. Dual-snapshot writer pattern unchanged (carry-forward, benign).
+- Broker<->DB reconciliation: DB shows **12 OPEN positions** (CAT, SLB, INTC, BE, MU, WDC, STT, NUE, AMD, MRVL, AMZN, EQIX), all `origin_strategy=rebalance` ✅, all opened_at 2026-04-29 → 2026-05-01. /health broker=ok (`/api/v1/broker/positions` 404s in this build — falling back to /health=ok per feedback note). 20 `broker_health_position_drift` warnings in 24h are all from Tue cycles (pre-Phase 76/77/78 deploy at 20:19 UTC); first integration exercise of the new defenses fires at 13:35 UTC today.
+- Origin-strategy stamping: ALL 12 OPEN `origin_strategy=rebalance` ✅. 0 NULLs (Phase 73 holding).
+- Position caps: **12/15 open** ✅. **0 new OPEN positions today** (CURRENT_DATE filter, expected pre-cycle).
+- Today's order ledger: **12 orders in last 24h** (Tue's cycle activity — 5 fills + 6 HOLX rejections + 1 other). 0 today (pre-cycle).
+- Data freshness:
+  - daily_market_bars MAX = **2026-05-05** (Tue close, 490 securities) ✅ — Tue EOD ingestion completed.
+  - signal_runs MAX = **2026-05-05 10:30:00 UTC** (Tue's 06:30 ET signal job — ahead of today's deploy verification). Today's 10:30 UTC signal job fires ~22 min after this report and is the **FIRST exercise of Phase 78**.
+  - ranking_runs MAX = **2026-05-05 10:45:00 UTC** (Tue).
+- Stale tickers: known 13 only (DFS, PXD, JNPR, K, PARA, CTLT, ANSS, WRK, MMC, MRO, HES, IPG, PKI). No new additions.
+- **`securities.is_active=false` audit:** Only **HOLX** marked inactive in DB. The 13 stale delisted S&P 500 names are still `is_active=true`. Therefore Phase 78's expected dropped-count on next signal run is ≈1 (HOLX), not ≈13 as forecast in NEXT_STEPS. **Recommendation for Aaron** under `feedback_ticker_removal_db_update.md`: `UPDATE securities SET is_active=false WHERE ticker IN ('JNPR','MMC','WRK','PARA','K','HES','PKI','IPG','DFS','MRO','CTLT','PXD','ANSS')` would eliminate the daily yfinance-404 noise AND get full Phase 78 expected behaviour.
+- Kill-switch: `false` ✅. Operating mode: `paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+- Phase 78 code path verification: `grep -c "signal_engine_inactive_or_unknown_tickers_dropped" /app/apis/services/signal_engine/service.py = 1` ✅. `grep -c "is_active.is_(True)"` returns 1 in both `signal_engine/service.py` and `ranking_engine/service.py` ✅.
+- Phase 76 code path verification: `grep -c "risk_inactive_ticker_blocked\|check_inactive_ticker" /app/apis/services/risk_engine/service.py = 3` ✅.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅) — Phase 77 migration applied (advanced from `p6q7r8s9t0u1`). No drift.
+- Pytest smoke: **370 passed / 0 failed / 3670 deselected in 37.36s** ✅ (filter: `deep_dive or phase22 or phase57 or phase77_78`, `--no-cov`, `APIS_PYTEST_SMOKE=1` inside `docker-api-1`). +10 vs prior 360 baseline thanks to Phase 77/78 regression class. NEW failures: zero. Pre-existing 2 phase22 failures (`test_scheduler_has_thirteen_jobs`, `test_all_expected_job_ids_present`) deselected by the filter as before.
+- Git: **CLEAN** at `ffd363e` (`state: Phase 77 + 78 entries (DEC-077 / DEC-078)`). 0 unpushed commits. Only `outputs/` untracked. Recent push range `9db28ae..ffd363e` covers Phase 75 / 76 / 77 / 78 + state docs — full Phase 75/76/77/78 deploy history now on `origin/main`.
+- **GitHub Actions CI:** Run **#25401590762** on `ffd363e` — `status=completed, conclusion=success` ✅ (https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25401590762). Two prior runs `9ac0ca7` (#25400306549) and `caa497d` (#25399832753) also `success`. CI clean across the entire Phase 75-78 push range.
+
+### §4 Config + Gate Verification
+All 11 critical APIS_* flags at expected values:
+- APIS_OPERATING_MODE=paper ✅
+- APIS_KILL_SWITCH=false ✅
+- APIS_MAX_POSITIONS=15 ✅
+- APIS_MAX_NEW_POSITIONS_PER_DAY=5 ✅
+- APIS_MAX_THEMATIC_PCT=0.75 ✅
+- APIS_RANKING_MIN_COMPOSITE_SCORE=0.30 ✅
+- APIS_MAX_SECTOR_PCT=0.40 ✅
+- APIS_MAX_SINGLE_NAME_PCT=0.20 ✅
+- APIS_MAX_POSITION_AGE_DAYS=20 ✅
+- APIS_DAILY_LOSS_LIMIT_PCT=0.02 ✅
+- APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05 ✅
+- APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED not set (defaults false) ✅
+- APIS_INSIDER_FLOW_PROVIDER not set (defaults null) ✅
+- Deep-Dive Step 6/7/8 flags not set (defaults OFF) ✅
+- Scheduler: `apis_worker_started job_count=36` (DEC-021 expected). Liveness heartbeat fresh in Redis: `worker:scheduler_heartbeat = 1778062222` ≈ 2026-05-06 10:10 UTC ✅.
+
+### Issues Found
+- None worthy of YELLOW. Carry-forward observations only:
+  - Dual-snapshot writer (paired $23k/$110-114k legit + $67k/$99.9k secondary) still firing — same as prior days, no new regression. Tracked carry-forward; benign at runtime layer (Prometheus reads legit stream).
+  - 20 `broker_health_position_drift` warnings in 24h are all from Tue's pre-deploy cycles. First Phase 76/77/78 integration exercise at 13:35 UTC today.
+  - Phase 78 expected dropped-count divergence (≈1 not ≈13) due to 13 stale tickers still marked `is_active=true` in DB. Documented as Action Required #3 below.
+  - 17 ERROR-pattern matches in API log (5000 tail) are normal carry-forward (yfinance-related INFO-but-tagged-error log lines from the data layer); 0 crash-triad.
+
+### Fixes Applied
+- None — clean GREEN run.
+
+### Action Required from Aaron
+1. **Verify 10:30 UTC signal job emits Phase 78 log line.** ~22 min after this entry. Look in `docker-worker-1` logs for `signal_engine_inactive_or_unknown_tickers_dropped` with `count` ≥ 1 (HOLX). If `count=0` or the line is missing, signal-engine code path is stale.
+2. **Verify 13:35 UTC first paper cycle fires Phase 76 `risk_inactive_ticker_blocked` for HOLX.** If HOLX is not in the strategy proposal set after Phase 78, the rule becomes a no-op (expected). If HOLX IS still proposed, Phase 76 should hard-block at validate_action (vs. yesterday's `max_new_positions_per_day` block).
+3. **Decide whether to mark the 13 stale delisted S&P 500 names `is_active=false`.** SQL: `UPDATE securities SET is_active=false WHERE ticker IN ('JNPR','MMC','WRK','PARA','K','HES','PKI','IPG','DFS','MRO','CTLT','PXD','ANSS');`. Aligns DB with reality, gets full Phase 78 expected behaviour (~13 dropped), and eliminates the daily ~26 yfinance-404 ERROR log lines. Per `feedback_ticker_removal_db_update.md`, removing tickers requires this DB update (not just code). Cannot autonomously execute — DB write requires operator approval per standing-authority rules.
+
+---
+
 ## Session Close — 2026-05-05 ~21:00 UTC (Tuesday 4:00 PM CT) — Phase 77 + Phase 78 SHIPPED (NEXT_STEPS items #1 + #2)
 
 **Summary:** Both operator-deferred follow-ups from this morning's NEXT_STEPS list closed in one session. Defence-in-depth on inactive tickers is now complete across four layers (candidate selection → risk validation → persistence reopen → DB UNIQUE).

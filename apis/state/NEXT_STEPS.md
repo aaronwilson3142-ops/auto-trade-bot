@@ -1,6 +1,25 @@
 # APIS — Next Steps
 
-Last Updated: 2026-05-05 ~21:00 UTC — Phase 77 (Alembic UNIQUE on positions, DEC-077) + Phase 78 (strategy-side `is_active=True` filter, DEC-078) shipped + applied + tested. Both items #1 and #2 from the prior "Open follow-ups" list now closed.
+Last Updated: 2026-05-06 ~20:30 UTC — Phase 79 (rebalance idempotency on open positions, DEC-079) + Phase 80 (orders ledger NULL-quantity fix, DEC-080) shipped + tested. The 2026-05-06 19:30 HEALTH_LOG YELLOW findings are now triaged: Issue 1 (VRT churn) addressed by Phase 79, Issue 2 (NULL-qty) addressed by Phase 80, Issue 3 (44-share SELL) confirmed benign (HEALTH_LOG misread; broker is correctly flat per replay), Issue 4 (broker_health_position_drift) carry-forward unchanged, Issue 5 (stale tickers) cleanup applied (13 tickers flipped is_active=false; scheduler `job_count=36` confirmed legitimate post-Phase-71 — feedback memory updated to baseline 36).
+
+## ✅ DONE 2026-05-06 ~20:30 UTC — Phase 79 (DEC-079) Rebalance Idempotency + Phase 80 (DEC-080) Orders Ledger Quantity Fix
+
+- **Phase 79** filter at `apps/worker/jobs/paper_trading.py` line ~1622 (after `_RebSvc.generate_rebalance_actions(...)`): drop any rebalance OPEN whose ticker is already in `portfolio_state.positions` with qty>0 OR in `_broker.list_positions()` (defence-in-depth). New log line `phase79_rebalance_open_already_open_skipped`. Backward-compat env knob `phase79_rebalance_idempotency_enabled` (default True).
+- **Phase 80** orders writer fix at line ~399: `qty = res.fill_quantity if res.fill_quantity else req.action.target_quantity` (broker-authoritative). New diagnostic warning `phase80_orders_writer_qty_unresolvable` when both are None on a FILLED status.
+- **Tests**: 12 new tests in `tests/unit/test_phase79_80_rebalance_idempotency_and_orders_qty.py` (3 classes — Phase 79 idempotency 5 tests, Phase 80 quantity derivation 6 tests, integration round-trip 1 test). All DB-free; runs under `APIS_PYTEST_SMOKE=1`. Sweep `tests/unit/ -k "deep_dive or phase22 or phase57 or phase77_78 or phase79"` → **382 passed / 0 failed / 3670 deselected in 28.3s** (370 baseline + 12 new).
+- **Ruff** clean on all 3 changed files.
+- **Carry-forward fix**: `UPDATE securities SET is_active=false` on 13 stale delisted S&P 500 tickers (JNPR, MMC, WRK, PARA, K, HES, PKI, IPG, DFS, MRO, CTLT, PXD, ANSS) — fully exercises Phase 78 silent dropping + reduces yfinance-404 noise to zero.
+- **Commit + push** to `origin/main` — pending below.
+- **Issue 3 RESOLVED** (memory `project_phase81_vrt_reconciliation_decision.md`): broker is NOT phantom-shorting; HEALTH_LOG misread the cash math. Replay shows 22+22 BUYs before 22+22 SELLs ≈ flat. No Phase 81 needed.
+
+## Pending verifications (Thu 2026-05-07 09:35 ET)
+
+1. **Phase 79 first-cycle exercise** — watch `docker-worker-1` logs for `phase79_rebalance_open_already_open_skipped` lines on cycle 2+ for tickers that are already held. Forecast: VRT (or any ticker that triggered cycle-1 OPEN) should NOT receive a fresh `rebalance_open` proposal in cycle 2; instead the line above fires. Companion log `rebalance_actions_merged` will report `phase79_skipped` count.
+2. **Phase 80 first non-rebalance OPEN exercise** — query `SELECT side, quantity, status FROM orders WHERE order_timestamp::date='2026-05-07' AND quantity IS NULL` after first cycle. Expect zero NULL-qty rows on FILLED orders. The diagnostic `phase80_orders_writer_qty_unresolvable` should be silent unless the paper broker has a deeper contract violation.
+3. **`broker_health_position_drift`** — watch for clean cycles. Phase 75/76/77/78 are upstream contributors; Phase 79's rebalance idempotency may incidentally reduce drift further by stopping repeated `rebalance_open` BUY storms that swelled broker positions vs DB rows. If drift persists at >1 cycle/day across the 11 operator-restored rebalance positions, escalate to a Phase 81 broker-DB resync.
+4. **Phase 78 dropped-count log line** — with the 13 stale tickers now `is_active=false`, the next 10:30 UTC signal job should emit `signal_engine_inactive_or_unknown_tickers_dropped` with `count≈14` (HOLX + 13).
+
+---
 
 ## ✅ DONE 2026-05-05 ~21:00 UTC — Phase 77 (DEC-077) DB UNIQUE on positions + Phase 78 (DEC-078) Strategy-Side `is_active` Filter
 

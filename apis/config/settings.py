@@ -342,6 +342,14 @@ class Settings(BaseSettings):
     rebalance_threshold_pct: float = Field(default=0.05, ge=0.0, le=1.0)
     rebalance_min_trade_usd: float = Field(default=500.0, ge=0.0)
 
+    # -- Phase 79 Rebalance Idempotency on Open Positions (DEC-079) ------
+    # When True, paper_trading drops any rebalance OPEN action whose ticker
+    # is already represented in portfolio_state.positions (qty > 0) OR in
+    # the broker's positions. Mitigates the 2026-05-06 VRT churn pattern
+    # where compute_drift saw an already-held position as drift=-target_w
+    # and emitted rebalance_open every cycle.
+    phase79_rebalance_idempotency_enabled: bool = Field(default=True)
+
     # -- Liquidity Filter (Phase 41) -------------------------------------
     min_liquidity_dollar_volume: float = Field(default=1_000_000.0, gt=0.0)
     max_position_as_pct_of_adv: float = Field(default=0.10, gt=0.0, le=1.0)

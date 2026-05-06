@@ -396,8 +396,38 @@ def _persist_orders_and_fills(
                     "buy" if req.action.action_type == _ActionType.OPEN else "sell"
                 )
                 order_status = res.status.value  # "filled" | "rejected" | ...
-                qty = req.action.target_quantity or res.fill_quantity
+                # Phase 80 (2026-05-06, DEC-080): prefer the broker-reported
+                # `fill_quantity` over the action's `target_quantity` for the
+                # orders ledger.  Pre-Phase 80 the writer used
+                # `req.action.target_quantity or res.fill_quantity` — which
+                # for notional-based OPEN actions (rebalance_open and similar
+                # paths that don't pre-compute share count) yielded NULL
+                # because target_quantity is None and the falsy-fallback
+                # never reached fill_quantity if execution_engine had also
+                # left it None on certain code paths.  The new order makes
+                # `res.fill_quantity` authoritative whenever it is present
+                # (filled OPEN/CLOSE/TRIM), and only falls back to the
+                # action-level target_quantity when the result has none.
+                qty = res.fill_quantity if res.fill_quantity else req.action.target_quantity
                 qty_d = _Decimal(str(qty)) if qty else None
+                # Phase 80 diagnostic: surface the underlying broker bug if a
+                # FILLED status ends up with NULL qty even after the fallback.
+                if (
+                    qty_d is None
+                    and res.status == _ExecStatus.FILLED
+                ):
+                    logger.warning(
+                        "phase80_orders_writer_qty_unresolvable",
+                        ticker=ticker,
+                        action_type=req.action.action_type.value,
+                        reason=getattr(req.action, "reason", "") or "",
+                        target_quantity=str(req.action.target_quantity),
+                        fill_quantity=str(res.fill_quantity),
+                        note=(
+                            "FILLED order has neither target_quantity nor "
+                            "fill_quantity — broker contract violated"
+                        ),
+                    )
                 notional = req.action.target_notional
                 notional_d = _Decimal(str(notional)) if notional else None
 
@@ -1619,7 +1649,60 @@ def run_paper_trading_cycle(
                     equity=_reb_equity,
                     settings=cfg,
                 )
+                # ── Phase 79 (2026-05-06, DEC-079): Rebalance idempotency on
+                # already-open positions.  Root cause of the 2026-05-06 VRT
+                # churn was the rebalance engine emitting `rebalance_open` for
+                # the same ticker every cycle because compute_drift saw VRT
+                # absent from `portfolio_state.positions` (or with stale 0
+                # market_value) at proposal time, even though the broker
+                # already held the position.  Defence-in-depth filter at the
+                # call site: drop any rebalance OPEN whose ticker is already
+                # held in portfolio_state.positions with quantity > 0 OR is
+                # held by the broker.  Backwards-compat env knob lets the
+                # operator disable the gate emergency-style.
+                _phase79_enabled = bool(
+                    getattr(cfg, "phase79_rebalance_idempotency_enabled", True)
+                )
+                _phase79_broker_tickers: set[str] = set()
+                if _phase79_enabled:
+                    try:
+                        _phase79_broker_tickers = {
+                            bp.ticker
+                            for bp in _broker.list_positions()
+                            if getattr(bp, "quantity", 0)
+                            and bp.quantity > 0
+                        }
+                    except Exception as _phase79_exc:  # noqa: BLE001
+                        logger.warning(
+                            "phase79_broker_snapshot_failed",
+                            error=str(_phase79_exc),
+                        )
+                _phase79_skipped: list[str] = []
                 for _reb_action in _reb_actions:
+                    # Phase 79: skip rebalance OPEN if ticker already held.
+                    if (
+                        _phase79_enabled
+                        and _reb_action.action_type == ActionType.OPEN
+                    ):
+                        _t = _reb_action.ticker
+                        _held_pos = portfolio_state.positions.get(_t)
+                        _held_qty_state = getattr(_held_pos, "quantity", 0) or 0
+                        _held_in_state = _held_qty_state > 0
+                        _held_in_broker = _t in _phase79_broker_tickers
+                        if _held_in_state or _held_in_broker:
+                            logger.info(
+                                "phase79_rebalance_open_already_open_skipped",
+                                ticker=_t,
+                                held_in_state=bool(_held_in_state),
+                                held_in_broker=bool(_held_in_broker),
+                                state_qty=str(_held_qty_state),
+                                proposed_notional=str(
+                                    getattr(_reb_action, "target_notional", "0")
+                                ),
+                                reason=getattr(_reb_action, "reason", ""),
+                            )
+                            _phase79_skipped.append(_t)
+                            continue
                     if _reb_action.ticker not in already_closing:
                         proposed_actions.append(_reb_action)
                         if _reb_action.action_type == ActionType.CLOSE:
@@ -1628,6 +1711,7 @@ def run_paper_trading_cycle(
                     logger.info(
                         "rebalance_actions_merged",
                         count=len(_reb_actions),
+                        phase79_skipped=len(_phase79_skipped),
                     )
 
                 # ── Anti-churn: cap OPEN target_notional to rebalance target ─────

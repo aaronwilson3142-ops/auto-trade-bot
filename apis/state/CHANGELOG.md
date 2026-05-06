@@ -3,6 +3,33 @@ Format: [YYYY-MM-DD] | file/module | description
 
 ---
 
+## [2026-05-06 ~20:30 UTC] Phase 79 + 80 — Rebalance idempotency on open positions + Orders ledger NULL-quantity fix (DEC-079 / DEC-080)
+
+**Files changed:**
+
+| File | Change |
+|------|--------|
+| `apis/apps/worker/jobs/paper_trading.py` | Phase 79 filter at line ~1622 (after `_RebSvc.generate_rebalance_actions`): drop any rebalance OPEN whose ticker is already in `portfolio_state.positions` with qty>0 OR in `_broker.list_positions()` (defence-in-depth). New log lines `phase79_rebalance_open_already_open_skipped` + `phase79_broker_snapshot_failed`. Gated by `cfg.phase79_rebalance_idempotency_enabled` (default True). Phase 80 fix at line ~399: orders writer now prefers `res.fill_quantity` over `req.action.target_quantity`; new diagnostic warning `phase80_orders_writer_qty_unresolvable` when both are None on a FILLED status. |
+| `apis/config/settings.py` | New `phase79_rebalance_idempotency_enabled: bool = Field(default=True)` env knob. |
+| `apis/tests/unit/test_phase79_80_rebalance_idempotency_and_orders_qty.py` | NEW test file with 12 tests across 3 classes: `TestPhase79RebalanceIdempotency` (5 tests), `TestPhase80OrdersQuantity` (6 tests), `TestPhase79And80Together` (1 round-trip). DB-free; runs under `APIS_PYTEST_SMOKE=1`. |
+| (DB cleanup, not a code change) | `UPDATE securities SET is_active=false` on 13 stale delisted S&P 500 tickers (JNPR, MMC, WRK, PARA, K, HES, PKI, IPG, DFS, MRO, CTLT, PXD, ANSS) — eliminates yfinance-404 noise + exercises Phase 78 silent dropping. |
+
+**Why:**
+- **Phase 79** — 2026-05-06 19:30 HEALTH_LOG flagged VRT same-day churn under what HEALTH_LOG mislabeled as `theme_alignment_v1`. Investigation (memory `project_phase81_vrt_reconciliation_decision.md`) showed every VRT order today carries `reason=rebalance_*` — the rebalance engine emits `rebalance_open` for VRT three times in one day (cycles 1, 2, 7) because `compute_drift` saw the ticker absent from `portfolio_state.positions` with stale `current_price=0` and computed drift=-target_w. Phase 65b's close-then-reopen suppression doesn't catch this pattern (no CLOSE between cycle 1 and cycle 2). Phase 79 adds a defence-in-depth filter at the merge call site that drops rebalance OPEN actions for already-held tickers regardless of whether `portfolio_state.positions` is fresh.
+- **Phase 80** — Pre-existing every-weekday-since-04-22 NULL-quantity rows in the `orders` table. Surfaced by today's first non-rebalance OPEN since the 2026-05-04 cleanup. Cycle 1's 5 `ranked_buy_signal` opens have correct qty; the 3 `rebalance_open` opens (which are notional-only) write `quantity=NULL`. Pure audit-trail bug; broker still fills correctly. Phase 80 prefers `res.fill_quantity` (broker-authoritative) over `target_quantity` and logs a diagnostic if both are None on a FILLED status.
+- **Issue 3 (VRT 44-share SELL on 22-share long) — RESOLVED, NOT a real bug.** Order replay shows two BUYs of 22 each (cycles 1+2) before two SELLs of 22 each (cycles 4+5); cash math reconciles cleanly at $7,815 + $7,755 ≈ 22 × $355.38 + 22 × $352.57. HEALTH_LOG misread.
+
+**Validation:**
+- `tests/unit/test_phase79_80_rebalance_idempotency_and_orders_qty.py` — 12 passed in 6.5s under `APIS_PYTEST_SMOKE=1`.
+- Broader sweep `tests/unit/ -k "deep_dive or phase22 or phase57 or phase77_78 or phase79"` — **382 passed / 0 failed / 3670 deselected in 28.3s** (370 baseline + 12 new).
+- `tests/unit/ -k "deep_dive or phase22 or phase57 or phase77_78 or phase79 or paper_trading or risk_engine or rebalanc"` — 576 passed / 7 pre-existing failures (1 phase20 broker_health_invariant, 6 phase49 API endpoint + job_count_is_27 stale fixtures — none caused by Phase 79/80; all unaffected by my changes).
+- Ruff clean on all 3 changed files.
+- Carry-forward: scheduler `job_count=36` confirmed legitimate post-Phase-71 (`scheduler_heartbeat` is the +1 vs documented baseline of 35); feedback memory updated.
+
+**Pending (operator):** docker-worker-1 restart to pick up new code. First validation cycle Thu 2026-05-07 09:35 ET (13:35 UTC).
+
+---
+
 ## [2026-05-05 ~21:00 UTC] Phase 77 + 78 — DB UNIQUE on positions + Strategy-side is_active filter (DEC-077 / DEC-078)
 
 **Files changed:**

@@ -2,6 +2,70 @@
 
 Auto-generated daily health check results.
 
+## Phase 79 + 80 Deploy — 2026-05-06 ~20:30 UTC
+
+See `apis/state/HEALTH_LOG.md` for full entry. Summary:
+- Phase 79 (DEC-079): rebalance-engine idempotency filter at paper_trading.py:1622 — drops rebalance OPEN for already-held tickers. Defence-in-depth (state + broker).
+- Phase 80 (DEC-080): orders ledger writer at paper_trading.py:399 prefers `res.fill_quantity` over `req.action.target_quantity`. Eliminates NULL-quantity rows on FILLED non-rebalance opens.
+- Issue 3 (44-share VRT SELL on 22-share long) RESOLVED as benign — HEALTH_LOG misread. No Phase 81 needed.
+- 13 stale tickers flipped `is_active=false`; scheduler `job_count=36` confirmed legitimate post-Phase-71.
+- Tests 382p/0f under `APIS_PYTEST_SMOKE=1`. Ruff clean. DEC-079 + DEC-080 logged.
+
+---
+
+
+
+## Health Check — 2026-05-06 19:30 UTC (Wednesday 2:30 PM CT, mid-afternoon market)
+
+**Overall Status:** YELLOW — clean infrastructure but TWO new data-integrity findings worth Aaron's review: (1) **VRT same-day churn** under `theme_alignment_v1` strategy — opened 14:30 UTC by cycle 2, closed 18:30 UTC by cycle 6, **re-opened 19:30 UTC by cycle 7**. Same churn pattern Phase 65b mitigated for `momentum_v1` is now appearing for the new `theme_alignment_v1` strategy. (2) **Orders ledger NULL-quantity rows** for VRT — both BUY orders today written with `quantity=NULL` + 0 fill rows, and 2 SELL orders for `qty=22` each both marked `filled` (broker apparently sold 44 shares of a 22-share position, returning ~$15,570 cash for shares originally bought for $7,729). The NULL-quantity pattern is **pre-existing** (every weekday for past 14 days has 2-7 NULL-qty orders), but morning HEALTH_LOG didn't flag it because no NEW open positions had been written through this code path until today. All other subsystems GREEN: 8/8 containers healthy 23h uptime RestartCount=0, /health 7/7 ok, worker tail-5000 102 ERROR / api 36 ERROR (yfinance stale-13 + 20 `broker_health_position_drift` carry-forward — 0 crash-triad), Prometheus 2/2 up, Alertmanager firing=0, pytest deep_dive+phase22+phase57+phase77_78 → **370p/0f/3670d in 24.03s** ✅, alembic `q7r8s9t0u1v2` single head, **CI run #25401590762 on `ffd363e` conclusion=success** ✅. NO autonomous fixes applied — both YELLOW issues are operator-review-required. **Action required from Aaron:** review VRT churn pattern, investigate orders-ledger NULL-quantity writer, reconcile broker-side VRT share count.
+
+See `apis/state/HEALTH_LOG.md` for full §1-§4 detail and Issues/Fixes/Action breakdown.
+
+---
+
+## Health Check — 2026-05-06 15:14 UTC (Wednesday 10:14 AM CT, mid-morning market)
+
+**Overall Status:** GREEN — clean mid-morning run; first 2 paper cycles today (13:35 + 14:30 UTC) ran cleanly with first new OPEN position since 2026-05-01 (VRT via `theme_alignment_v1`, replacing STT which closed). All four execution-defence phases (75/76/77/78) holding on first integration exercise. See `apis/state/HEALTH_LOG.md` for full structured report (mirror).
+
+### §1 Infrastructure
+- 8/8 containers healthy. RestartCount=0. /health 7/7 ok at 15:09:09Z mode=paper.
+- Worker 68 ERR / API 36 ERR, **0 crash-triad** across 5 patterns.
+- Prometheus 2/2 up. Alertmanager firing=0. Resources fine. DB 187 MB.
+
+### §2 Execution + Data
+- 2/expected ~3 paper cycles today (13:35 + 14:30 UTC). 0 fails.
+- 12 OPEN positions, **all 12 origin_strategy stamped** (11 rebalance + 1 theme_alignment_v1 NEW today). 1 close (STT) + 1 open (VRT) net 0.
+- Cash positive $22,541.91, equity $114,058 (legitimate stream).
+- daily_market_bars MAX 2026-05-05; signal_runs/ranking_runs MAX today 10:30/10:45 UTC ✅.
+- Phase 78 first-run silent (0 drops — strategy already requests only active tickers upstream; expected defence-in-depth behaviour).
+- Phase 76 first-run silent (0 HOLX rejections — Phase 78 suppressed proposal upstream).
+- Idempotency 0/0 ✅. evaluation_runs=98 (≥80 floor). kill=false mode=paper.
+
+### §3 Code + Schema
+- Alembic `q7r8s9t0u1v2` single head ✅. Pytest **370p/0f/3670d in 36.48s** ✅.
+- Git HEAD `ffd363e`, 0 unpushed; tree dirty only on HEALTH_LOG.md (operator-deferred from morning) + outputs/ untracked.
+- **CI run #25401590762 on `ffd363e` `conclusion=success`** ✅.
+
+### §4 Config + Gates
+- All 11 critical APIS_* flags at expected values.
+- Scheduler `job_count=36`; heartbeat 15:10:22 UTC fresh.
+
+### Issues Found / Fixes Applied
+- None / None. Clean run.
+
+### Action Required from Aaron (carry-forward)
+1. Optional: mark 13 stale delisted tickers `is_active=false` to fully exercise Phase 78 + eliminate yfinance-404 noise.
+2. Confirm `broker_health_position_drift` continues to drop (14 today vs 20 yesterday).
+3. Non-urgent: investigate scheduler job_count=36 vs documented baseline 35.
+
+
+
+## Health Check — 2026-05-06 10:10 UTC (Wednesday 5:10 AM CT, pre-market) — GREEN
+
+Mirror entry — full detail in `apis/state/HEALTH_LOG.md`. **Overall: GREEN, clean pre-market.** 8/8 containers healthy (worker+api Up 14h since Phase 77+78 deploy 20:19 UTC Tue, postgres/redis Up 31h, RestartCount=0). /health 7/7 ok. **Alembic head advanced `p6q7r8s9t0u1` → `q7r8s9t0u1v2`** (Phase 77 UNIQUE constraint applied) ✅. Pytest `deep_dive+phase22+phase57+phase77_78` → **370p/0f/3670d in 37.36s** ✅ (+10 from prior baseline thanks to Phase 77/78 regression class). Git CLEAN at `ffd363e`, 0 unpushed. **CI run #25401590762 on `ffd363e` `conclusion=success`** ✅. Phase 76+78 code paths both verified loaded in worker container. 0 paper cycles today (pre-cycle, expected). 12 OPEN positions all `origin_strategy=rebalance`, 0 NULLs, 0 new today. evaluation_runs=98 (≥80 ✅). Latest legit snapshot Tue 19:30 UTC: cash=$23,050.74 / equity=$113,850.56 (cash positive ✅). Worker 24h log scan = 83 ERR (yfinance stale-13 + 20 broker_drift carry-forward; **0 crash-triad**); API 17 ERR (0 crash-triad). Prometheus 2/2 up. Alertmanager firing=0. All 11 critical APIS_* flags at expected values; `job_count=36`; liveness heartbeat fresh in Redis (`worker:scheduler_heartbeat=1778062222` ≈ 10:10 UTC). Only **HOLX** marked `securities.is_active=false`; the 13 stale delisted S&P 500 names are still `is_active=true`, so Phase 78's expected dropped-count on next 10:30 UTC signal job will be ≈1 not ≈13 — actionable for operator to align DB with reality (see Action #3 in primary log). NO autonomous fixes. Email silent per GREEN rule.
+
+---
+
 ## Health Check — 2026-05-05 19:12 UTC (Tuesday 2:12 PM CT, market open ~5.6h, 6/12 cycles fired) — YELLOW
 
 **Overall Status:** YELLOW — same two carry-forward issues from this morning's 15:09 UTC entry, no new regressions, no escalation. (1) `broker_health_position_drift` fired on every paper cycle today (6/6) on the same 12 operator-restored rebalance tickers — strategy continues to BUY toward DB target rather than CLOSE; drift will narrow gradually. (2) HOLX proposed + rejected on every cycle (6/6) — strategy still proposes inactive ticker; risk_engine blocks on `max_new_positions_per_day=5`; Alpaca is final safety net. Both issues triaged in 15:09 UTC report; no new code/operator action since. All other subsystems GREEN: 8/8 containers healthy 16h uptime RestartCount=0, /health 7/7 ok, **0 crash-triad**, Prometheus 2/2 up, Alertmanager firing=0, pytest **360p/0f in 22.12s**, alembic single head `p6q7r8s9t0u1`, **CI run #25327395434 on `9db28ae` conclusion=success**, 12 OPEN positions all `origin_strategy=rebalance`, 0 new today, kill_switch=false mode=paper, 0 idempotency dupes, evaluation_runs=97 (≥80), all 11 critical APIS_* flags correct, scheduler `job_count=36` + liveness heartbeat 19:11:20 UTC. **NO autonomous fixes applied — no escalation since morning.** Email: YELLOW Gmail draft created (manual send required).

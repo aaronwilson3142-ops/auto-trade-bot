@@ -3,6 +3,40 @@ Format: timestamp | decision | alternatives considered | rationale | consequence
 
 ---
 
+## [2026-05-06] Phase 79 — Rebalance idempotency on open positions (DEC-079)
+
+### DEC-079: Filter rebalance OPEN proposals where the ticker is already represented in `portfolio_state.positions` with qty>0 OR in the broker's positions
+- **Decision:** After `_RebSvc.generate_rebalance_actions(...)` returns inside `apis/apps/worker/jobs/paper_trading.py::run_paper_trading_cycle`, walk the returned actions and drop any whose `action_type == ActionType.OPEN` and ticker is already held. The check is two-layered: (a) `portfolio_state.positions[ticker].quantity > 0`, OR (b) the ticker appears in `_broker.list_positions()` with qty>0 (taken once per cycle as a snapshot). Critical-exit bypass is unnecessary because rebalance never emits CLOSE for ATR/stop reasons. Backward-compat env knob `phase79_rebalance_idempotency_enabled` (default True) lets the operator disable the gate emergency-style.
+- **Alternatives considered:**
+  - **Strategy-agnostic post-close cooldown (the original 2026-05-06 plan)** — REJECTED after investigation showed the VRT churn isn't a close-then-reopen pattern. Cycles 1 and 2 both emit `rebalance_open` for VRT WITHOUT any close in between. A TTL-based cooldown would not block cycle 2's reopen.
+  - **Fix `compute_drift` directly in `services/risk_engine/rebalancing.py`** — REJECTED for blast-radius. The compute_drift function is a pure read; making it consult `portfolio_state.positions` AND a broker handle would tighten coupling and require expanding its signature. The defence-in-depth filter at the call site achieves the same effect with smaller surface area.
+  - **Same-day same-ticker block** — REJECTED. Too blunt; would prevent legitimate stop-and-rebuy patterns.
+- **Rationale:** The 2026-05-06 paper cycles show rebalance opening VRT 3 times today (13:35, 14:30, 19:30). The drift signal `-6.67%` is identical across all three cycles, indicating compute_drift sees `current_w=0` for VRT each time. Investigation (memory `project_phase81_vrt_reconciliation_decision.md`) confirmed the broker DID receive each BUY (replay yields qty_held trajectory 0→22→44→22→0→21). Filtering at the merge call site addresses the symptom regardless of whether the root cause is stale `portfolio_state.positions` or stale `current_price=0`. Logging both axes (`held_in_state`, `held_in_broker`) lets future investigation distinguish.
+- **Consequence:**
+  - Rebalance no longer emits the same `rebalance_open` for an already-held ticker in successive cycles. Drift is allowed to settle on the next cycle once mark-to-market refresh updates `current_price`.
+  - New log line `phase79_rebalance_open_already_open_skipped` lets the daily deep-dive count suppression events; the per-cycle `rebalance_actions_merged` already shipped `phase79_skipped` count.
+  - 5 new pytest regression tests in `tests/unit/test_phase79_80_rebalance_idempotency_and_orders_qty.py::TestPhase79RebalanceIdempotency`. The filter is small enough to test in isolation by mirroring the production logic in a helper — keeps tests DB-free under `APIS_PYTEST_SMOKE=1`.
+  - Compatible with Phase 75/76/77/78 — Phase 79 fires upstream of risk validation, so HOLX et al. still pass through the `inactive_ticker` rule. Defence-in-depth on top of, not in place of, the existing layers.
+
+---
+
+## [2026-05-06] Phase 80 — Orders ledger NULL-quantity fix (DEC-080)
+
+### DEC-080: Orders writer at `_persist_orders_and_fills` line 399 prefers `res.fill_quantity` over `req.action.target_quantity`
+- **Decision:** Change the qty derivation from `qty = req.action.target_quantity or res.fill_quantity` to `qty = res.fill_quantity if res.fill_quantity else req.action.target_quantity`. Add a WARN log line `phase80_orders_writer_qty_unresolvable` when both come back None on a FILLED-status result.
+- **Alternatives considered:**
+  - **Set `req.action.target_quantity = res.fill_quantity` post-execution.** REJECTED — mutates the action object after-the-fact, complicates downstream observers (shadow portfolio hooks read action.target_quantity).
+  - **Compute qty from `target_notional / fill_price`.** REJECTED — duplicates the execution_engine's floor-division logic; risks rounding drift between writers.
+  - **Backfill historical NULL-qty rows (~14 days, 30+ rows).** REJECTED — pure audit-trail trim; not blocking; might confuse downstream P&L attribution if the original row also lacked a fill row.
+- **Rationale:** Pre-existing every-weekday-since-2026-04-22 pattern of 2-7 `quantity=NULL` rows per day. Surfaced 2026-05-06 because today's `theme_alignment_v1` is the first non-rebalance OPEN since the 2026-05-04 cleanup. Investigation showed the bug is path-specific: `ranked_buy_signal` opens carry `target_quantity` (set by sizing logic in the portfolio engine), but `rebalance_open` opens carry only `target_notional`. The pre-Phase-80 fallback `target_quantity or fill_quantity` works for ranked_buy but writes NULL for rebalance because Python's truthiness on `Decimal("0") or None` returns None. Preferring `fill_quantity` makes the broker authoritative — the ledger reflects what was actually executed, not what was proposed.
+- **Consequence:**
+  - Orders rows for FILLED rebalance OPENs now carry `quantity=22` (or whatever the broker filled), not NULL.
+  - Diagnostic WARN line surfaces the underlying broker-contract violation if `fill_quantity` is also None on a FILLED status (would indicate a paper-broker bug, not a writer bug).
+  - 6 new pytest regression tests in `TestPhase80OrdersQuantity`.
+  - No retro backfill of historical NULL rows; the 14-day gap is documented in HEALTH_LOG and accepted.
+
+---
+
 ## [2026-05-05] Phase 77 — Alembic UNIQUE (security_id, opened_at) on positions (DEC-077)
 
 ### DEC-077: Add DB-level UNIQUE constraint on `positions(security_id, opened_at)` via Alembic migration `q7r8s9t0u1v2`
