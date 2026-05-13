@@ -2,6 +2,21 @@
 
 Auto-generated daily health check results.
 
+## Phase 81 Bundle Deploy — 2026-05-13 (Wednesday post-recovery)
+
+Mirror entry — full detail in `apis/state/HEALTH_LOG.md`. Summary:
+- **Phase 81-A (DEC-081):** `PaperBrokerAdapter.seed_from_db_positions` + lazy-init wiring in `apps/worker/jobs/paper_trading.py`. On a fresh worker start the helper reseeds cash + positions from `positions WHERE status='open'` and `portfolio_snapshots.equity_value`, so the next `sod_equity_captured` reads the operator's real prior-close equity instead of the cold-start $100k. Resolves Action 1 from the 2026-05-13 RED report (chosen recommendation b — re-seed, not unwind).
+- **Phase 81-B (DEC-082):** Universal OPEN stacking guard at `paper_trading.py` extends Phase 79 to ALL OPEN actions (`ranked_buy_signal` / `momentum_v1` / `theme_alignment_v1` ...). Drops any OPEN whose ticker is already in state or broker.
+- **Phase 81-C (DEC-083):** `_persist_positions` close-loop computes `realized_pnl` from `(exit - entry) * qty` (exit = `row.exit_price` if present else `market_value / quantity`) when no `ClosedTrade` exists. Addresses the 169 lifetime NULL-realized_pnl rows.
+- **Phase 81-D (DEC-084):** Host-side Windows watchdog `apis/scripts/windows_docker_watchdog.ps1` + `register_watchdog_task.bat` for the Docker Desktop Autostart Blocker recurring since 2026-04-15. Container-side healthcheck broadened (Phase 71 scheduler heartbeat AND main heartbeat). Resolves Actions 2 + 4.
+- **Phase 81-E (DEC-085):** Dual-invocation phase-split hypothesis REFUTED by code inspection — `run_paper_trading_cycle` generates exactly one `cycle_id` and threads it through every writer. Resolves Action 3.
+- Tests: **20p / 0f** in 1.25s in `tests/unit/test_phase81_broker_sod_reseed_and_open_stacking.py`. Ruff clean.
+- All 3 flags default True; can be disabled per-knob without code change.
+
+---
+
+
+
 ## Phase 79 + 80 Deploy — 2026-05-06 ~20:30 UTC
 
 See `apis/state/HEALTH_LOG.md` for full entry. Summary:

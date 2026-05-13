@@ -1,6 +1,37 @@
 # APIS — Next Steps
 
-Last Updated: 2026-05-06 ~20:30 UTC — Phase 79 (rebalance idempotency on open positions, DEC-079) + Phase 80 (orders ledger NULL-quantity fix, DEC-080) shipped + tested. The 2026-05-06 19:30 HEALTH_LOG YELLOW findings are now triaged: Issue 1 (VRT churn) addressed by Phase 79, Issue 2 (NULL-qty) addressed by Phase 80, Issue 3 (44-share SELL) confirmed benign (HEALTH_LOG misread; broker is correctly flat per replay), Issue 4 (broker_health_position_drift) carry-forward unchanged, Issue 5 (stale tickers) cleanup applied (13 tickers flipped is_active=false; scheduler `job_count=36` confirmed legitimate post-Phase-71 — feedback memory updated to baseline 36).
+Last Updated: 2026-05-13 — Phase 81 bundle (DEC-081 / 082 / 083 / 084 / 085) shipped + tested. All 7 action items from the 2026-05-13 RED HEALTH_LOG are resolved or filed as accepted-risk follow-ups.
+
+## ✅ DONE 2026-05-13 — Phase 81 Bundle: Broker SOD Reseed + OPEN Stacking Guard + realized_pnl Fallback + Docker Watchdog
+
+- **Phase 81-A (DEC-081)** `PaperBrokerAdapter.seed_from_db_positions` + `_seed_paper_broker_from_db()` helper + lazy-init wiring. Resolves Action 1 (c7 SOD reset to $100k vs Tue close $117,432) — operator's recommendation (b) re-seed-not-unwind. The 5 c7 BUYs ($77k notional) stand as legitimate Wed-priced opens.
+- **Phase 81-B (DEC-082)** universal OPEN stacking guard at `paper_trading.py` extends Phase 79 to all OPEN actions. Resolves Action 5 (Phase 79-extended).
+- **Phase 81-C (DEC-083)** `realized_pnl` fallback in `_persist_positions` close-loop. Resolves Action 6. Historical 169-row backfill filed as optional follow-up.
+- **Phase 81-D (DEC-084)** Windows-side `windows_docker_watchdog.ps1` + `register_watchdog_task.bat` + container-side healthcheck broadening. Resolves Actions 2 (Docker Desktop Autostart Blocker) + 4 (Phase 71 healthcheck recovery).
+- **Phase 81-E (DEC-085)** Dual-invocation phase-split hypothesis REFUTED by code inspection — `run_paper_trading_cycle` generates exactly one `cycle_id`. Resolves Action 3. 13 deep-dives of operator-host probing retired.
+- **Tests:** 20 new tests in `tests/unit/test_phase81_broker_sod_reseed_and_open_stacking.py` (`TestPhase81ABrokerReseed` ×6 + `TestPhase81BOpenStackingGuard` ×7 + `TestPhase81CRealizedPnlFallback` ×6 + `TestPhase81RoundTrip` ×1). 20/20 pass DB-free under `APIS_PYTEST_SMOKE=1`. Ruff clean.
+
+## Pending operator action (Thu 2026-05-14)
+
+1. **Worker restart** — `docker compose up -d --force-recreate worker api` to pick up Phase 81 code. New env knobs default True; no `.env` change needed.
+2. **ONE-TIME watchdog registration** — open an Admin cmd window and run `apis/scripts/register_watchdog_task.bat`. This registers two Scheduled Tasks (at-logon + every 5 min) that run `apis/scripts/windows_docker_watchdog.ps1 -OneShot`. Verify with `schtasks /Query /TN "APIS Docker Watchdog"`. Tail-log: `Get-Content C:\ProgramData\APIS\watchdog.log -Wait`.
+3. **First-cycle verification (09:35 ET / 13:35 UTC):**
+   - `phase81_broker_sod_reseeded_from_db` INFO line in worker log carrying `prior_cash`, `new_cash`, `cost_basis`, `seeded`.
+   - `sod_equity_captured equity=$...` should match the most recent `portfolio_snapshots.equity_value` (NOT $100k).
+   - Any OPEN action for an already-held ticker emits `phase81b_open_stacking_skipped`.
+   - Any broker-sync close emits `phase81c_realized_pnl_fallback_applied` with a non-NULL `realized_pnl`.
+
+## Filed follow-ups (accepted-risk, low priority)
+
+1. **Historical 169-row NULL realized_pnl backfill.** Not in Phase 81 because the fallback uses last-known `market_value`, not actual exit price. Operator decision: leave the historical gap as documented or run an explicit backfill SQL with a `proxy_origin` column.
+2. **Diagnostic per-cycle `cycle_id + wall_clock_utc` log line.** Filed for the next recurrence of the dual-cycle_id pattern, so adjacent-cycle attribution can be ruled out before resuming any external-writer investigation.
+3. **Linux/WSL2 + systemd migration.** Long-term durability improvement that would eliminate the Docker Desktop class of incidents entirely. Out-of-scope for Phase 81; would be its own multi-week migration.
+
+---
+
+(Below entries retained for historical context.)
+
+## ✅ DONE 2026-05-06 ~20:30 UTC — Phase 79 (DEC-079) Rebalance Idempotency + Phase 80 (DEC-080) Orders Ledger Quantity Fix
 
 ## ✅ DONE 2026-05-06 ~20:30 UTC — Phase 79 (DEC-079) Rebalance Idempotency + Phase 80 (DEC-080) Orders Ledger Quantity Fix
 

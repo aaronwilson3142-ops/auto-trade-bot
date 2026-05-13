@@ -3,6 +3,39 @@ Format: [YYYY-MM-DD] | file/module | description
 
 ---
 
+## [2026-05-13] Phase 81 Bundle — Broker SOD reseed + OPEN stacking guard + realized_pnl fallback + Docker watchdog (DEC-081 / 082 / 083 / 084 / 085)
+
+**Files changed:**
+
+| File | Change |
+|------|--------|
+| `apis/broker_adapters/paper/adapter.py` | NEW method `PaperBrokerAdapter.seed_from_db_positions(positions, last_known_equity)` reseeds `_positions` from DB tuples + pins `_cash = last_known_equity - cost_basis`. Idempotent (skips already-seeded tickers), clamps negative cash to zero. Phase 81-A. |
+| `apis/apps/worker/jobs/paper_trading.py` | NEW module-level helper `_seed_paper_broker_from_db()` queries `positions WHERE status='open'` + most recent `portfolio_snapshots.equity_value` and calls `broker.seed_from_db_positions(...)`. Wired into the broker-adapter lazy-init at line ~786. NEW universal OPEN stacking guard block right before per-action risk validation (Phase 81-B). NEW `realized_pnl` fallback in `_persist_positions` close-loop computes `(exit - entry) * qty` when no `ClosedTrade` exists (Phase 81-C). |
+| `apis/config/settings.py` | 3 new env knobs: `phase81_broker_sod_reseed_enabled`, `phase81b_open_stacking_guard_enabled`, `phase81c_realized_pnl_fallback_enabled` (all default True). |
+| `apis/infra/docker/docker-compose.yml` | Worker healthcheck broadened — now requires BOTH `worker:scheduler_heartbeat` < 600s AND `worker:heartbeat` key present. `start_period` 120s → 180s. Phase 81-D. |
+| `apis/scripts/windows_docker_watchdog.ps1` | NEW host-side PowerShell watchdog. Probes Docker engine pipe, restarts Docker Desktop if unresponsive, runs `docker compose up -d` if core containers missing, restarts worker if scheduler heartbeat stale. Phase 81-D. |
+| `apis/scripts/register_watchdog_task.bat` | NEW Task Scheduler registration helper (at-logon + every 5 min triggers). |
+| `apis/tests/unit/test_phase81_broker_sod_reseed_and_open_stacking.py` | NEW test file — 20 tests across 4 classes: `TestPhase81ABrokerReseed` (6), `TestPhase81BOpenStackingGuard` (7), `TestPhase81CRealizedPnlFallback` (6), `TestPhase81RoundTrip` (1). DB-free; runs under `APIS_PYTEST_SMOKE=1`. |
+
+**Why:**
+- **Phase 81-A (DEC-081)** — 2026-05-13 RED HEALTH_LOG flagged c7 SOD reset to $100k vs Tue close $117,432 after a ~24h Docker Desktop outage. Root cause: fresh `PaperBrokerAdapter` lazy-init returned cash=$100k + zero positions, while DB still held 11 open positions with $75k cost basis. Operator chose remediation (b) — reseed broker from DB. Phase 81-A reseeds at the lazy-init point so the next SOD capture reads the operator's real prior-close equity.
+- **Phase 81-B (DEC-082)** — Phase 79 only suppresses `rebalance_open` stacking; non-rebalance OPENs (ranked_buy_signal, momentum_v1, theme_alignment_v1) can still stack against an already-held ticker if `portfolio_state` is stale relative to broker. Extends the same two-axis check (`held_in_state OR held_in_broker`) to ALL OPEN actions.
+- **Phase 81-C (DEC-083)** — 169 lifetime closed `positions` rows have `realized_pnl=NULL` because the writer only consults the in-cycle `ClosedTrade` list. Broker-sync closes (when broker no longer reports a ticker but no CLOSE action emits) bypass the ledger and leave NULL. Fallback uses `(exit - entry) * qty` where `exit = row.market_value / quantity` for a best-effort proxy.
+- **Phase 81-D (DEC-084)** — Docker Desktop Autostart Blocker recurring since 2026-04-15 (most recently Tue 19:30Z → Wed 19:25Z, ~24h outage). Phase 71 in-container healthcheck cannot recover from engine-down scenarios. Host-side watchdog probes the engine pipe + restarts Docker Desktop + brings the compose stack back up.
+- **Phase 81-E (DEC-085)** — Dual-invocation phase-split hypothesis REFUTED by code inspection. `run_paper_trading_cycle` generates exactly ONE `cycle_id` per invocation and threads it through every writer.
+
+**Validation:**
+- `tests/unit/test_phase81_broker_sod_reseed_and_open_stacking.py` — **20 passed / 0 failed in 1.25s** under `APIS_PYTEST_SMOKE=1`.
+- Combined Phase 79/80/81 + `test_paper_broker.py` — **64 passed / 0 failed in 1.41s**.
+- Ruff clean on all 4 changed source files + new test.
+
+**Pending (operator):**
+1. `docker compose up -d --force-recreate worker api` (after the next git pull) to pick up the new code.
+2. ONCE: Run `apis/scripts/register_watchdog_task.bat` as Administrator to register the host-side Docker Watchdog.
+3. Thu 2026-05-14 09:35 ET first cycle — verify `phase81_broker_sod_reseeded_from_db` log line + correct SOD equity capture; confirm any non-rebalance OPEN against an already-held ticker emits `phase81b_open_stacking_skipped`; confirm any broker-sync close emits `phase81c_realized_pnl_fallback_applied` with a non-NULL realized_pnl.
+
+---
+
 ## [2026-05-06 ~20:30 UTC] Phase 79 + 80 — Rebalance idempotency on open positions + Orders ledger NULL-quantity fix (DEC-079 / DEC-080)
 
 **Files changed:**

@@ -48,6 +48,88 @@ _EXECUTION_MODES = {OperatingMode.PAPER, OperatingMode.HUMAN_APPROVED}
 _KEY_PAPER_CYCLE_COUNT = "paper_cycle_count"
 
 
+def _seed_paper_broker_from_db(
+    broker: Any,
+    cycle_id: str | None = None,
+) -> dict | None:
+    """Phase 81 (DEC-081): seed PaperBrokerAdapter cash + positions from DB.
+
+    On a fresh worker start the in-memory ``PaperBrokerAdapter`` boots with
+    $100k cash and zero positions, regardless of what was persisted before
+    the restart.  When the DB still holds open positions and a recent
+    portfolio snapshot, that cold-start state desynchronizes the broker
+    from the operator's true account history — the next ``sod_equity_capture``
+    pins start-of-day equity to the cold-start $100k, and subsequent
+    sizing fires against a phantom baseline.
+
+    This helper pulls open positions from ``positions WHERE status='open'``
+    and the latest equity from ``portfolio_snapshots`` (or computes it from
+    position cost basis if no snapshot exists) and reseeds the adapter via
+    its ``seed_from_db_positions`` method.
+
+    Returns a dict summary for telemetry, or ``None`` when the broker has
+    no ``seed_from_db_positions`` method (non-paper adapters) or on any
+    DB error.  Never raises — failure to reseed is a soft degradation, not
+    a fatal cycle stop (the broker-health invariant downstream catches the
+    catastrophic case).
+    """
+    if not hasattr(broker, "seed_from_db_positions"):
+        return None
+    try:
+        from decimal import Decimal as _Decimal
+
+        import sqlalchemy as _sa_seed
+
+        from infra.db.models import Security as _SecSeed
+        from infra.db.models.portfolio import PortfolioSnapshot as _SnapSeed
+        from infra.db.models.portfolio import Position as _PosSeed
+        from infra.db.session import db_session as _db_session_seed
+
+        with _db_session_seed() as db:
+            rows = db.execute(
+                _sa_seed.select(_SecSeed.ticker, _PosSeed.quantity, _PosSeed.entry_price)
+                .join(_SecSeed, _SecSeed.id == _PosSeed.security_id)
+                .where(_PosSeed.status == "open")
+                .order_by(_PosSeed.opened_at)
+            ).all()
+            positions = []
+            for ticker, qty, entry in rows:
+                if ticker is None or qty is None or entry is None:
+                    continue
+                qty_d = _Decimal(str(qty))
+                entry_d = _Decimal(str(entry))
+                if qty_d <= _Decimal("0"):
+                    continue
+                positions.append((ticker, qty_d, entry_d))
+
+            snap = db.execute(
+                _sa_seed.select(_SnapSeed.equity_value)
+                .order_by(_SnapSeed.snapshot_timestamp.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+            last_equity: _Decimal | None = None
+            if snap is not None:
+                try:
+                    last_equity = _Decimal(str(snap))
+                except Exception:  # noqa: BLE001
+                    last_equity = None
+
+        if not positions and last_equity is None:
+            return None
+
+        return broker.seed_from_db_positions(
+            positions=positions,
+            last_known_equity=last_equity,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "phase81_broker_sod_reseed_failed",
+            error=str(exc),
+            cycle_id=cycle_id,
+        )
+        return None
+
+
 def _persist_paper_cycle_count(count: int) -> None:
     """Fire-and-forget: upsert paper_cycle_count to system_state table.
 
@@ -330,6 +412,62 @@ def _persist_positions(
                         row.exit_price = _Decimal(str(ct.fill_price))
                     if getattr(ct, "realized_pnl", None) is not None:
                         row.realized_pnl = _Decimal(str(ct.realized_pnl))
+                # ── Phase 81-C (2026-05-13, DEC-083): realized_pnl fallback ──
+                # When a position closes via broker-sync reconciliation
+                # (broker no longer reports the ticker but no CLOSE/TRIM
+                # action fired this cycle), there is no ClosedTrade record
+                # to pull realized_pnl from — so before Phase 81-C the row
+                # was written status=closed, exit_price=NULL, realized_pnl=NULL.
+                # The 2026-05-13 HEALTH_LOG flagged 169 lifetime rows with
+                # that pattern.  Best-effort fallback: use the row's existing
+                # market_value / quantity as a proxy exit price and compute
+                # realized_pnl from (exit - entry) * quantity.  Flag-gated;
+                # log line lets downstream attribution distinguish exact vs
+                # proxy P&L.
+                _p81c_on = True
+                try:
+                    _p81c_on = bool(getattr(
+                        get_settings(),
+                        "phase81c_realized_pnl_fallback_enabled",
+                        True,
+                    ))
+                except Exception:  # noqa: BLE001
+                    _p81c_on = True
+                if (
+                    _p81c_on
+                    and row.realized_pnl is None
+                    and getattr(row, "quantity", None)
+                    and getattr(row, "entry_price", None)
+                ):
+                    try:
+                        _qty_d = _Decimal(str(row.quantity))
+                        _entry_d = _Decimal(str(row.entry_price))
+                        _exit_d: Any | None = None
+                        if row.exit_price is not None:
+                            _exit_d = _Decimal(str(row.exit_price))
+                        elif row.market_value is not None and _qty_d > _Decimal("0"):
+                            _exit_d = (
+                                _Decimal(str(row.market_value)) / _qty_d
+                            ).quantize(_Decimal("0.0001"))
+                        if _exit_d is not None:
+                            row.exit_price = _exit_d
+                            row.realized_pnl = (
+                                (_exit_d - _entry_d) * _qty_d
+                            ).quantize(_Decimal("0.01"))
+                            logger.info(
+                                "phase81c_realized_pnl_fallback_applied",
+                                ticker=ticker,
+                                entry_price=str(_entry_d),
+                                exit_price=str(_exit_d),
+                                realized_pnl=str(row.realized_pnl),
+                                note="broker-sync close path; no ClosedTrade record",
+                            )
+                    except Exception as _p81c_exc:  # noqa: BLE001
+                        logger.warning(
+                            "phase81c_realized_pnl_fallback_failed",
+                            ticker=ticker,
+                            error=str(_p81c_exc),
+                        )
     except Exception as exc:  # noqa: BLE001
         logger.warning("persist_positions_failed", error=str(exc))
 
@@ -792,6 +930,33 @@ def run_paper_trading_cycle(
                 cycle_id=cycle_id,
                 reason="fresh_worker_start",
             )
+            # ── Phase 81 (2026-05-13, DEC-081): broker SOD reseed-from-DB ──
+            # Root cause of the 2026-05-13 c7 SOD reset to $100k was that
+            # the docker stack came back from the Tue 19:30Z → Wed 19:25Z
+            # outage with a fresh PaperBrokerAdapter (cash=$100k, zero
+            # positions) while DB-persisted positions still represented
+            # $75k cost basis under a Tue close equity of $117k.  Cycle 7's
+            # SOD capture then read broker equity = $100k cash, completely
+            # ignoring DB positions, and 5 BUYs went out against that
+            # phantom baseline.  The reseed here pulls open positions from
+            # ``positions WHERE status='open'`` and the last persisted
+            # equity from ``portfolio_snapshots`` so the adapter's cash +
+            # positions reconstitute the pre-restart account state before
+            # the SOD capture below sees it.  Idempotent + flag-gated.
+            if getattr(cfg, "phase81_broker_sod_reseed_enabled", True):
+                _reseed_summary = _seed_paper_broker_from_db(
+                    app_state.broker_adapter,
+                    cycle_id=cycle_id,
+                )
+                if _reseed_summary is not None:
+                    logger.info(
+                        "phase81_broker_sod_reseeded_from_db",
+                        cycle_id=cycle_id,
+                        **{
+                            k: str(v)
+                            for k, v in _reseed_summary.items()
+                        },
+                    )
         except Exception as _bi_exc:  # noqa: BLE001
             logger.warning(
                 "broker_adapter_lazy_init_failed",
@@ -1867,6 +2032,72 @@ def run_paper_trading_cycle(
                 suppressed_count=len(_churn_tickers),
                 tickers=sorted(_churn_tickers),
             )
+
+        # ── Phase 81-B (2026-05-13, DEC-082): Universal OPEN stacking guard ─
+        # Phase 79 dropped duplicate rebalance OPENs for already-held tickers.
+        # Phase 81-B extends the same idempotency check to ALL OPEN actions
+        # (ranked_buy_signal, momentum_v1, theme_alignment_v1, etc.) — any
+        # OPEN whose ticker is already represented with qty > 0 in
+        # ``portfolio_state.positions`` OR in the broker's positions is
+        # dropped here, regardless of which strategy emitted it.  This
+        # closes the class of stacking bugs Phase 79 only fixed at the
+        # rebalance call site.  Critical exits (CLOSE/TRIM) are never
+        # touched.  Flag-gated for emergency disable.
+        if getattr(cfg, "phase81b_open_stacking_guard_enabled", True):
+            try:
+                _p81b_broker_tickers: set[str] = set()
+                try:
+                    _p81b_broker_tickers = {
+                        bp.ticker
+                        for bp in _broker.list_positions()
+                        if getattr(bp, "quantity", 0)
+                        and bp.quantity > 0
+                    }
+                except Exception as _p81b_snap_exc:  # noqa: BLE001
+                    logger.warning(
+                        "phase81b_broker_snapshot_failed",
+                        error=str(_p81b_snap_exc),
+                    )
+                _p81b_skipped: list[dict] = []
+                _kept_actions: list = []
+                for _a in proposed_actions:
+                    if _a.action_type != ActionType.OPEN:
+                        _kept_actions.append(_a)
+                        continue
+                    _t = _a.ticker
+                    _held_pos = portfolio_state.positions.get(_t)
+                    _held_qty_state = getattr(_held_pos, "quantity", 0) or 0
+                    _held_in_state = _held_qty_state > 0
+                    _held_in_broker = _t in _p81b_broker_tickers
+                    if _held_in_state or _held_in_broker:
+                        _p81b_skipped.append({
+                            "ticker": _t,
+                            "reason": getattr(_a, "reason", "") or "",
+                            "held_in_state": bool(_held_in_state),
+                            "held_in_broker": bool(_held_in_broker),
+                        })
+                        logger.info(
+                            "phase81b_open_stacking_skipped",
+                            ticker=_t,
+                            reason=getattr(_a, "reason", "") or "",
+                            held_in_state=bool(_held_in_state),
+                            held_in_broker=bool(_held_in_broker),
+                            state_qty=str(_held_qty_state),
+                        )
+                        continue
+                    _kept_actions.append(_a)
+                proposed_actions = _kept_actions
+                if _p81b_skipped:
+                    logger.info(
+                        "phase81b_open_stacking_summary",
+                        suppressed_count=len(_p81b_skipped),
+                        cycle_id=cycle_id,
+                    )
+            except Exception as _p81b_exc:  # noqa: BLE001
+                logger.warning(
+                    "phase81b_open_stacking_guard_failed",
+                    error=str(_p81b_exc),
+                )
 
         # ── Validate each action + fetch price + build execution requests ──────
         approved_requests: list[ExecutionRequest] = []

@@ -2,6 +2,60 @@
 
 Auto-generated daily health check results.
 
+## Phase 81 Bundle Deploy — 2026-05-13 (Wednesday post-recovery)
+
+**Trigger:** 2026-05-13 RED HEALTH_LOG email — two trading-impact regressions and one YELLOW carry-forward:
+  1. **HIGHEST:** Cycle 7 SOD reset to $100k vs Tue close $117,432 after a ~24h Docker Desktop outage (Tue 19:30Z → Wed 19:25Z). Decision (b) chosen: re-seed broker from DB instead of unwinding 5 BUYs ($77k notional) — operator's recommendation in the morning report.
+  2. **HIGH:** Docker Desktop Autostart Blocker recurring since 2026-04-15. Phase 71 in-container healthcheck cannot recover from engine-down scenarios.
+  3. **HIGH:** Dual-invocation phase-split hypothesis to confirm by code inspection.
+  4. **MED:** Phase 71 healthcheck recovery hardening.
+  5. **MED:** Phase 79-extended OPEN stacking guard for ranked_buy_signal / momentum_v1.
+  6. **MED:** `_persist_closed_trade` NULL realized_pnl writer (169 lifetime rows).
+  7. **LOW:** Commit + push Phase 81 source.
+
+**Outcome:** Phase 81 bundle (DEC-081 / 082 / 083 / 084 / 085) shipped. All 7 action items resolved or filed as accepted-risk follow-ups.
+
+### Code changes
+- `apis/broker_adapters/paper/adapter.py` — NEW method `seed_from_db_positions(positions, last_known_equity)` (Phase 81-A / DEC-081).
+- `apis/apps/worker/jobs/paper_trading.py` — NEW module-level helper `_seed_paper_broker_from_db()` + lazy-init wiring (Phase 81-A); NEW universal OPEN stacking guard block after Phase 65b churn guard (Phase 81-B / DEC-082); NEW `realized_pnl` fallback in `_persist_positions` close-loop (Phase 81-C / DEC-083).
+- `apis/config/settings.py` — 3 new flags: `phase81_broker_sod_reseed_enabled`, `phase81b_open_stacking_guard_enabled`, `phase81c_realized_pnl_fallback_enabled` (all default True).
+- `apis/infra/docker/docker-compose.yml` — worker healthcheck broadened to require BOTH scheduler heartbeat AND main heartbeat; start_period 120s → 180s (Phase 81-D / DEC-084).
+- `apis/scripts/windows_docker_watchdog.ps1` — NEW host-side watchdog (Phase 81-D / DEC-084).
+- `apis/scripts/register_watchdog_task.bat` — NEW Task Scheduler registration helper.
+- `apis/tests/unit/test_phase81_broker_sod_reseed_and_open_stacking.py` — NEW, 20 tests across 4 classes (6 Phase 81-A + 7 Phase 81-B + 6 Phase 81-C + 1 round-trip).
+
+### Validation
+- `tests/unit/test_phase81_broker_sod_reseed_and_open_stacking.py` → **20 passed / 0 failed in 1.25s** under `APIS_PYTEST_SMOKE=1`.
+- `tests/unit/test_phase79_80_*` + `test_phase81_*` + `test_paper_broker.py` combined → **64 passed / 0 failed in 1.41s**.
+- Ruff clean on all 4 changed source files + the new test file.
+
+### Action 1 resolution (c7 broker↔DB divergence)
+- **Choice:** Operator's recommendation (b) — reseed broker state from DB. The 5 c7 BUYs ($77k notional: INTC×127, AMZN×59, AMD×34, MU×19, UNH×38) stand as legitimate Wed-priced opens.
+- **Mechanism:** Phase 81-A reseed runs at the broker-adapter lazy-init point (paper_trading.py line ~786). On a fresh worker start the helper queries `positions WHERE status='open'` + the most recent `portfolio_snapshots.equity_value`, then calls `broker.seed_from_db_positions(...)`. The broker now reports `cash + positions == last_snapshot.equity_value`, so the next cycle's SOD capture writes the correct value instead of the $100k cold-start default.
+- **Forward verification (Thu 2026-05-14 09:35 ET):** Watch worker log for `phase81_broker_sod_reseeded_from_db` INFO line carrying `prior_cash`, `new_cash`, `cost_basis`, `seeded`. Then `sod_equity_captured equity=$...` should match the most recent snapshot, not $100k.
+
+### Action 2 + 4 resolution (Docker Desktop Autostart Blocker + Phase 71 healthcheck hardening)
+- **Host-side watchdog:** `apis/scripts/windows_docker_watchdog.ps1` runs as a Windows Scheduled Task. Operator must run `apis/scripts/register_watchdog_task.bat` ONCE as Administrator. The watchdog probes the Docker engine pipe every 5 minutes (and at-logon), starts Docker Desktop if the pipe is unresponsive, runs `docker compose up -d` if any of the 4 core containers are missing, and restarts the worker container if the scheduler heartbeat is stale.
+- **Container-side hardening:** worker healthcheck now requires BOTH `worker:scheduler_heartbeat` < 600s old AND `worker:heartbeat` key present (Phase 71 was scheduler-only). `start_period` raised 120s → 180s to absorb the Alembic-migration + state-restore startup window. Cannot recover from engine-down, by structural design — the host-side watchdog covers that case.
+
+### Action 3 resolution (dual-invocation phase-split hypothesis)
+- **Hypothesis REFUTED by code inspection.** `run_paper_trading_cycle` generates exactly ONE `cycle_id = uuid.uuid4().hex` at line 737. That same id is threaded through every persistence helper: `_persist_portfolio_snapshot(... cycle_id=cycle_id)`, `_persist_position_history(... cycle_id=cycle_id)`, `_persist_positions(...)` (no cycle_id; uses opened_at as natural key), and crucially `_persist_orders_and_fills(approved_requests, execution_results, run_at, cycle_id=cycle_id)`. The orders writer accepts the FULL list of `approved_requests` (BUYs + SELLs together) in a SINGLE call — they cannot acquire different cycle_ids via this code path.
+- **Implication:** The 13 deep-dives of operator-Windows-host probing investigating an external writer can be retired — but so can the phase-split hypothesis. The most likely remaining explanation for two cycle_ids on the same trading slot is that the BUYs and SELLs were emitted in two ADJACENT cycle slots (e.g. c7 + c7-retry-on-misfire-grace) and the HEALTH_LOG's grouping conflated them.
+- **Filed follow-up:** If the dual cycle_id pattern recurs, capture per-cycle `cycle_id + wall_clock_utc` log lines for both cycles and disambiguate adjacent-cycle attribution before resuming any external-writer investigation.
+
+### Action 5 resolution (Phase 79-extended OPEN stacking)
+- **Phase 81-B (DEC-082)** adds a universal OPEN stacking guard at paper_trading.py just before the per-action risk validation loop. Same two-axis check as Phase 79 (`held_in_state OR held_in_broker`) but applied to ALL OPEN actions regardless of strategy origin. New log line `phase81b_open_stacking_skipped` carries `ticker`, `reason`, `held_in_state`, `held_in_broker`.
+
+### Action 6 resolution (`_persist_closed_trade` NULL realized_pnl)
+- **Phase 81-C (DEC-083)** adds a `realized_pnl` fallback to the `_persist_positions` close-loop. When `row.realized_pnl is None` AND the row has `quantity > 0` AND `entry_price`, compute `realized_pnl = (exit_d - entry_d) * quantity` where `exit_d` prefers existing `row.exit_price` then falls back to `row.market_value / row.quantity`. New log line `phase81c_realized_pnl_fallback_applied` lets attribution queries distinguish exact vs proxy P&L. Historical 169-row backfill filed as an optional follow-up (not in scope because the proxy uses last-known market_value, not the actual exit price).
+
+### Action 7 — pending commit
+- All Phase 81 changes ready for commit. Source files: `broker_adapters/paper/adapter.py`, `apps/worker/jobs/paper_trading.py`, `config/settings.py`, `infra/docker/docker-compose.yml`, `scripts/windows_docker_watchdog.ps1`, `scripts/register_watchdog_task.bat`, `tests/unit/test_phase81_broker_sod_reseed_and_open_stacking.py`. State files: this entry + DEC-081/082/083/084/085 in DECISION_LOG + matching CHANGELOG + NEXT_STEPS + ACTIVE_CONTEXT.
+
+---
+
+
+
 ## Phase 79 + 80 Deploy — 2026-05-06 ~20:30 UTC (Wednesday 3:30 PM CT, post-market)
 
 **Trigger:** Operator-initiated remediation of the 2026-05-06 19:30 HEALTH_LOG YELLOW findings (5 issues). Investigation reframed Issue 1 (root cause is rebalance-engine staleness, not theme_alignment_v1 churn) and resolved Issue 3 (broker is correctly flat; HEALTH_LOG misread the cash math).
