@@ -391,6 +391,23 @@ def _persist_orders_and_fills(
                     )
                     continue
 
+                # Phase 81-A diagnostic (2026-05-07): unconditional entry log
+                # so we can see EXACTLY what the writer is receiving for every
+                # OPEN/CLOSE/TRIM, especially the NULL-qty FILLED OPEN paths
+                # the Phase 80 fallback isn't catching.  Captures status repr
+                # + type to confirm or rule out the enum-comparison hypothesis.
+                logger.info(
+                    "phase80_writer_entry",
+                    ticker=ticker,
+                    action_type=req.action.action_type.value,
+                    fill_qty=str(res.fill_quantity),
+                    target_qty=str(req.action.target_quantity),
+                    target_notional=str(req.action.target_notional),
+                    status_repr=repr(res.status),
+                    status_type=type(res.status).__name__,
+                    broker_order_id=res.broker_order_id,
+                )
+
                 # BUY for OPEN; SELL for CLOSE and TRIM
                 side = (
                     "buy" if req.action.action_type == _ActionType.OPEN else "sell"
@@ -2003,6 +2020,16 @@ def run_paper_trading_cycle(
         # audit trail and no per-order basis for P&L attribution.  Mirrors the
         # Phase 64 ``_persist_positions`` contract: fire-and-forget, failures
         # logged at WARN, idempotency keyed on ``{cycle_id}:{ticker}:{side}``.
+        # Phase 81-A diagnostic (2026-05-07): log writer-call cardinality so
+        # the cycle-metric vs orders-row count discrepancy is resolvable.  If
+        # n_approved==n_results==orders_rows_for_cycle, the metric is wrong;
+        # if smaller, a second writer path exists that we haven't found yet.
+        logger.info(
+            "phase80_writer_call",
+            cycle_id=cycle_id,
+            n_approved=len(approved_requests),
+            n_results=len(execution_results),
+        )
         _persist_orders_and_fills(
             approved_requests,
             execution_results,

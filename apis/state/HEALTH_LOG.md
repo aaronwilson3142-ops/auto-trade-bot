@@ -2,6 +2,1691 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-05-13 19:35 UTC (Wednesday 2:35 PM CT, post c7-only, mid-afternoon post-recovery probe)
+
+**Overall Status:** RED — **6 weekday paper cycles missed today (c1-c6 at 13:35/14:30/15:30/16:00/17:30/18:30 UTC).** Entire stack was stopped between Tue 19:30:01 UTC and Wed 19:25:47 UTC (~24h outage matching `project_docker_desktop_autostart_blocker.md` pattern). All 8 containers show `Up <5 minutes` (StartedAt=2026-05-13T19:25:40Z, RestartCount=0 → manual `docker compose start` or Docker Desktop resume, NOT auto-restart). Phase 71 healthcheck didn't trigger auto-recovery — operator sign-in required. Cycle 7 (19:30 UTC) fired correctly on the recovered stack with `proposed=15 / approved=5 / executed=5` (5 OPEN BUYs INTC/AMZN/AMD/MU/UNH stacked onto already-held + 10 blocked by `max_new_positions_per_day=5` cap), BUT — **broker SOD captured at $100,000** (vs Tue close $117,432) → 5 BUYs at $15,400 each ($77k total) were opened against a fresh $100k baseline while DB still preserves the prior 11 OPEN positions (cost basis $75,193). This is a broker↔DB state divergence: broker thinks $100k cash + 0 positions, DB thinks ~$32k cash + 11 OPEN positions. **NEW dual-invocation observation**: c7 SELL/close orders (GOOG/GOOGL `rebalance`) used the FRESH cycle_id `74a81977322a43febbdc793ddd8f5b4e`, c7 BUY/open orders used the STALE cycle_id `17f5269cc8784ce68af01d334ff9d936` — splitting writes by action-type. Cross-checking Tue's 9 orders confirms same architectural split (Tue c1: 5 BUYs under stale `19567bd0`, 2 SELLs under fresh `a71ede41`; Tue c2: 2 SELLs under stale `513992b8`). The 14-of-14 weekday dual-invocation pattern now hypothesis-refined: **two distinct write phases of cycle execution emit different cycle_ids — OPENs under "stale" id, CLOSEs under "fresh" id** — likely the SAME worker process but separate code paths in `paper_trading.py`. Stack itself healthy post-recovery: /health=degraded only because `paper_cycle=stale` (expected ~2min after first cycle); db/broker/scheduler/broker_auth/kill_switch/system_state_pollution all `ok`; mode=paper. Pytest **382p / 0f / 3670d in 29.79s** ✅. Alembic `q7r8s9t0u1v2` single head ✅. **CI run #25459511595 on `8a892db` conclusion=success** ✅ unchanged. All 8 env-exposed APIS_* flags correct. Scheduler heartbeat `worker:scheduler_heartbeat=1778700653` → 2026-05-13T19:30:53Z, age 7s ✅. Worker startup logs clean — `apis_worker_started job_count=36` at 19:25:53Z. 0 crash-triad patterns. Prom 2/2 up. Alertmanager 0 active. Resources well under threshold (worker 122.1 MiB / 0.00%, api 251 MiB / 0.11%, postgres 138.4 MiB / 2.01%, redis 8.47 MiB / 1.84%, control-plane 969.6 MiB / 10.38%). DB 215 MB unchanged. Data freshness regression: latest `daily_market_bars` 2026-05-11 (Mon EOD — Tue+Wed not ingested); latest `signal_runs` 2026-05-12 10:30 (no Wed signals); latest `ranking_runs` 2026-05-12 10:45 (no Wed rankings) — all because Wed AM pipeline jobs (06:00/06:30/06:45 ET) didn't run while stack was off. Position count 11/15 OPEN unchanged from Tue 19:08 (positions table did not yet reflect c7's GOOG/GOOGL closes at probe time — t+1min after cycle complete). 27 NULL-qty FILLED lifetime unchanged. 169 NULL realized_pnl lifetime unchanged. Idempotency clean (0 dupe keys, 0 dupe open tickers). evaluation_runs=103 (Tue EOD eval at 21:00 UTC fired cleanly before outage). NO autonomous fixes applied — stack already recovered when probe ran; remaining items (broker SOD reset investigation, missed-cycles forensics, dual-invocation phase-split hypothesis) all operator-led. **Action required from Aaron:** (1) **HIGHEST** — investigate broker SOD=$100k reset on Wed c7 vs Tue close $117k (paper broker state divergence from DB-side 11 OPEN positions); (2) confirm/disprove the new "two phases of cycle = two cycle_ids" hypothesis on the dual-invocation pattern by reading `paper_trading.py` OPEN vs CLOSE write paths; (3) Phase 71 docker healthcheck didn't auto-restart on stalled-stack today — investigate why (or document that healthcheck doesn't recover from "stack down" scenarios, only from "scheduler stalled"); (4) all carry-forward YELLOWs unchanged (27 NULL-qty, 169 NULL realized_pnl, Phase 81-A uncommitted, Phase 79 design gap); (5) consider whether the c7 5 BUYs ($77k notional) need to be unwound given broker↔DB divergence.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy `Up <5 minutes` since 2026-05-13T19:25:40Z. RestartCount=0 on all four core (worker/api/postgres/redis) — Docker Desktop resume or manual `docker compose start`, NOT auto-restart by restart-policy.
+- /health: `degraded` overall at 2026-05-13T19:29:18Z — caused by `paper_cycle=stale` (expected window: only 1 cycle completed at probe time, ~3min before /health called). All other 6 components `ok`: db, broker, broker_auth, scheduler, kill_switch, system_state_pollution. mode=paper.
+- Worker log scan: clean post-recovery. `apis_worker_started job_count=36` at 19:25:53Z. 0 Tracebacks. **0 crash-triad** on all 5 patterns. c7 cycle output normal — `paper_trading_cycle_complete proposed=15 approved=5 executed=5` at 19:30:04.502Z. Note: cycle log only shows ONE cycle_id (`17f5269cc8784ce68af01d334ff9d936`) — the "fresh" cycle_id `74a81977322a43febbdc793ddd8f5b4e` (which wrote GOOG/GOOGL SELL orders + the fresh portfolio_snapshot) does NOT appear in worker log. This matches the prior 13-of-13 cross-grep observations.
+- API log scan: clean post-recovery. No errors. `--since 24h` ~14 KB.
+- Prometheus: 2/2 active targets up (apis @ api:8000 lastScrape 19:35:55Z health=up err=empty; prometheus @ localhost:9090 lastScrape 19:35:48Z health=up err=empty). 0 dropped.
+- Alertmanager: **0 active alerts** at `/api/v2/alerts` → `[]`.
+- Resource usage: worker 122.1 MiB / 0.00% CPU, api 251 MiB / 0.11%, postgres 138.4 MiB / 2.01%, redis 8.47 MiB / 1.84%, prometheus 34.04 MiB / 0.00%, grafana 54.38 MiB / 0.04%, alertmanager 14.69 MiB / 0.07%, apis-control-plane 969.6 MiB / 10.38% CPU. All well under 80% mem / 90% CPU thresholds.
+- DB size: **215 MB** unchanged from Tue 19:08 (no Wed activity until 19:30 cycle).
+
+### §2 Execution + Data Audit
+- **Paper cycles today: 1** (c7 at 19:30:00 UTC). **6 cycles missed** — c1 (13:35), c2 (14:30), c3 (15:30), c4 (16:00), c5 (17:30), c6 (18:30) all skipped because the entire Docker stack was stopped between Tue 19:30:01Z (last log line on previous container lifecycle) and Wed 19:25:47Z (worker boot `deep_dive_step1_settings`). Root cause matches `project_docker_desktop_autostart_blocker.md` — operator-machine offline, Phase 71 healthcheck doesn't recover from "engine pipe never exposed" scenarios.
+- evaluation_runs total: **103** (+1 from Tue 19:08's 102) — Tue EOD eval at 2026-05-12 21:00 UTC completed cleanly before outage with `status=complete mode=paper idempotency_key=2026-05-12:paper:evaluation_run`.
+- Portfolio snapshots today (2 rows, c7 dual-invocation pair):
+  - c7 19:30:04.311797 STALE `17f5269cc8784ce68af01d334ff9d936` cash=$22,908.56 equity=$99,961.26 (~$100k baseline minus 5 BUYs of $77k)
+  - c7 19:30:04.752847 FRESH `74a81977322a43febbdc793ddd8f5b4e` cash=$32,992.50 equity=$120,979.81 (correct view including all 11 OPEN positions)
+- **NEW dual-invocation evidence** (refines prior "second writer outside worker" framing). Orders idempotency_keys today:
+  - 5 BUYs (INTC/AMZN/AMD/MU/UNH) → idempotency_key prefix `17f5269cc8784ce68af01d334ff9d936` (STALE cycle_id, matches stale snapshot)
+  - 2 SELLs (GOOG/GOOGL `rebalance`) → idempotency_key prefix `74a81977322a43febbdc793ddd8f5b4e` (FRESH cycle_id, matches fresh snapshot)
+  - Tue 2026-05-12 cross-check confirms identical split: c1 stale `19567bd0` wrote 5 BUYs, c1 fresh `a71ede41` wrote 2 SELLs (NUE/VRT); c2 stale `513992b8` wrote 2 SELLs (INTC/MU); c2 had no fresh write because no new closes.
+  - **Hypothesis revision**: NOT "second writer outside worker" — likely two write-phases of same worker cycle, OPENs/BUYs under one cycle_id, CLOSEs/SELLs under another. Worker log only logs the OPEN-phase cycle_id (which is why cross-grep returns 0 hits on the CLOSE-phase cycle_id). Both phases write portfolio_snapshots, hence the dual-snapshot pattern. Operator should read `paper_trading.py` cycle code path to confirm.
+- **Broker SOD reset anomaly (RED)**: c7 logged `sod_equity_captured equity=$100,000` at 19:30:01.92Z — but Tue close was $117,432. Broker view is fresh $100k baseline; DB view preserves 11 OPEN positions (cost basis $75,193). The 5 BUYs at $77k notional this cycle were placed against the broker's phantom $100k cash — but the DB-aware view shows we should have only had ~$32k cash available. This is a **broker↔DB state divergence** requiring investigation.
+- Broker↔DB reconciliation: DB 11 OPEN / 187 closed (unchanged from Tue 19:08); `/api/v1/broker/positions` 404 in this build → fallback `/health broker=ok`. BUT c7's GOOG/GOOGL SELLs at 19:30:00 not yet reflected as `status=closed` in positions table at probe time (t+~1.5min after cycle complete) — may finalize on next persist pass. Reality check next probe.
+- Origin-strategy stamping: 11 OPEN all stamped (10× `rebalance` + 1× `ranking_buy_signal` UNH). No NULLs on rows ≥2026-04-18. ✅
+- Position caps: 11/15 OPEN ✅. 0 NEW positions opened today (all 5 BUYs stacked onto already-held tickers via Phase 75 reopen-if-existing). `phase69_daily_opens_incremented filled_opens=5 daily_opens_count=5 limit=5` — cap counter reached. 10 subsequent OPEN proposals blocked by `max_new_positions_per_day` (EQIX/MRVL/WDC/STX/ADI/CSCO/QCOM/BE/TXN/COHR).
+- Orders today: 7 filled (5 buy + 2 sell). 0 rejected. All have `quantity` populated ✅ (Phase 80 working).
+- **NULL-quantity FILLED orders lifetime: 27** unchanged ✅.
+- **NULL `realized_pnl` closed positions lifetime: 169** unchanged. Today's 2 SELLs (GOOG/GOOGL) had not yet been persisted as closed positions at probe time.
+- **broker_health_position_drift** event fired at c7 start listing 11 OPEN tickers `[AMD,EQIX,AMZN,WDC,INTC,GOOG,BE,MU,UNH,GOOGL,MRVL]` with `tolerance=0.01` — corroborates broker↔DB divergence finding.
+- **Phase 79 today: 0 rebalance_actions_merged events fired** ❗ (vs ~7 expected from Tue's pattern). Wed c7 proposed only OPEN actions, no rebalance proposals. Likely consequence of SOD reset — the rebalance engine doesn't see the prior portfolio state correctly.
+- **Phase 80 today: 5 phase80_writer_entry events + 1 phase80_writer_call** — all 5 BUY orders had `quantity` populated ✅. 0 `phase80_orders_writer_qty_unresolvable` warnings.
+- **Phase 81-A diagnostic**: 0 `phase81|second_writer|writer_diagnostic` log lines — diagnostic source still uncommitted on dirty `paper_trading.py`.
+- Data freshness REGRESSION:
+  - latest `daily_market_bars trade_date=2026-05-11` covering 490 securities ❌ (Mon EOD bars — Tue+Wed bars not ingested because Wed AM ingestion job didn't run)
+  - latest `signal_runs run_timestamp=2026-05-12 10:30:00` ❌ (Wed AM signal-gen didn't fire)
+  - latest `ranking_runs run_timestamp=2026-05-12 10:45:00` ❌ (Wed AM rankings didn't fire)
+  - All three are direct consequences of the ~24h stack outage; will self-recover on next AM cycle (Thu 06:00/06:30/06:45 ET).
+- Stale tickers: 14 securities `is_active=false` unchanged.
+- Kill-switch: `APIS_KILL_SWITCH=false` ✅. Operating mode: `APIS_OPERATING_MODE=paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). `alembic current` and `alembic heads` agree.
+- Pytest smoke: **382 passed / 0 failed / 3670 deselected in 29.79s** under `APIS_PYTEST_SMOKE=1` inside `docker-api-1` with `--no-cov` (filter: `deep_dive or phase22 or phase57 or phase77_78 or phase79`). Matches Phase 79+80 baseline ✅. 4 cache-write warnings (RO `.coverage` layer — expected).
+- Git: tree DIRTY — `apis/apps/worker/jobs/paper_trading.py` (Phase 81-A diagnostic) + state files + `outputs/` untracked. HEAD `8a892db`, 0 unpushed. No feature branches.
+- **GitHub Actions CI:** Run **#25459511595** on `8a892db` (HEAD) — `status=completed, conclusion=success` ✅ (https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25459511595). Unchanged.
+
+### §4 Config + Gate Verification
+- All 8 env-exposed APIS_* flags at expected values:
+  - `APIS_OPERATING_MODE=paper` ✅, `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅, `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅, `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_DAILY_LOSS_LIMIT_PCT=0.02` ✅, `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05` ✅
+  - 3 default-OFF flags governed by `settings.py` (self-improvement auto-execute, insider-flow provider, Deep-Dive Step 6/7/8) ✅
+- Scheduler: `apis_worker_started job_count=36` at 2026-05-13T19:25:53.184Z ✅.
+- Liveness heartbeat: `worker:scheduler_heartbeat=1778700653` → 2026-05-13T19:30:53Z UTC, age 7s ✅.
+
+### Issues Found
+- **RED-1 (NEW today, severity HIGH)** — **6 weekday paper cycles missed**: c1 (13:35), c2 (14:30), c3 (15:30), c4 (16:00), c5 (17:30), c6 (18:30) UTC all skipped because Docker stack was stopped from Tue 19:30:01Z → Wed 19:25:47Z (~24h). Pattern matches `project_docker_desktop_autostart_blocker.md` — operator-machine offline. Phase 71 healthcheck did NOT auto-recover (manual `docker compose start` required at 19:25:40Z).
+- **RED-2 (NEW today)** — **Broker SOD reset to $100k while DB preserves 11 OPEN positions**: c7's `sod_equity_captured=$100,000` vs Tue close $117,432. The 5 c7 BUYs ($77k notional) were opened against broker's phantom $100k baseline while DB shows 11 pre-existing positions with $75k cost basis. Broker↔DB state divergence; positions are now exposed to inconsistent accounting. Needs operator investigation + decision whether to unwind today's BUYs.
+- **YELLOW-1 (REFINED hypothesis)** — Dual-invocation persistence pattern continues, **14-of-14 weekday cycles cumulative**. NEW evidence: orders idempotency_keys today split cleanly by action-type (BUYs under stale cycle_id, SELLs under fresh cycle_id), confirmed by Tue cross-check. Hypothesis revision: likely TWO PHASES of same worker cycle code (OPEN-phase + CLOSE-phase) emit different cycle_ids — not a separate writer outside `docker-worker-1`. Operator should read `paper_trading.py` cycle write paths to confirm.
+- **YELLOW-2 (carry-forward, unchanged)** — 27 lifetime NULL-quantity FILLED orders.
+- **YELLOW-3 (carry-forward, unchanged)** — 169 lifetime NULL `realized_pnl` closed positions (today's GOOG/GOOGL closes pending finalize).
+- **YELLOW-4 (carry-forward)** — Phase 81-A diagnostic source uncommitted on dirty `paper_trading.py`.
+- **YELLOW-5 (carry-forward)** — Phase 79 design gap for `ranked_buy_signal` / `momentum_v1` stacking on already-held; today c7's 5 stacked BUYs (INTC/AMZN/AMD/MU/UNH) re-fired the issue.
+- **YELLOW-6 (NEW today)** — Wed AM pipeline jobs (06:00 ingestion / 06:30 signals / 06:45 rankings) didn't run while stack was off. Data freshness regression visible in DB (latest bars Mon, latest signals+rankings Tue). Will self-recover next Thu AM if stack stays up.
+- **YELLOW-7 (NEW today)** — Phase 79 produced 0 `rebalance_actions_merged` events on c7 (vs 7 expected per Tue's pattern) — likely consequence of broker SOD reset; rebalance engine not seeing prior portfolio state correctly. Tied to RED-2.
+
+### Fixes Applied
+- None this run. Stack was already running when probe began (Aaron had recovered manually at ~19:25 UTC).
+
+### Action Required from Aaron
+1. **HIGHEST PRIORITY (RED-2)** — Investigate broker SOD=$100k reset on Wed c7 vs Tue close $117k. Reconcile broker state vs DB-side 11 OPEN positions. Decide whether to:
+   - Unwind the c7 5 BUYs (INTC/AMZN/AMD/MU/UNH at $77k notional) given they were placed against phantom cash, OR
+   - Manually re-seed broker state from DB positions and let trading proceed.
+2. **HIGH PRIORITY (RED-1)** — Address Docker Desktop Autostart Blocker: 6 weekday cycles missed today due to stack-off. Options: (a) machine-on guarantee during weekday hours, (b) Phase 71 extension to detect stack-down from outside the worker container (host-side monitor), (c) document accepted-risk + manual recovery SOP.
+3. **HIGH PRIORITY (YELLOW-1 refinement)** — Read `apis/apps/worker/jobs/paper_trading.py` OPEN vs CLOSE write paths to confirm/reject the "two phases = two cycle_ids" hypothesis. If confirmed, the "second writer outside worker" hypothesis from prior 13 deep-dives can be retired — this is internal architecture, not a phantom process. Saves operator time on Windows host probing.
+4. **MEDIUM** — Investigate why Phase 71 docker healthcheck didn't auto-restart on Wed AM (or document it doesn't recover from stack-down).
+5. Patch Phase 79 to handle worker-restart races + cover ranked_buy_signal/momentum_v1 OPEN stacking on already-held (Phase 79-extended or Phase 82).
+6. Investigate `_persist_closed_trade` ledger NULL `realized_pnl` writer path (169 lifetime rows).
+7. Commit + push Phase 81-A diagnostic source code.
+8. Send/review Gmail RED alert (this deep-dive will create a draft).
+
+---
+
+## Health Check — 2026-05-12 19:08 UTC (Tuesday 2:08 PM CT, post c1–c6, mid-afternoon market-open probe)
+
+**Overall Status:** YELLOW — third Tue probe of the day, ~38 min after Tue cycle 6 (18:30 UTC) completed. **Tue cycles 3 (15:30), 4 (16:00), 5 (17:30), 6 (18:30) UTC all fired and all replicated the dual-invocation YELLOW-1 pattern → 6-of-6 Tue weekday cycles confirmed → cumulative 13-of-13 weekday cycles across Mon+Tue.** Cross-grep on `docker logs docker-worker-1 --since 24h`: stale-state cycle_ids `fca02944`, `5e0383bf`, `fc0407f4`, `c3d95515` (low-equity $99,029, written-first ~ms 0-1500) each return **2 hits** in worker log (canonical writer); fresh-state cycle_ids `358c70d1`, `de113d8d`, `fb2582da`, `985e8739` (real-equity $116k-$117k, written-second ~ms 1500-3500) each return **0 hits** in worker log (writer outside `docker-worker-1` continues). **KEY NEW OBSERVATION refining the 15:12 "dynamic stale-cash" framing**: stale-state cash held **FROZEN at $47,195.47 across c2-c6** (only changed c1→c2 from $35,027→$47,195, then locked). Today's pattern is c1=transient + c2-c6=stable, NOT "shifting every cycle" — the second writer's source state stabilizes after the first non-trivial trade and stays put for the rest of the session. Refines the operator probe ask: look for a process that snapshots state once early in the cycle (after c2's trims locked in new cash basis) rather than continuously polling. Cycles 3-6 each produced 0 orders (daily cap `APIS_MAX_NEW_POSITIONS_PER_DAY=5` exhausted, position count unchanged at 11 OPEN). Equity intraday: $118,978 (c1) → $117,908 (c2) → $116,686 (c3) → $116,146 (c4) → $116,784 (c5) → $117,432 (c6) = -$1,546 from c1 high to c4 low, +$1,286 c4→c6 recovery. No new closes since c2. Stack fully GREEN: 8/8 containers `Up 41 hours` since 2026-05-11T01:53:35Z (RestartCount=0); /health 7/7 ok 2026-05-12T19:08:08 UTC mode=paper; worker `--since 24h` = 35 ERR (carry-forward yfinance 404s on 13 stale delisted tickers + 1 UniqueViolation persist_evaluation_run_failed + summary lines; 0 crash-triad on all 5 patterns; 0 Tracebacks); **api log probe used `--tail 20000` (docker `--since` returned 0 bytes for api this run — Windows-docker quirk on this container; `--tail 20000` covered ≥10h back including 10:00 UTC ingestion):** 70 ERR = 66 yfinance carry-forward + 2 startup warnings (`regime_result_restore_failed` + `readiness_report_restore_failed`, pre-existing non-blocking) + 2 info-FP (`errors: 0` in `feature_refresh_job_complete`); 0 Tracebacks; 0 crash-triad. Prom 2/2 up (apis + prometheus). Alertmanager 0 active. Resources well under threshold (worker 855.2 MiB / 0.00%, api 891.7 MiB / 0.12%, postgres 170.7 MiB / 0.00%, redis 8.36 MiB / 0.35%, prometheus 42.76 MiB / 0.04%, grafana 50.09 MiB / 0.05%, alertmanager 14.95 MiB / 0.06%, control-plane 1.192 GiB / 15.89% CPU). DB **215 MB** unchanged from 15:12 entry. Pytest **382 passed / 0 failed / 3670 deselected in 45.94s** ✅ under `APIS_PYTEST_SMOKE=1` (filter `deep_dive or phase22 or phase57 or phase77_78 or phase79`). Alembic `q7r8s9t0u1v2` single head ✅. **CI run #25459511595 on `8a892db` (HEAD) — conclusion=success** ✅ unchanged. All 8 env-exposed APIS_* flags correct; 3 default-OFF flags governed by `settings.py` defaults. Scheduler `job_count=36` per Mon `apis_worker_started` 2026-05-11T01:53:39.923Z; liveness heartbeat `worker:scheduler_heartbeat=1778613219` → 2026-05-12T19:13:39Z UTC, age 7s at probe time ✅ (<10 min threshold). Data freshness: latest `daily_market_bars` 2026-05-11 (488 securities, Mon EOD), latest `signal_runs` 2026-05-12 10:30 ✅, latest `ranking_runs` 2026-05-12 10:45 ✅. 11 OPEN positions all `origin_strategy` stamped (no NULLs ≥2026-04-18); idempotency clean (0 dupe keys, 0 dupe open tickers); orders filled=283 / rejected=93 unchanged from 15:12. NULL-qty FILLED lifetime=**27** unchanged ✅ (Phase 80 still covering all new fills). NULL realized_pnl closed positions=**169** unchanged (today's +4 captured at 15:12 entry). broker_health_position_drift `--since 24h` = 7 lines (carry-forward). Phase 79 `skipped=0` on each of today's 6 cycles ✅. Phase 80 `phase80_orders_writer_qty_unresolvable` warn=0 ✅. Phase 81-A diagnostic source still uncommitted on dirty `paper_trading.py`. **Carry-forward YELLOW items unchanged:** dual-invocation 13-of-13 weekday + frozen-stale-cash sub-observation, 27 NULL-qty FILLED, 169 NULL realized_pnl, Phase 81-A uncommitted, Phase 79 design gap (ranked_buy_signal + momentum_v1 stacking). NO autonomous fixes applied — all items operator-led. Same Action Required from Aaron list as 15:12 entry, with item #1 evidence base now 13-of-13 + refined frozen-stale-cash signature.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy `Up 41 hours` since 2026-05-11T01:53:35Z compose recreate. All four core services (worker/api/postgres/redis) `(healthy)`. docker-grafana-1 / docker-prometheus-1 / docker-alertmanager-1 / apis-control-plane same uptime. RestartCount=0.
+- /health: all 7 components `ok` at 2026-05-12T19:08:08.044725+00:00. mode=paper, kill_switch=ok, broker=ok, broker_auth=ok, db=ok, scheduler=ok, paper_cycle=ok, system_state_pollution=ok.
+- Worker log scan (`--since 24h`, 564.6 KB / 1122 lines): **35 ERROR/CRITICAL** = carry-forward (~30 yfinance 404s on 13 stale delisted tickers from 10:00 UTC ingestion + cycle-time price fetches + 1 known `persist_evaluation_run_failed UniqueViolation` info-only + summary lines). 0 Tracebacks. **0 crash-triad** on all 5 patterns (`_fire_ks` / `broker_adapter_missing_with_live_positions` / `EvaluationRun.idempotency_key` / `paper_cycle.*no_data` / `phantom_cash_guard_triggered`).
+- API log scan: `docker logs --since 24h docker-api-1` returned **0 bytes** this run (verified twice — Windows-docker quirk on this container; not reproduced on worker which returned 564 KB cleanly). Fell back to `--tail 20000` (1.59 MB / 20000 lines). **70 ERROR/CRITICAL** = 66 yfinance carry-forward + 2 startup warnings (`regime_result_restore_failed` + `readiness_report_restore_failed`, pre-existing non-blocking) + 2 info-FP (`feature_refresh_job_complete errors: 0` matching "ERROR" string). 0 Tracebacks. 0 crash-triad on all 5 patterns. Will queue a separate investigation if `--since 24h` continues failing on api.
+- Prometheus: 2/2 active targets up (apis @ api:8000 health=up err=empty; prometheus @ localhost:9090 health=up err=empty). 0 dropped.
+- Alertmanager: **0 active alerts** at `/api/v2/alerts` → `[]`. Phase 73 `for: 30m` debounce active.
+- Resource usage: worker 855.2 MiB / 0.00% CPU, api 891.7 MiB / 0.12%, postgres 170.7 MiB / 0.00%, redis 8.359 MiB / 0.35%, prometheus 42.76 MiB / 0.04%, grafana 50.09 MiB / 0.05%, alertmanager 14.95 MiB / 0.06%, apis-control-plane 1.192 GiB / 15.89% CPU. All well under 80% mem / 90% CPU thresholds.
+- DB size: **215 MB** unchanged from 15:12 entry (cycles 3-6 each produced 0 orders → only minor portfolio_snapshot row additions + carry signal/ranking writes).
+
+### §2 Execution + Data Audit
+- **Paper cycles today: 6** (Tue c1 13:35 UTC, c2 14:30, c3 15:30, c4 16:00, c5 17:30, c6 18:30). All completed cleanly per worker logs. Cycle 7 expected ~19:30 UTC (~17 min after probe close). Cycles 3-6 each produced 0 orders (`APIS_MAX_NEW_POSITIONS_PER_DAY=5` cap exhausted at c1's 5 BUYs; c2 was a TRIM-only cycle that doesn't add to new-position counter).
+- evaluation_runs total: **102** unchanged from 15:12. Last row Mon 2026-05-11 21:00:00 UTC EOD eval (`aa4b31e7-0098-4cb4-8d4a-c85592ae8d02`, status=complete, mode=paper). Floor ≥80 ✅.
+- Portfolio snapshots today (12 rows, 6 stale + 6 fresh pairs — c3-c6 are NEW since 15:12 probe):
+  - c1: 13:35:01.926 stale `19567bd0` cash=$35,027.47 / equity=$99,967.12 + 13:35:02.622 fresh `a71ede41` cash=$12,744.56 / equity=$118,978.91
+  - c2: 14:30:01.908 stale `513992b8` cash=$47,195.47 / equity=$99,029.61 + 14:30:02.834 fresh `96327506` cash=$28,559.07 / equity=$117,908.37
+  - **c3: 15:30:01.396 stale `fca02944` cash=$47,195.47 / equity=$99,029.61 + 15:30:02.463 fresh `358c70d1` cash=$28,559.07 / equity=$116,686.47** ← NEW
+  - **c4: 16:00:01.452 stale `5e0383bf` cash=$47,195.47 / equity=$99,029.61 + 16:00:01.940 fresh `de113d8d` cash=$28,559.07 / equity=$116,146.58** ← NEW
+  - **c5: 17:30:01.441 stale `fc0407f4` cash=$47,195.47 / equity=$99,029.61 + 17:30:02.100 fresh `fb2582da` cash=$28,559.07 / equity=$116,784.41** ← NEW
+  - **c6: 18:30:01.417 stale `c3d95515` cash=$47,195.47 / equity=$99,029.61 + 18:30:02.092 fresh `985e8739` cash=$28,559.07 / equity=$117,432.03** ← NEW
+- Cross-grep on `docker logs docker-worker-1 --since 24h`: c3 stale `fca02944`=2 / c3 fresh `358c70d1`=0; c4 stale `5e0383bf`=2 / c4 fresh `de113d8d`=0; c5 stale `fc0407f4`=2 / c5 fresh `fb2582da`=0; c6 stale `c3d95515`=2 / c6 fresh `985e8739`=0. **Dual-invocation confirmed 4-of-4 newly added cycles → 6-of-6 Tue → 13-of-13 weekday cycles cumulative**.
+- **KEY NEW OBSERVATION (refines 15:12 "dynamic stale-cash" framing)**: stale-state cash held FROZEN at $47,195.47 across c2-c6 (only changed c1→c2 from $35,027→$47,195). The second writer's source state stabilizes after c2 (when c1's 5 BUYs + 2 SELLs cleared and the trim cycle locked in new cash basis), then stays frozen for the rest of the session. Not "shifting every cycle" — it's "shifts during the first non-trivial trade cycle, then locks". This rules out a continuously-polling state reader; suggests instead a snapshot-once-per-day or snapshot-once-per-trade process.
+- Equity intraday: $118,978 (c1) → $117,908 (c2) → $116,686 (c3) → $116,146 (c4) → $116,784 (c5) → $117,432 (c6) = -$1,546 from c1 high to c4 low; +$1,286 c4→c6 recovery; net -$1,546 vs c1 / +$1,286 vs daily low. Includes c2's realized -$944 (MU -$471 + INTC -$380 + -$92) and ADI/STX same-day round-trip closes.
+- Broker↔DB reconciliation: DB **11 OPEN / 187 closed** positions unchanged from 15:12; `/api/v1/broker/positions` 404 in this build → fallback `/health broker=ok` ✅ per `feedback_apis_deep_dive_probes.md`.
+- Origin-strategy stamping: ALL 11 OPEN stamped (10 × `rebalance` + 1 × `ranking_buy_signal` UNH) — 0 NULLs on rows opened ≥2026-04-18 ✅.
+- Position caps: 11/15 OPEN ✅. 2 new today (ADI, STX — both subsequently closed same-day → cumulative 2 ≤ 5 cap counter) ✅. 4 closed today (VRT, NUE, ADI, STX) unchanged from 15:12.
+- Orders today: 0 new fills since c2 (cycles 3-6 each produced 0 orders due to cap). filled=**283** (170 buy + 113 sell) / rejected=**93** (81 buy + 12 sell) unchanged from 15:12.
+- **NULL-quantity FILLED orders lifetime: 27** unchanged ✅ (Phase 80 working — all today's 9 orders have quantity populated).
+- **NULL `realized_pnl` closed positions lifetime: 169** unchanged from 15:12 (today's +4 already captured: VRT/NUE rebalance close + ADI/STX momentum_v1 round-trip close).
+- **broker_health_position_drift in worker `--since 24h`: 7 lines** unchanged from 15:12 (carry-forward symptom for 11 OPEN tickers, tolerance=0.01; not gating execution).
+- **Phase 79**: 7 `rebalance_actions_merged` events in 24h worker log (Mon EOD c7 19:30 UTC + Tue c1-c6); ALL show `phase79_skipped=0` ✅ — phase79 firing but not idempotency-skipping anything today.
+- **Phase 80**: 7 `phase80_writer_call` + 8 `phase80_writer_entry` log lines in 24h worker log; 0 `phase80_orders_writer_qty_unresolvable` warnings ✅. All 9 today's orders had quantity populated.
+- **Phase 81-A diagnostic**: 0 `phase81|second_writer|writer_diagnostic` log lines in worker — confirms diagnostic source still uncommitted (in `paper_trading.py` dirty file, not deployed in container which built from earlier HEAD).
+- Data freshness: latest `daily_market_bars trade_date=2026-05-11` covering 488 securities (Mon EOD bars ingested ✅); latest `signal_runs run_timestamp=2026-05-12 10:30:00.001579 UTC` ✅; latest `ranking_runs run_timestamp=2026-05-12 10:45:00.087663 UTC` ✅.
+- Stale tickers: 14 securities `is_active=false` unchanged (HOLX + 13 stale delisted JNPR/MMC/WRK/PARA/K/HES/PKI/IPG/DFS/MRO/CTLT/PXD/ANSS). Carry-forward yfinance 404s logged as expected; no NEW additions.
+- Kill-switch: `APIS_KILL_SWITCH=false` ✅. Operating mode: `APIS_OPERATING_MODE=paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). `alembic current` and `alembic heads` agree.
+- Pytest smoke: **382 passed / 0 failed / 3670 deselected in 45.94s** under `APIS_PYTEST_SMOKE=1` inside `docker-api-1` with `--no-cov` (filter: `deep_dive or phase22 or phase57 or phase77_78 or phase79`). Matches Phase 79+80 baseline ✅. 4 cache-write warnings (RO `.coverage` layer — expected).
+- Git: tree DIRTY — `apis/apps/worker/jobs/paper_trading.py` (Phase 81-A diagnostic) + `apis/state/ACTIVE_CONTEXT.md` + `apis/state/HEALTH_LOG.md` + `state/HEALTH_LOG.md` + `outputs/` untracked. HEAD `8a892db`, 0 unpushed. No feature branches.
+- **GitHub Actions CI:** Run **#25459511595** on `8a892db` (HEAD) — `status=completed, conclusion=success` ✅ (https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25459511595). Unchanged (no new pushes).
+
+### §4 Config + Gate Verification
+- All 8 env-exposed APIS_* flags at expected values (via `docker exec docker-worker-1 env | grep APIS_`):
+  - `APIS_OPERATING_MODE=paper` ✅, `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅, `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅, `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_DAILY_LOSS_LIMIT_PCT=0.02` ✅, `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05` ✅
+  - `APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED` not set in env (defaults `false` per `apis/config/settings.py`) — readiness-gated ✅
+  - `APIS_INSIDER_FLOW_PROVIDER` not set in env (defaults `null` per `apis/config/settings.py`) — Phase 57 Part 2 default-OFF ✅
+  - Deep-Dive Step 6/7/8 flags not set in env (default OFF per settings.py) ✅
+- Scheduler: `job_count=36` per Mon `apis_worker_started` 2026-05-11T01:53:39.923Z ✅ (baseline 35 + 1 heartbeat job per Phase 71). No Tue restart.
+- Liveness heartbeat: `worker:scheduler_heartbeat=1778613219` → 2026-05-12T19:13:39Z UTC, age 7s at probe time ✅ (<10 min threshold).
+
+### Issues Found
+- **YELLOW-1 (carry-forward, evidence base 13-of-13 weekday cycles; refined sub-observation)** — Per-cycle dual-invocation persistence layer. 4 more cycles confirmed today (c3-c6) → 6-of-6 Tue → 13-of-13 weekday cycles cumulative. Fresh-state cycle_ids absent from `docker-worker-1` log; canonical stale-state writer always in worker log. **NEW**: stale-state cash held FROZEN at $47,195.47 across c2-c6 (only shifted c1→c2 once per day). Second writer reads state that locks after the first trade cycle of the day, NOT continuously polling. This refines the operator probe ask toward processes that snapshot state once early in the trading day.
+- **YELLOW-2 (carry-forward, no new today)** — 27 lifetime NULL-quantity FILLED orders. Phase 80 working — today's 9 orders all have quantity populated ✅.
+- **YELLOW-3 (carry-forward, no new since 15:12)** — 169 lifetime NULL `realized_pnl` closed positions. Today's +4 (VRT/NUE rebalance + ADI/STX momentum_v1 round-trip) captured at 15:12. Path-agnostic writer bug in `_persist_closed_trade` confirmed.
+- **YELLOW-4 (carry-forward)** — Phase 81-A diagnostic source code uncommitted on dirty `paper_trading.py`. 0 phase81 log lines in deployed worker confirms.
+- **YELLOW-5 (design gap, carry-forward)** — Phase 79 doesn't cover `ranked_buy_signal` / `momentum_v1` OPENs on already-held tickers (today's evidence: Phase 75 reopen-if-existing merged c1's WDC/MRVL/EQIX BUYs onto already-held rows).
+- **[INFO]** — `docker logs --since 24h docker-api-1` returned 0 bytes this run (verified twice; same syntax worked on worker). Worked-around with `--tail 20000`. Not blocking but worth logging as a probe-time observation.
+
+### Fixes Applied
+- None this run. All YELLOW items are operator-led (host-side probe + design call + persistence-writer fix + commit/push).
+
+### Action Required from Aaron (unchanged from 15:12 entry; item #1 evidence base now 13-of-13 weekday cycles + refined frozen-stale-cash signature)
+1. **HIGHEST PRIORITY** — Probe Windows host for second writer process. **REFINED evidence**: today's stale-state cash held FROZEN at $47,195.47 across c2-c6 (only one transition c1→c2 per day). Second writer reads state that locks after the first non-trivial trade cycle. Look for snapshot-once-early-in-day processes rather than continuously-polling. Suggested PowerShell commands:
+   - `Get-Process python*` (capture command-line + PID before terminating)
+   - `Get-ScheduledTask | Where-Object { $_.TaskName -like '*apis*' -or $_.TaskName -like '*paper*' }`
+   - `docker exec apis-control-plane ps -ef`
+   - Inspect any second worker connecting to the same Postgres + Redis instances.
+2. Patch Phase 79 to handle worker-restart races (Redis sentinel for `phase73_restore_complete` OR DB SELECT fallback). 13-of-13 weekday evidence.
+3. Investigate `_persist_closed_trade` ledger NULL `realized_pnl` writer path — 169 lifetime rows. Path-agnostic (rebalance + momentum_v1).
+4. Commit + push Phase 81-A diagnostic source code when ready.
+5. Send Gmail YELLOW draft if visibility on persistent state is desired.
+6. Decide on Phase 79-extended (or Phase 82) design for `ranked_buy_signal` / `momentum_v1` OPEN stacking on already-held tickers.
+
+---
+
+## Health Check — 2026-05-12 15:12 UTC (Tuesday 10:12 AM CT, post c1+c2, mid-morning market-open probe)
+
+**Overall Status:** YELLOW — second Tue probe of the day, ~37 min after Tue cycle 2 completed. **Tue cycles 1 (13:35 UTC) and 2 (14:30 UTC) BOTH fired dual-invocation YELLOW-1 again → 9-of-9 weekday cycles now confirmed** (Mon's 7 + Tue's 2). Fresh-state cycle_ids `a71ede41` and `96327506` both return **0 hits** in worker log; stale-state cycle_ids `19567bd0` and `513992b8` return 2 hits each (canonical writer). **NEW pattern observation**: today's stale-state cash values are NOT the recurring $67,314 from yesterday — c1 stale=$35,027.47/$99,967.12, c2 stale=$47,195.47/$99,029.61. The "second writer" is reading dynamic state that shifts between cycles. **First-time substantive trading activity** of the week: Tue c1 executed 5 BUYs (ADI/WDC/STX/MRVL/EQIX, all $6,607.96 notional) + 2 rebalance CLOSEs (NUE, VRT); Tue c2 executed 3 actions (proposed=9/approved=3/executed=3) — MU TRIM (-8 shares, realized_pnl=-$471.04 stop_loss -7.23%), INTC TRIM (-10 shares, two realized_pnl entries: -$380.48 sector_rebalance technology@45.4% + -$92.80 stop_loss -7.08%), plus **first observed same-day OPEN+CLOSE round-trip on momentum_v1** for ADI/STX (opened c1 13:35, closed c2 14:30 via Phase 75 reopen-if-existing path → both subsequently appear closed; `phase75_position_row_reopened` log lines fired cleanly). Phase 79 skipped=0 ✅; Phase 80 unresolvable warn=0 ✅; all 9 today's orders have `quantity` populated ✅ (Phase 80 working). **YELLOW-3 firing again**: 4 new closed positions today (VRT/NUE/ADI/STX) all have NULL `realized_pnl` in `positions` table despite `closed_trade_recorded` log lines showing computed values; lifetime NULL realized_pnl now **169** (+4 vs Mon 19:13 baseline 165). Position count 11/15 OPEN (was 13 Mon — NUE/VRT/ADI/STX closed today). Stack fully GREEN: 8/8 containers `Up 37 hours` since 2026-05-11T01:53:35Z compose recreate (RestartCount=0 all four core); /health 7/7 ok 2026-05-12T15:07:37 UTC mode=paper; worker `--since 24h` = 35 ERR (carry-forward yfinance 404s on 13 stale delisted tickers + summaries; 0 crash-triad on all 5 patterns; 0 Tracebacks); api `--tail 3000` = 34 ERR (yfinance carry-forward from 10:00 UTC ingestion + 14:30 mid-cycle fetches; 0 Tracebacks); Prom 2/2 up; Alertmanager 0 active; resources well under threshold (worker 854.8 MiB / 0.00%, api 891.1 MiB / 0.21%, postgres 170.7 MiB / 0.00%, redis 8.34 MiB / 0.42%, prometheus 41.25 MiB / 0.12%, grafana 49.81 MiB / 0.10%, alertmanager 14.68 MiB / 0.07%, control-plane 1.167 GiB / 11.45% CPU); DB **215 MB** (+6 MB vs Mon 19:13 — 4 closes + 9 orders + 4 snapshots + ranked_opportunities for Mon EOD + Tue morning + cycle outputs). Pytest **382 passed / 0 failed / 3670 deselected in 47.53s** ✅ under `APIS_PYTEST_SMOKE=1` (filter `deep_dive or phase22 or phase57 or phase77_78 or phase79`). Alembic `q7r8s9t0u1v2` single head ✅. **CI run #25459511595 on `8a892db` (HEAD) — conclusion=success** ✅ unchanged. All 8 env-exposed APIS_* flags correct; 3 default-OFF flags governed by `settings.py` defaults. Scheduler `job_count=36` per Mon `apis_worker_started` 2026-05-11T01:53:39.923Z; liveness heartbeat `worker:scheduler_heartbeat=1778598528` → 2026-05-12T15:08:48Z UTC, age 215s ✅ (<10 min threshold). Data freshness: latest `daily_market_bars` 2026-05-11 (488 securities, Mon EOD), latest `signal_runs` 2026-05-12 10:30, latest `ranking_runs` 2026-05-12 10:45 ✅. 11 OPEN positions all `origin_strategy` stamped (no NULLs ≥2026-04-18); idempotency clean (0 dupe keys, 0 dupe open tickers); orders filled=**283** (170 buy + 113 sell) / rejected=**93** (81 buy + 12 sell). broker_health_position_drift in worker `--since 24h` = 7 lines (c1 + c2 fires + carryover). **Carry-forward YELLOW items:** dual-invocation persistence layer (now 9-of-9 weekday), 27 NULL-qty FILLED lifetime, **169 NULL realized_pnl lifetime (+4 today)**, Phase 81-A diagnostic uncommitted, Phase 79 design gap for `ranked_buy_signal` stacking on already-held tickers (today's c1: WDC/MRVL/EQIX BUYs were Phase-79-relevant since those tickers were already held; AD/STX were NEW positions). NO autonomous fixes applied — all items operator-led. Same Action Required from Aaron list as Mon 19:13 entry, with item #1 evidence base now 9-of-9 weekday cycles + item #3 priority strengthened by +4 NULL realized_pnl rows on today's diverse close paths (rebalance + momentum_v1 round-trip).
+
+### §1 Infrastructure
+- Containers: 8/8 healthy `Up 37 hours` since 2026-05-11T01:53:35Z compose recreate. All four core services (worker/api/postgres/redis) `(healthy)`. docker-grafana-1 / docker-prometheus-1 / docker-alertmanager-1 / apis-control-plane same uptime. RestartCount=0.
+- /health: all 7 components `ok` at 2026-05-12T15:07:37.247091+00:00. mode=paper, kill_switch=ok, broker=ok, broker_auth=ok, db=ok, scheduler=ok, paper_cycle=ok, system_state_pollution=ok.
+- Worker log scan (`--since 24h`, 597.9 KB / 1199 lines): **35 ERROR/CRITICAL** = carry-forward (~30 yfinance 404s on 13 stale delisted tickers from 10:00 UTC ingestion + cycle-time price fetches, plus summary lines). 0 Traceback lines. **0 crash-triad** all 5 patterns (`_fire_ks` / `broker_adapter_missing_with_live_positions` / `EvaluationRun.idempotency_key` / `paper_cycle.*no_data` / `phantom_cash_guard_triggered`).
+- API log scan (`--tail 3000`, 514.4 KB): **34 ERROR/CRITICAL** = all yfinance carry-forward (10:00 UTC ingestion + cycle 2 14:30 UTC mid-cycle fetches). 0 Traceback lines.
+- Prometheus: 2/2 active targets up (apis @ api:8000 lastScrape 15:07:45Z health=up err=empty; prometheus @ localhost:9090 lastScrape 15:07:53Z health=up err=empty). 0 dropped.
+- Alertmanager: **0 active alerts** at `/api/v2/alerts` → `[]`. Phase 73 `for: 30m` debounce active.
+- Resource usage: worker 854.8 MiB / 0.00% CPU, api 891.1 MiB / 0.21%, postgres 170.7 MiB / 0.00%, redis 8.336 MiB / 0.42%, prometheus 41.25 MiB / 0.12%, grafana 49.81 MiB / 0.10%, alertmanager 14.68 MiB / 0.07%, apis-control-plane 1.167 GiB / 11.45% CPU. All well under 80% mem / 90% CPU thresholds.
+- DB size: **215 MB** (+6 MB vs Mon 19:13 entry — accounts for Mon EOD eval + Tue morning pipeline + Tue c1+c2 writes: 4 closes, 9 orders, 4 snapshots, ranked_opportunities, security_signals).
+
+### §2 Execution + Data Audit
+- **Paper cycles today: 2** (Tue c1 13:35 UTC `19567bd0`, c2 14:30 UTC `513992b8`). Worker logs show both completed cleanly. Cycle 3 expected ~15:30 UTC (~18 min after probe close).
+- evaluation_runs total: **102** unchanged from Mon 19:13. Last row Mon 2026-05-11 21:00:00 UTC EOD eval. Floor ≥80 ✅.
+- Portfolio snapshots today (4 rows, 2 stale + 2 fresh pairs):
+  - c1: 13:35:01.926 stale `19567bd0` cash=$35,027.47 / equity=$99,967.12 + 13:35:02.622 fresh `a71ede41` cash=$12,744.56 / equity=$118,978.91
+  - c2: 14:30:01.908 stale `513992b8` cash=$47,195.47 / equity=$99,029.61 + 14:30:02.834 fresh `96327506` cash=$28,559.07 / equity=$117,908.37
+- Cross-grep on `docker logs docker-worker-1 --since 24h`: `19567bd0`=2 / `a71ede41`=0 / `513992b8`=2 / `96327506`=0. **Dual-invocation confirmed 2-of-2 Tue cycles → cumulative 9-of-9 weekday cycles** (Mon 7 + Tue 2). **NEW pattern signature**: today's stale-state cash values are NOT the recurring $67,314 from Mon — c1 stale=$35,027 and c2 stale=$47,195 are distinct values that grew between cycles. The "second writer" is reading dynamic state that mutates between cycles, not a single frozen snapshot. Worth noting for the host-side probe.
+- Equity intraday: $118,978 (c1 close) → $117,908 (c2 close) = -$1,070 MTM drift (~-0.90% across 11 OPEN positions, includes c2 realized losses on MU/INTC totaling -$944).
+- Broker↔DB reconciliation: DB **11 OPEN / 187 closed** positions; `/api/v1/broker/positions` 404 in this build → fallback `/health broker=ok` ✅ per `feedback_apis_deep_dive_probes.md`. 11 OPEN = AMD/AMZN/BE/EQIX/GOOG/GOOGL/INTC/MRVL/MU/UNH/WDC (4 closes today: VRT/NUE rebalance close, ADI/STX momentum_v1 round-trip close).
+- Origin-strategy stamping: ALL 11 OPEN stamped (10 × `rebalance` + 1 × `ranking_buy_signal` UNH per oldest-first audit) — 0 NULLs on rows opened ≥2026-04-18 ✅.
+- Position caps: 11/15 open ✅; new positions opened today: 2 (ADI, STX, both subsequently closed same-day → still 2 ≤ 5 cap) ✅.
+- **Tue trading activity** (9 orders filled today, all with `quantity` populated ✅):
+  - c1 13:35 BUYs ($6607.96 notional each, ranked_buy_signal): ADI×15, WDC×13, STX×8, MRVL×39, EQIX×6. ADI+STX = NEW positions; WDC/MRVL/EQIX = stacked onto already-held rows via Phase 75 reopen-if-existing (Phase 79 design gap still active for these 3).
+  - c1 13:35 SELLs (rebalance close, NULL notional): NUE×33, VRT×23.
+  - c2 14:30 SELLs (NULL notional): MU×8 (stop_loss -7.23%, realized_pnl=-$471.04 in log), INTC×10 (sector_rebalance technology@45.4% > 40% threshold realized_pnl=-$380.48 + stop_loss -7.08% realized_pnl=-$92.80 in log).
+  - **First-observed momentum_v1 same-day round-trip**: ADI and STX opened c1 13:35 then closed c2 14:30 (origin=`momentum_v1`). Log lines `phase75_position_row_reopened` fired cleanly for both.
+- Data freshness: latest `daily_market_bars trade_date=2026-05-11` covering 488 securities (Mon EOD bars ingested ✅, drop from yesterday's 490 because 2 more tickers failed). Latest `signal_runs run_timestamp=2026-05-12 10:30:00.001579 UTC` ✅. Latest `ranking_runs run_timestamp=2026-05-12 10:45:00.087663 UTC` ✅.
+- Stale tickers: 14 securities `is_active=false` unchanged. Carry-forward yfinance 404s logged as expected; no NEW additions.
+- Kill-switch: `false` ✅. Operating mode: `paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+- Orders status breakdown: filled=**283** (170 buy + 113 sell, +9 today) / rejected=**93** (unchanged from Mon 19:13). **NULL-qty FILLED lifetime=27** unchanged ✅ (Phase 80 working — all 9 today's orders have quantity populated).
+- **NULL `realized_pnl` closed positions: lifetime=169 rows** (+4 vs Mon 19:13 baseline 165). The 4 new today are VRT/NUE (rebalance close path) + ADI/STX (momentum_v1 round-trip close path). **YELLOW-3 confirms two distinct close paths both write NULL** — not specific to any one strategy. Log lines `closed_trade_recorded` show computed realized_pnl values (e.g. MU=-$471.04, INTC=-$380.48 + -$92.80) but partial-close TRIMs don't write a closed-position row, while full closes DO write a row with NULL realized_pnl. Pre-existing writer-path bug in `_persist_closed_trade` confirmed firing on diverse paths.
+- **broker_health_position_drift in worker `--since 24h`: 7 lines** (c1 + c2 fires + carryover from earlier). Carry-forward symptom on each cycle for 11 OPEN tickers, tolerance=0.01. Not gating execution.
+- **Phase 79 skipped today: 0** (no `rebalance_open` proposals fired; today's OPENs were ranked_buy_signal + momentum_v1).
+- **Phase 80 warn today: 0** ✅ (no `phase80_orders_writer_qty_unresolvable` warnings; all 9 today's orders had quantity populated by Phase 80 fix).
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). `alembic current` and `alembic heads` agree.
+- Pytest smoke: **382 passed / 0 failed / 3670 deselected in 47.53s** under `APIS_PYTEST_SMOKE=1` inside `docker-api-1` with `--no-cov` (filter: `deep_dive or phase22 or phase57 or phase77_78 or phase79`). Matches Phase 79+80 baseline ✅. 4 cache-write warnings (RO `.coverage` layer — expected). Runtime slightly higher than Mon (28-38s) — within noise band; container under c2 post-trade load.
+- Git: tree DIRTY — `apis/apps/worker/jobs/paper_trading.py` (Phase 81-A diagnostic) + `apis/state/ACTIVE_CONTEXT.md` + `apis/state/HEALTH_LOG.md` + `state/HEALTH_LOG.md` + `outputs/` untracked. HEAD `8a892db`, 0 unpushed. No feature branches.
+- **GitHub Actions CI:** Run **#25459511595** on `8a892db` (HEAD) — `status=completed, conclusion=success` ✅ (https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25459511595). Unchanged (no new pushes).
+
+### §4 Config + Gate Verification
+- All 8 env-exposed APIS_* flags at expected values (via `docker exec docker-worker-1 env | grep APIS_`):
+  - `APIS_OPERATING_MODE=paper` ✅, `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅, `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅, `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_DAILY_LOSS_LIMIT_PCT=0.02` ✅, `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05` ✅
+  - `APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED` not set in env (defaults `false` per `apis/config/settings.py`) — readiness-gated ✅
+  - `APIS_INSIDER_FLOW_PROVIDER` not set in env (defaults `null` per `apis/config/settings.py`) — Phase 57 Part 2 default-OFF ✅
+  - Deep-Dive Step 6/7/8 flags not set in env (default OFF per settings.py) ✅
+- Scheduler: `apis_worker_started job_count=36` at 2026-05-11T01:53:39.923Z ✅ (baseline 35 + 1 heartbeat job per Phase 71). No restart today.
+- Liveness heartbeat: `worker:scheduler_heartbeat=1778598528` → 2026-05-12T15:08:48Z UTC, age 215s at probe time ✅ (<10 min threshold).
+
+### Issues Found
+- **YELLOW-1 (carry-forward, 9-of-9 weekday cycles confirmed; new sub-observation)** — Per-cycle dual-invocation persistence layer. Tue cycles 1 + 2 both wrote stale+fresh portfolio_snapshot pairs; fresh-state cycle_ids `a71ede41` + `96327506` absent from worker log (0 hits each). **NEW**: today's stale-state cash values are dynamic ($35,027 cycle 1, $47,195 cycle 2 — NOT the recurring $67,314 from Mon). Second writer reads mutating state between cycles. Probable host process or `apis-control-plane` k3s process. Operator probe required.
+- **YELLOW-2 (carry-forward, no new today)** — 27 lifetime NULL-quantity FILLED orders. Phase 80 working — today's 9 orders all have quantity populated ✅.
+- **YELLOW-3 (carry-forward, +4 today across diverse paths)** — 169 lifetime NULL `realized_pnl` closed positions (+4 today: VRT/NUE rebalance close + ADI/STX momentum_v1 same-day round-trip). Confirms the writer bug fires on BOTH rebalance-close AND momentum_v1-close paths — not strategy-specific. `closed_trade_recorded` log lines show computed values (e.g. MU=-$471, INTC=-$380, -$92). The persistence writer in `_persist_closed_trade` drops the value before COMMIT.
+- **YELLOW-4 (carry-forward)** — Phase 81-A diagnostic source code uncommitted on dirty `paper_trading.py`. Same as Mon.
+- **YELLOW-5 (design gap, carry-forward)** — Phase 79 doesn't cover `ranked_buy_signal` OPENs on already-held tickers. Today's c1 stacked WDC/MRVL/EQIX BUYs onto already-held rows (Phase 75 reopen-if-existing merged them; Phase 79 didn't filter).
+
+### Fixes Applied
+- None this run. All YELLOW items are operator-led (host-side probe + design call + persistence-writer fix + commit/push).
+
+### Action Required from Aaron (unchanged from Mon 19:13 UTC, with item #1 evidence base now 9-of-9 weekday cycles and item #3 strengthened by today's diverse close paths)
+1. **HIGHEST PRIORITY** — Probe Windows host for second writer process. **NEW evidence**: today's stale-state cash values are dynamic ($35,027 c1, $47,195 c2 — different from Mon's recurring $67,314), suggesting the second writer reads mutating state. Suggested PowerShell commands:
+   - `Get-Process python*` (capture command-line + PID before terminating)
+   - `Get-ScheduledTask | Where-Object { $_.TaskName -like '*apis*' -or $_.TaskName -like '*paper*' }`
+   - `docker exec apis-control-plane ps -ef`
+   - Inspect any second worker connecting to the same Postgres + Redis instances.
+2. Patch Phase 79 to handle worker-restart races (Redis sentinel for `phase73_restore_complete` OR DB SELECT fallback). 9-of-9 evidence base.
+3. Investigate `_persist_closed_trade` ledger NULL `realized_pnl` writer path — 169 lifetime rows. Today's +4 confirms bug fires on BOTH rebalance close AND momentum_v1 close paths. The log line `closed_trade_recorded` carries the correct value; the persistence step drops it.
+4. Commit + push Phase 81-A diagnostic source code when ready.
+5. Send Gmail YELLOW draft if visibility on persistent state is desired.
+6. Decide on Phase 79-extended (or Phase 82) design for `ranked_buy_signal` / `momentum_v1` OPEN stacking on already-held tickers.
+
+---
+
+## Health Check — 2026-05-12 10:14 UTC (Tuesday 5:14 AM CT, pre-market, post Mon-EOD probe)
+
+**Overall Status:** YELLOW — pre-market Tue probe. First Tue probe of the day; first paper cycle expected ~13:35 UTC (3h21min away). **NEW evidence**: Mon cycle 7 fired 19:30 UTC AFTER yesterday's last 19:13 probe — wrote the same dual-invocation pair (stale `5e8e443e...` cash=$67,314/equity=$99,983 at 19:30:00.890 + fresh `a16c58ee...` cash=$12,744/equity=$120,706 at 19:30:02.654). **YELLOW-1 dual-invocation now confirmed 7-of-7 Mon weekday cycles** (the original 13:35/14:30/15:30/16:00/17:30/18:30 plus Mon EOD-window c7 at 19:30). Tue overnight Mon-EOD eval succeeded (evaluation_runs=102, last row 2026-05-11 21:00:00.006 UTC, status=complete). No cycles today yet → all YELLOW counters static. Stack fully GREEN: 8/8 containers `Up 32 hours` since 2026-05-11T01:53:35Z compose recreate (RestartCount=0 all four core); /health 7/7 ok 2026-05-12T10:08:09.866 UTC mode=paper; worker `--since 24h` = 35 ERR (30+ yfinance on 13 stale delisted tickers + 1 known persist_evaluation_run_failed UniqueViolation + 1 info-FP `errors: 0` + summaries) / api `--tail 3000` = 15 ERR (all yfinance from this morning's 10:00 UTC ingestion); **0 crash-triad** all 5 patterns; 0 Tracebacks; Prom 2/2 up (apis @ api:8000 + prometheus @ localhost:9090); Alertmanager 0 active (2 historic resolved alerts only); resources well under 80% mem / 90% CPU (worker 849.4 MiB / 0.00%, api 885.2 MiB / 0.10%, postgres 171.3 MiB / 0.00%, redis 8.28 MiB / 0.35%, prometheus 40.98 MiB / 0.08%, grafana 50.05 MiB / 0.05%, alertmanager 14.79 MiB / 0.13%, control-plane 1.136 GiB / 14.26% CPU); DB **209 MB** unchanged (Tue pre-market so minimal write volume). Pytest **382 passed / 0 failed / 3670 deselected in 38.39s** ✅ under `APIS_PYTEST_SMOKE=1` (filter `deep_dive or phase22 or phase57 or phase77_78 or phase79`). Alembic `q7r8s9t0u1v2` single head ✅ (current and heads agree). **CI run #25459511595 on `8a892db` (HEAD) — `status=completed, conclusion=success`** ✅ unchanged (no new pushes). All 8 env-exposed APIS_* flags correct; 3 default-OFF flags governed by `settings.py` defaults (consistent). Scheduler `job_count=36` per Mon `apis_worker_started` 2026-05-11T01:53:39.923Z; liveness heartbeat `worker:scheduler_heartbeat=1778580528` → 2026-05-12T10:08:48Z UTC, age ~6 min ✅ (<10 min threshold). Tue morning pipeline running cleanly: ingestion 10:00:59 UTC (502 tickers / 122,714 bars / status=partial — 13 stale tickers continue to fail per carry-forward), alt-data 10:05:00 UTC, intel-feed 10:10:00 UTC. Signal gen (10:30 UTC) + rankings (10:45 UTC) pending at probe time. 13 OPEN positions all `origin_strategy` stamped (12 × rebalance + 1 × ranking_buy_signal UNH); 0 new today; 0 closes today; idempotency clean (0 dupes by key, 0 dupes per ticker); orders status filled=274 / rejected=93 unchanged; broker_health_position_drift in worker tail-5000 = 20 lines (cumulative across Mon's 7 cycles + restart-window leftovers). **Carry-forward YELLOW items unchanged:** 27 NULL-qty FILLED lifetime, 165 NULL realized_pnl lifetime, Phase 81-A diagnostic uncommitted on dirty `paper_trading.py`, Phase 79 design gap for `ranked_buy_signal` OPEN stacking. NO autonomous fixes applied — all YELLOW items are operator-led + same Action Required from Aaron items as Mon 19:13 entry, with item #1 evidence base now expanded to 7-of-7 weekday cycles.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy `Up 32 hours` since 2026-05-11T01:53:35Z compose recreate. All four core services (worker/api/postgres/redis) `(healthy)`. docker-grafana-1 / docker-prometheus-1 / docker-alertmanager-1 / apis-control-plane same uptime. RestartCount=0.
+- /health: all 7 components `ok` at 2026-05-12T10:08:09.866 UTC. mode=paper, kill_switch=ok, broker=ok, broker_auth=ok, db=ok, scheduler=ok, paper_cycle=ok, system_state_pollution=ok.
+- Worker log scan (`--since 24h`): **35 ERROR/CRITICAL** = carry-forward. 30+ yfinance 404s on the documented 13 stale delisted S&P 500 tickers (ANSS/HES/K/PARA/IPG/PKI/JNPR/CTLT/MMC/DFS/PXD/MRO/WRK) hit during 10:00 UTC ingestion + Mon EOD jobs + 1 known `persist_evaluation_run_failed UniqueViolation` + 1 false-positive `errors: 0` info match + a couple of `13 Failed downloads` summary lines. 0 Traceback lines. **0 crash-triad** all 5 patterns (`_fire_ks` / `broker_adapter_missing_with_live_positions` / `EvaluationRun.idempotency_key` / `paper_cycle.*no_data` / `phantom_cash_guard_triggered`).
+- API log scan (`--tail 3000`): **15 ERROR/CRITICAL** = all yfinance carry-forward on 13 stale delisted tickers (this morning's 10:00 UTC ingestion run). 0 Traceback lines.
+- Prometheus: 2/2 active targets up (apis @ api:8000 health=up err=empty; prometheus @ localhost:9090 health=up err=empty). 0 dropped.
+- Alertmanager: **0 active alerts** (`/api/v2/alerts` returns 2 historic resolved entries, state=resolved on both). Phase 73 `for: 30m` debounce active.
+- Resource usage: worker 849.4 MiB / 0.00% CPU, api 885.2 MiB / 0.10%, postgres 171.3 MiB / 0.00%, redis 8.277 MiB / 0.35%, prometheus 40.98 MiB / 0.08%, grafana 50.05 MiB / 0.05%, alertmanager 14.79 MiB / 0.13%, apis-control-plane 1.136 GiB / 14.26% CPU. All well under 80% mem / 90% CPU thresholds.
+- DB size: **209 MB** unchanged vs Mon 19:13 entry (Tue pre-market so minimal write volume since Mon close).
+
+### §2 Execution + Data Audit
+- **Paper cycles today: 0** — Tue pre-market at probe time (10:14 UTC); first cycle expected 13:35 UTC (3h21min away).
+- **Mon-EOD recap (new data point):** Mon cycle 7 fired 19:30 UTC AFTER Mon 19:13 probe close — same dual-invocation pattern. Wrote stale-state snapshot `5e8e443e8481454686d4605f06b16796:portfolio_snapshot` at 19:30:00.890624 (cash=$67,314.42 / equity=$99,983.38) + fresh-state snapshot `a16c58eed5ca4dba90403c0c5e46ede2:portfolio_snapshot` at 19:30:02.653924 (cash=$12,744.56 / equity=$120,706.21). Confirms 7-of-7 weekday cycles dual-wrote on Mon. Mon EOD evaluation run completed cleanly at 21:00:00.006 UTC (`aa4b31e7-0098-4cb4-8d4a-c85592ae8d02`, status=complete, mode=paper).
+- evaluation_runs total: **102** (+1 vs Mon 19:13 entry — Mon EOD eval at 21:00 UTC). Floor ≥80 ✅.
+- Portfolio trend (Mon's 14 snapshots — 7 stale + 7 fresh pairs, no Tue snapshots yet):
+  - c1: 13:35:02.315 stale `1644ff28` $67,314/$99,983 + 13:35:03.354 fresh `cb17362f` $12,744/$120,089
+  - c2: 14:30:00.954 stale `5ec13fdb` $67,314/$99,983 + 14:30:03.056 fresh `427eead4` $12,744/$119,372
+  - c3: 15:30:00.822 stale `a4241c0e` $67,314/$99,983 + 15:30:02.419 fresh `b869e01f` $12,744/$120,944
+  - c4: 16:00:00.998 stale `954e0fb7` $67,314/$99,983 + 16:00:02.625 fresh `a44c7432` $12,744/$121,340
+  - c5: 17:30:01.184 stale `2f421551` $67,314/$99,983 + 17:30:03.523 fresh `07e994d8` $12,744/$121,280
+  - c6: 18:30:00.899 stale `7536d9d7` $67,314/$99,983 + 18:30:02.232 fresh `47cfdca9` $12,744/$121,482
+  - c7: 19:30:00.891 stale `5e8e443e` $67,314/$99,983 + 19:30:02.654 fresh `a16c58ee` $12,744/$120,706 ← NEW since Mon 19:13 probe
+- Mon equity progression: $120,089 → $119,372 → $120,944 → $121,340 → $121,280 → $121,482 → **$120,706** (-$776 between c6 close and c7 close → final Mon close).
+- Broker↔DB reconciliation: DB **13 OPEN / 183 closed** positions; `/api/v1/broker/positions` 404 in this build → fallback `/health broker=ok` ✅ per `feedback_apis_deep_dive_probes.md`.
+- Origin-strategy stamping: ALL 13 OPEN stamped (12 × `rebalance` + 1 × `ranking_buy_signal` UNH; oldest 4 from 2026-04-29 AMD/MRVL/EQIX/AMZN, newest BE from 2026-05-08). 0 NULLs on rows opened ≥2026-04-18 ✅.
+- Position caps: 13/15 open ✅; 0 new today ≤ 5 ✅.
+- Data freshness: latest `daily_market_bars trade_date=2026-05-11` covering 490 securities (Mon EOD bars ingested ✅). Latest `signal_runs run_timestamp=2026-05-11 10:30:00.128 UTC` (Tue 10:30 UTC run pending in ~16 min). Latest `ranking_runs run_timestamp=2026-05-11 10:45:00.194 UTC` (Tue 10:45 UTC pending). Tue morning pipeline so far: ingestion 10:00:59 UTC (502 tickers / 122,714 bars / status=partial — expected with 13 stale tickers) ✅, alt-data 10:05:00 UTC ✅, intel-feed 10:10:00 UTC ✅.
+- Stale tickers: 14 securities `is_active=false` (HOLX + 13 stale delisted JNPR/MMC/WRK/PARA/K/HES/PKI/IPG/DFS/MRO/CTLT/PXD/ANSS) — unchanged. Carry-forward yfinance 404s logged as expected; no NEW additions.
+- Kill-switch: `APIS_KILL_SWITCH=false` ✅. Operating mode: `APIS_OPERATING_MODE=paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+- Orders status breakdown: filled=**274** (165 buy + 109 sell) / rejected=**93** (81 buy + 12 sell) unchanged from Mon 19:13 entry (cycles 7's 0 orders + 0 Tue cycles). **NULL-qty FILLED lifetime=27** unchanged (no new since Mon — cycle 7 produced 0 orders).
+- **NULL `realized_pnl` closed positions: lifetime=165 rows** unchanged (no closes since Mon 19:13).
+- **broker_health_position_drift in worker tail-5000: 20 WARN lines** (cumulative across Mon's 7 cycles + restart-window leftovers; +1 vs Mon 19:13 entry from c7). Carry-forward symptom for 13 OPEN tickers, tolerance=0.01. Not gating execution.
+- **Phase 79 skipped today: 0** (no cycles fired yet).
+- **Phase 80 warn today: 0** ✅ (no `phase80_orders_writer_qty_unresolvable` warnings in worker log since last probe).
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). `alembic current` and `alembic heads` agree.
+- Pytest smoke: **382 passed / 0 failed / 3670 deselected in 38.39s** under `APIS_PYTEST_SMOKE=1` inside `docker-api-1` with `--no-cov` (filter: `deep_dive or phase22 or phase57 or phase77_78 or phase79`). Matches Phase 79+80 baseline ✅. 4 cache-write warnings (RO `.coverage` layer — expected).
+- Git: tree DIRTY — `apis/apps/worker/jobs/paper_trading.py` (Phase 81-A diagnostic) + `apis/state/ACTIVE_CONTEXT.md` + `apis/state/HEALTH_LOG.md` + `state/HEALTH_LOG.md` + `outputs/` untracked. HEAD `8a892db`, 0 unpushed. No feature branches.
+- **GitHub Actions CI:** Run **#25459511595** on `8a892db` (HEAD) — `status=completed, conclusion=success` ✅ (https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25459511595). Unchanged (no new pushes).
+
+### §4 Config + Gate Verification
+- All 8 env-exposed APIS_* flags at expected values (via `docker exec docker-worker-1 env | grep APIS_`):
+  - `APIS_OPERATING_MODE=paper` ✅, `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅, `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅, `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_DAILY_LOSS_LIMIT_PCT=0.02` ✅, `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05` ✅
+  - `APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED` not set in env (defaults `false` per `apis/config/settings.py`) — readiness-gated ✅
+  - `APIS_INSIDER_FLOW_PROVIDER` not set in env (defaults `null` per `apis/config/settings.py`) — Phase 57 Part 2 default-OFF ✅
+  - Deep-Dive Step 6/7/8 flags not set in env (default OFF per settings.py) ✅
+- Scheduler: `apis_worker_started job_count=36` at 2026-05-11T01:53:39.923Z ✅ (baseline 35 + 1 heartbeat job per Phase 71). No Tue restart.
+- Liveness heartbeat: `worker:scheduler_heartbeat=1778580528` → 2026-05-12T10:08:48Z UTC, age ~6 min at probe time ✅ (<10 min threshold).
+
+### Issues Found
+- **YELLOW-1 (carry-forward, evidence expanded to 7-of-7 Mon weekday cycles)** — Per-cycle dual-invocation persistence layer. Mon cycle 7 (19:30 UTC, AFTER Mon's last probe) wrote the same stale-then-fresh portfolio_snapshot pair as cycles 1-6. Fresh-state cycle_id `a16c58ee` would need cross-grep against worker log to confirm the writer-outside-worker pattern continues, but the timing/cash-balance signature is identical to the 6 earlier cycles. Probable host process or `apis-control-plane` k3s process. Second writer remains unidentified; operator probe of Windows host required.
+- **YELLOW-2 (carry-forward)** — 27 lifetime NULL-quantity FILLED orders. Unchanged since Mon. Phase 80 working on new fills.
+- **YELLOW-3 (carry-forward)** — 165 lifetime NULL `realized_pnl` closed positions. Unchanged since Mon. Pre-existing writer-path bug in `_persist_closed_trade`.
+- **YELLOW-4 (carry-forward)** — Phase 81-A diagnostic source code uncommitted on dirty `paper_trading.py`. Same as Mon.
+- **YELLOW-5 (design gap, carry-forward)** — Phase 79 doesn't cover `ranked_buy_signal` OPENs on already-held tickers. Operator-decision-gated.
+
+### Fixes Applied
+- None this run. All YELLOW items are operator-led (host-side probe + design call + ledger writer fix + commit/push).
+
+### Action Required from Aaron (unchanged from Mon 19:13 UTC, item #1 evidence base now 7-of-7)
+1. **HIGHEST PRIORITY** — Probe Windows host for second writer process. Suggested commands (PowerShell):
+   - `Get-Process python*` (capture command-line + PID before terminating)
+   - `Get-ScheduledTask | Where-Object { $_.TaskName -like '*apis*' -or $_.TaskName -like '*paper*' }`
+   - `docker exec apis-control-plane ps -ef`
+   - Inspect any second worker connecting to the same Postgres + Redis instances.
+2. Patch Phase 79 to handle worker-restart races (Redis sentinel for `phase73_restore_complete` OR DB SELECT fallback).
+3. Investigate `_persist_closed_trade` ledger NULL `realized_pnl` writer path — 165 lifetime rows.
+4. Commit + push Phase 81-A diagnostic source code when ready.
+5. Send Gmail YELLOW draft if visibility on persistent state is desired.
+6. Decide on Phase 79-extended (or Phase 82) design for `ranked_buy_signal` OPEN stacking.
+
+---
+
+## Health Check — 2026-05-11 19:13 UTC (Monday 2:13 PM CT, post cycle 6, mid-afternoon market-open probe)
+
+**Overall Status:** YELLOW — third Mon probe of the day. Cycle 3 (15:30 UTC), cycle 4 (16:00 UTC), cycle 5 (17:30 UTC), cycle 6 (18:30 UTC) all fired since 15:13 entry. **Per-cycle dual-invocation now confirmed across all 6 weekday cycles today** (12 portfolio_snapshots written: 6 stale-state pairs at idem_prefix [`5ec13fdb...`, `a4241c0e...`, `954e0fb7...`, `2f421551...`, `7536d9d7...`] + 6 fresh-state pairs at idem_prefix [`427eead4...`, `b869e01f...`, `a44c7432...`, `07e994d8...`, `47cfdca9...`]). Cross-grep on `docker logs docker-worker-1`: cycle3 stale `a4241c0e`=2 hits / cycle3 fresh `b869e01f`=0 hits; cycle6 stale `7536d9d7`=2 hits / cycle6 fresh `47cfdca9`=0 hits. Confirms the SECOND writer is OUTSIDE `docker-worker-1` on every cycle (4 cycles × 0 hits = strongest evidence yet). YELLOW carry-forward items unchanged: 27 NULL-qty FILLED lifetime (0 new today; Phase 80 ✅ on cycle 1's 5 BUYs); 165 NULL realized_pnl lifetime (0 closes today); Phase 81-A diagnostic uncommitted; Phase 79 design gap (ranked_buy_signal stacking) — same 13 OPEN, 0 new today, 0 closes today. Stack fully GREEN: 8/8 containers `Up 17 hours` since 2026-05-11T01:53:35Z compose recreate (RestartCount=0); /health 7/7 ok 2026-05-11T19:08:42.749830+00:00 mode=paper; worker tail-5000 = 109 ERR (104 yfinance + 2 UniqueViolation + 3 info-FP) / api tail-3000 = 0 ERR; **0 crash-triad** all 5 patterns; 0 Tracebacks; Prom 2/2 up; Alertmanager 0 active; resources unchanged from 15:13 entry (worker 765.9 MiB / 0.00%, api 812 MiB / 0.10%, postgres 168.7 MiB / 0.00%, control-plane 1.041 GiB / 16.29% CPU); DB **209 MB** (+1 MB vs 15:13 entry — 4 new cycles × 2 snapshots each = ~8 rows); pytest **382p / 0f / 3670d in 35.36s** ✅; alembic `q7r8s9t0u1v2` single head ✅; CI **#25459511595** on `8a892db` `conclusion=success` ✅; all 8 verifiable APIS_* flags correct (3 default-OFF flags not exposed via env are governed by `settings.py` defaults — see §4); scheduler `job_count=36` per Mon `apis_worker_started` 01:53:39Z; liveness heartbeat `worker:scheduler_heartbeat=1778526528` → 19:08:48Z UTC, age 212s ✅. broker_health_position_drift WARN in worker tail-5000 = 19 (cumulative ≥6 cycles). Equity intraday: $120,089 (c1) → $119,372 (c2) → $120,944 (c3) → $121,340 (c4) → $121,280 (c5) → **$121,482 (c6)** = +$1,393 MTM recovery vs cycle 1 close. evaluation_runs total 101 unchanged. Orders status filled=274 / rejected=93 unchanged from 15:13 entry (cycles 3-6 each produced 0 orders, daily-cap exhausted). Idempotency clean (0 dupes by key, 0 dupes per ticker). NO autonomous fixes applied — same operator-led YELLOW items; per-cycle confirmation is now 6-of-6 weekday cycles, strongest urgency on probe-host-for-second-writer ask.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy `Up 17 hours` since 2026-05-11T01:53:35Z compose recreate. All four core services (worker/api/postgres/redis) `(healthy)`. docker-grafana-1 / docker-prometheus-1 / docker-alertmanager-1 / apis-control-plane same uptime.
+- /health: all 7 components `ok` at 2026-05-11T19:08:42.749830+00:00. mode=paper, kill_switch=ok, broker=ok, broker_auth=ok, db=ok, scheduler=ok, paper_cycle=ok, system_state_pollution=ok.
+- Worker log scan (tail-5000): **109 ERROR/CRITICAL** = carry-forward (104 yfinance on 13 stale delisted tickers + 2 UniqueViolation persist_evaluation_run_failed + 3 info-FP). 0 Tracebacks. **0 crash-triad** all 5 patterns.
+- API log scan (tail-3000): **0 ERROR/CRITICAL** (10:00 UTC ingestion run already completed cleanly today; no new yfinance noise in window). 0 Tracebacks.
+- Prometheus: 2/2 active targets up (apis @ api:8000 lastScrape 19:09:20Z, prometheus @ localhost:9090 lastScrape 19:09:13Z). 0 dropped.
+- Alertmanager: **0 active alerts** at `/api/v2/alerts` → `[]`. Phase 73 `for: 30m` debounce active.
+- Resource usage: worker 765.9 MiB / 0.00% CPU, api 812 MiB / 0.10%, postgres 168.7 MiB / 0.00%, redis 8.75 MiB / 0.31%, prometheus 38.89 MiB / 0.00%, grafana 49.69 MiB / 0.04%, alertmanager 14.77 MiB / 0.11%, control-plane 1.041 GiB / 16.29% CPU. All well under 80% mem / 90% CPU threshold.
+- DB size: **209 MB** (+1 MB vs 15:13 entry — cycles 3-6 produced 0 orders, only the 8 new portfolio_snapshot rows + a few signal/ranking writes).
+
+### §2 Execution + Data Audit
+- **Paper cycles fired today: 6** — c1 13:35, c2 14:30, c3 15:30, c4 16:00, c5 17:30, c6 18:30 UTC. Cycle 1 executed 5 BUYs (AMZN/INTC/MU/AMD/UNH, all ranked_buy_signal); cycles 2-6 each produced 0 orders (daily cap `APIS_MAX_NEW_POSITIONS_PER_DAY=5` exhausted). All 6 cycles completed cleanly per worker logs. **Cycle 7 expected ~19:25 UTC** (12-cycle/weekday accelerated schedule per DEC-021).
+- evaluation_runs total: **101** unchanged. Last row Fri 2026-05-08 21:00:00 UTC (daily EOD eval, not per-cycle). Floor ≥80 ✅.
+- Portfolio trend (today's 12 snapshots — 6 stale + 6 fresh pairs):
+  - c1: 13:35:02.315 stale `1644ff28...` $67,314/$99,983 + 13:35:03.354 fresh `cb17362f...` $12,744/$120,089
+  - c2: 14:30:00.953 stale `5ec13fdb...` $67,314/$99,983 + 14:30:03.056 fresh `427eead4...` $12,744/$119,372
+  - c3: 15:30:00.822 stale `a4241c0e...` $67,314/$99,983 + 15:30:02.419 fresh `b869e01f...` $12,744/$120,944
+  - c4: 16:00:00.997 stale `954e0fb7...` $67,314/$99,983 + 16:00:02.625 fresh `a44c7432...` $12,744/$121,340
+  - c5: 17:30:01.183 stale `2f421551...` $67,314/$99,983 + 17:30:03.522 fresh `07e994d8...` $12,744/$121,280
+  - c6: 18:30:00.899 stale `7536d9d7...` $67,314/$99,983 + 18:30:02.231 fresh `47cfdca9...` $12,744/$121,482
+- Cross-grep on worker log: cycle3 stale `a4241c0e`=2 hits / cycle3 fresh `b869e01f`=0 hits; cycle6 stale `7536d9d7`=2 hits / cycle6 fresh `47cfdca9`=0 hits. Combined with earlier cycle1+cycle2 cross-grep (Mon 15:13 entry), **all 6 fresh-state cycle_ids absent from worker log** = strongest evidence yet that second writer is OUTSIDE `docker-worker-1`. Critically, the canonical (stale) writer always writes FIRST (~ms 0-1000) and the alternate (fresh) writer writes SECOND (~ms 1500-3500), even though the fresh row carries the post-fill cash/equity that comes from cycle execution. Suggests the canonical worker pre-fill snapshot races the actual cycle output.
+- Broker↔DB reconciliation: DB **13 OPEN / 183 closed** positions; `/api/v1/broker/positions` 404 in this build → fallback `/health broker=ok` ✅ per `feedback_apis_deep_dive_probes.md`.
+- Origin-strategy stamping: ALL 13 OPEN stamped (12 × rebalance + 1 × ranking_buy_signal UNH). 0 NULLs on rows opened ≥2026-04-18 ✅. **0 new positions today** (Phase 75 reopen-if-existing merged cycle 1's 5 BUYs into existing rows: AMZN 1→25, INTC 27→78, MU 6→14, AMD 8→22, UNH 4→21 per 14:25 entry).
+- Position caps: 13/15 open ✅; 0 new today ≤ 5 ✅.
+- Data freshness: latest `daily_market_bars trade_date=2026-05-08` covering 490 securities (Mon EOD bars not yet ingested — runs after 4pm ET close). Latest `signal_runs run_timestamp=2026-05-11 10:30:00 UTC` ✅. Latest `ranking_runs run_timestamp=2026-05-11 10:45:00 UTC` ✅.
+- Stale tickers: 14 `is_active=false` (HOLX + 13 stale delisted) unchanged. Carry-forward yfinance 404s logged as expected; no NEW additions.
+- Kill-switch: `false` ✅. Operating mode: `paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+- Orders status breakdown: filled=**274** / rejected=**93** unchanged from 15:13 entry (cycles 3-6 each produced 0 orders). **NULL-qty FILLED lifetime=27** unchanged (0 new today; Phase 80 ✅).
+- **NULL `realized_pnl` closed positions: lifetime=165 rows** unchanged (no closes today).
+- **broker_health_position_drift in tail-5000: 19 WARN lines** (cumulative across ~last 6 cycles + restart-window leftovers). Carry-forward symptom recurring on each cycle for 13 OPEN tickers, tolerance=0.01. Not gating execution.
+- **Phase 79 skipped today: 0** (cycle 1 OPENs were ranked_buy_signal not rebalance_open; cycles 2-6 cap-blocked before rebalance evaluation). Phase 79 design gap unchanged — still operator-decision-gated.
+- **Phase 80 warn today: 0** ✅ (no `phase80_orders_writer_qty_unresolvable` warnings).
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). `alembic current` and `alembic heads` agree.
+- Pytest smoke: **382 passed / 0 failed / 3670 deselected in 35.36s** under `APIS_PYTEST_SMOKE=1` inside `docker-api-1` with `--no-cov` (filter: `deep_dive or phase22 or phase57 or phase77_78 or phase79`). Matches Phase 79+80 baseline ✅. 4 cache-write warnings (RO `.coverage` layer — expected).
+- Git: tree DIRTY — `apis/apps/worker/jobs/paper_trading.py` (Phase 81-A diagnostic) + `apis/state/ACTIVE_CONTEXT.md` + `apis/state/HEALTH_LOG.md` + `state/HEALTH_LOG.md` + `outputs/` untracked. HEAD `8a892db`, 0 unpushed.
+- **GitHub Actions CI:** Run **#25459511595** on `8a892db` — `status=completed, conclusion=success` ✅ (https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25459511595). Unchanged (no new pushes).
+
+### §4 Config + Gate Verification
+- All verifiable APIS_* flags at expected values (via `docker exec docker-worker-1 env | grep APIS_`):
+  - `APIS_OPERATING_MODE=paper` ✅, `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅, `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅, `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_DAILY_LOSS_LIMIT_PCT=0.02` ✅, `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05` ✅
+  - `APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED` not set in env (defaults to `false` per `apis/config/settings.py`) — readiness-gated ✅
+  - `APIS_INSIDER_FLOW_PROVIDER` not set in env (defaults to `null` per `apis/config/settings.py`) — Phase 57 Part 2 default-OFF ✅
+  - Deep-Dive Step 6/7/8 flags not set in env (default OFF per settings.py) ✅
+- Scheduler: `apis_worker_started job_count=36` at 2026-05-11T01:53:39.923Z ✅ (baseline per `feedback_apis_deep_dive_probes.md` — 35 + 1 heartbeat job per Phase 71).
+- Liveness heartbeat: `worker:scheduler_heartbeat=1778526528` → 2026-05-11T19:08:48Z UTC, age 212s ✅ (<10 min threshold).
+
+### Issues Found
+- **YELLOW-1 (carry-forward, urgency escalated)** — Per-cycle dual-invocation now confirmed across ALL 6 weekday cycles today (cycles 1-6). Every cycle wrote 2 portfolio_snapshots: a STALE-state pair (cash=$67,314 / equity=$99,983; cycle_id present in worker log) ~1.5-3s BEFORE a FRESH-state pair (cash=$12,744 / current equity; cycle_id ABSENT from worker log). Cross-grep confirms fresh-state cycle_ids `cb17362f`, `427eead4`, `b869e01f`, `a44c7432`, `07e994d8`, `47cfdca9` all = 0 hits in `docker logs docker-worker-1 --tail 5000`. Second writer is outside the worker container on every cycle. Probable host process or `apis-control-plane` k3s process.
+- **YELLOW-2 (carry-forward)** — 27 lifetime NULL-quantity FILLED orders. 0 new today; Phase 80 working on the 5 cycle 1 BUYs.
+- **YELLOW-3 (carry-forward)** — 165 lifetime NULL `realized_pnl` closed positions. 0 closes today. Pre-existing writer-path bug in `_persist_closed_trade`.
+- **YELLOW-4 (carry-forward)** — Phase 81-A diagnostic source code uncommitted on dirty `paper_trading.py`.
+- **YELLOW-5 (design gap)** — Phase 79 doesn't cover `ranked_buy_signal` OPENs on already-held tickers; today's cycle 1 stacked $33,333 across 5 already-held names. Operator-decision-gated.
+
+### Fixes Applied
+- None this run. All YELLOW items are operator-led.
+
+### Action Required from Aaron
+1. **HIGHEST PRIORITY (urgency strengthened — 6-of-6 weekday cycles now confirmed)** — Probe Windows host for second writer process. Recommended commands:
+   - `Get-Process python*` (capture command-line + PID before terminating)
+   - `Get-ScheduledTask | Where-Object { $_.TaskName -like '*apis*' -or $_.TaskName -like '*paper*' }`
+   - `docker exec apis-control-plane ps -ef`
+   - Inspect any second worker connecting to the same Postgres + Redis instances.
+2. Patch Phase 79 to handle worker-restart races (Redis sentinel for `phase73_restore_complete` OR DB SELECT fallback).
+3. Investigate `_persist_closed_trade` ledger NULL `realized_pnl` writer path — 165 lifetime rows.
+4. Commit + push Phase 81-A diagnostic source code when ready.
+5. Send YELLOW Gmail draft if visibility on persistent state is desired.
+6. Decide on Phase 79-extended (or Phase 82) design for `ranked_buy_signal` OPEN stacking. Today's cycle 1 stacked $33k across already-held AMZN/INTC/MU/AMD/UNH.
+
+---
+
+## Health Check — 2026-05-11 15:13 UTC (Monday 10:13 AM CT, post cycle 2, first weekday of week)
+
+**Overall Status:** YELLOW — second weekday probe of the day. Mon cycle 2 fired 14:30:00 UTC and completed in 1.0s (proposed=20 → approved=0 → executed=0 — 0 orders today from cycle 2; normal post-cycle-1 behavior since the 5 BUYs in cycle 1 consumed all `APIS_MAX_NEW_POSITIONS_PER_DAY=5` slot allowance; daily cap correctly enforced). **Dual-invocation YELLOW-1 fired AGAIN on cycle 2**: 2 portfolio_snapshots written at 14:30:00.953999 (idempotency_key prefix `5ec13fdb7221488f9b77cdb4e7df9899` — matches worker-log canonical cycle_id) carrying cash=$67,314.42 / equity=$99,983.38 + 14:30:03.056402 (idempotency_key prefix `427eead407164b3fa6c9145c75ad9492` — NOT in worker logs) carrying cash=$12,744.56 / equity=$119,371.59. Phantom cycle_id `427eead4...` absent from `docker logs docker-worker-1` (grep returns 0 occurrences). Confirms second writer is OUTSIDE `docker-worker-1` per Fri 2026-05-08 cross-container grep finding. **Important reframing:** this is the **second** confirmed dual-invocation today (cycles 1 + 2), now demonstrating **per-cycle recurrence**, not intermittent. Earlier prior-entry interpretation that "canonical writes pre-fill, phantom writes post-fill" should be re-verified — actual data shows canonical-cycle_id is associated with the STALE $67,314 snapshot and the non-canonical cycle_id is associated with the FRESH $12,744 snapshot for cycle 2 (timestamp ordering: stale-then-fresh). Other YELLOW items unchanged from 14:25 UTC: 27 lifetime NULL-qty FILLED orders (no new today; Phase 80 working ✅ — today's 5 BUYs all have quantity populated), Phase 81-A diagnostic source uncommitted, 165 lifetime NULL realized_pnl closes (no closes today; long-standing data gap). Phase 79 design gap (ranked_buy_signal stacking on already-held tickers) — same 13 OPEN positions; 0 NEW today; 0 closes today. Stack fully GREEN: 8/8 containers `Up 13 hours` since 2026-05-11T01:53:35Z compose recreate (RestartCount=0 all four core services); /health 7/7 ok at 2026-05-11T15:08:51.752223+00:00 mode=paper; worker tail-5000 = 109 ERR (carry-forward — 104 yfinance on 13 stale delisted tickers + 2 known persist_evaluation_run_failed UniqueViolations + 3 info-level "errors: 0" false positives), api tail-3000 = 34 ERR (all yfinance carry-forward); **0 crash-triad** across all 5 patterns (`_fire_ks` / `broker_adapter_missing_with_live_positions` / `EvaluationRun.idempotency_key` / `paper_cycle.*no_data` / `phantom_cash_guard_triggered` all 0). Prom 2/2 up; Alertmanager 0 active alerts; resources unchanged from 14:25 entry (worker 765.5 MiB / 0.00%, api 797.9 MiB / 0.10%, postgres 167.4 MiB / 0.00%, redis 7.9 MiB / 0.37%, prometheus 39.22 MiB / 0.00%, grafana 49.15 MiB / 0.13%, alertmanager 15.04 MiB / 0.07%, control-plane 1.012 GiB / 9.49% CPU); DB **208 MB** unchanged. Pytest **382p / 0f / 3670d in 28.78s** ✅ under `APIS_PYTEST_SMOKE=1` matches Phase 79+80 baseline. Alembic `q7r8s9t0u1v2` single head ✅ (`alembic current` and `alembic heads` agree). CI **#25459511595** on `8a892db` `conclusion=success` ✅ unchanged (no new pushes). All 11 critical APIS_* flags correct. Scheduler `job_count=36` per Mon `apis_worker_started` 2026-05-11T01:53:39.923472Z; liveness heartbeat `worker:scheduler_heartbeat=1778512428` → 2026-05-11T15:13:48Z, age ~0s ✅. broker_health_position_drift WARN fired again on cycle 2 (cumulative 2x today; matches earlier per-cycle pattern). Equity slipped slightly $120,088.97 (cycle 1 close) → $119,371.59 (cycle 2 close) = -$717.38 intraday (~-0.60% MTM on the 13 OPEN positions from spot price changes during the 55-min window). evaluation_runs total 101 unchanged. Orders status filled=274 / rejected=93 unchanged from 14:25 entry (cycle 2 produced 0 orders). Idempotency clean (0 dupes by key, 0 dupes per ticker). NO autonomous fixes applied — same operator-led YELLOW items + new "per-cycle dual-invocation recurrence" framing.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy `Up 13 hours` since 2026-05-11T01:53:35Z compose recreate. All four core services (worker/api/postgres/redis) `(healthy)` with RestartCount=0 — same operator-driven recreate from prior entry. docker-grafana-1 / docker-prometheus-1 / docker-alertmanager-1 / apis-control-plane same uptime.
+- /health: all 7 components `ok` at 2026-05-11T15:08:51.752223+00:00. mode=paper, kill_switch=ok, broker=ok, broker_auth=ok, db=ok, scheduler=ok, paper_cycle=ok, system_state_pollution=ok.
+- Worker log scan (tail-5000): **109 ERROR/CRITICAL** = carry-forward (104 yfinance on 13 stale delisted tickers + 2 known persist_evaluation_run_failed UniqueViolations from 5/07 + 5/08, both warning-level idempotency-key dup re-attempts, + 3 false-positive matches on word "errors: 0" in info-level feature_refresh logs). 0 Traceback lines. **0 crash-triad** across all 5 patterns.
+- API log scan (tail-3000): **34 ERROR/CRITICAL** = all yfinance carry-forward on 13 stale delisted tickers (10:00 UTC ingestion run). 0 Traceback lines.
+- Prometheus: 2/2 active targets up (apis @ api:8000 health=up err=empty, prometheus @ localhost:9090 health=up err=empty). 0 dropped.
+- Alertmanager: **0 active alerts** at `/api/v2/alerts` → `[]`. Phase 73 `for: 30m` debounce active.
+- Resource usage: worker 765.5 MiB / 0.00% CPU, api 797.9 MiB / 0.10%, postgres 167.4 MiB / 0.00%, redis 7.934 MiB / 0.37%, prometheus 39.22 MiB / 0.00%, grafana 49.15 MiB / 0.13%, alertmanager 15.04 MiB / 0.07%, control-plane 1.012 GiB / 9.49% CPU. All well under 80% mem / 90% CPU threshold.
+- DB size: **208 MB** unchanged vs 14:25 entry (cycle 2 produced 0 orders, so write volume minimal — 2 snapshots only).
+
+### §2 Execution + Data Audit
+- **Paper cycles fired today: 2** (cycle 1 at 13:35:00 UTC `1644ff28...` proposed=30/approved=5/executed=5; cycle 2 at 14:30:00 UTC `5ec13fdb...` proposed=20/approved=0/executed=0). Cycle 2's 0-execution is correct: 5 BUYs in cycle 1 consumed `APIS_MAX_NEW_POSITIONS_PER_DAY=5`. Cycle 3 expected ~15:30 UTC (~17 min after probe close).
+- evaluation_runs total: **101** unchanged. Last row Fri 2026-05-08 21:00:00.003086 UTC, status=complete (daily EOD eval, not per-cycle). Floor ≥80 ✅.
+- Portfolio trend (today's 4 snapshots):
+  - 13:35:02.315 — idempotency_key `1644ff28ec2e446d8bc02b6c50347dbf:portfolio_snapshot` — cash=$67,314.42 / equity=$99,983.38
+  - 13:35:03.354 — idempotency_key `cb17362f45e04ad2bcfc457ae23bf817:portfolio_snapshot` — cash=$12,744.56 / equity=$120,088.97
+  - 14:30:00.954 — idempotency_key `5ec13fdb7221488f9b77cdb4e7df9899:portfolio_snapshot` — cash=$67,314.42 / equity=$99,983.38 (STALE pre-fill numbers from cycle 1 carried into cycle 2's first snapshot!)
+  - 14:30:03.056 — idempotency_key `427eead407164b3fa6c9145c75ad9492:portfolio_snapshot` — cash=$12,744.56 / equity=$119,371.59 (current state; equity -$717 vs cycle 1 close)
+  - Cross-grep: cycle1 canonical `1644ff28` has 3 hits in worker log; cycle1 alt `cb17362f` has 0 hits; cycle2 canonical `5ec13fdb` has 2 hits; cycle2 alt `427eead4` has 0 hits. Confirms 2 distinct writer paths.
+- Broker↔DB reconciliation: DB **13 OPEN / 183 closed** positions; `/api/v1/broker/positions` 404 in this build → fallback `/health broker=ok` ✅ per `feedback_apis_deep_dive_probes.md`.
+- Origin-strategy stamping: ALL 13 OPEN positions stamped (12 × `rebalance` + 1 × `ranking_buy_signal` UNH). 0 NULLs on rows opened ≥2026-04-18 ✅. 0 new positions today (5 BUYs merged into existing rows via Phase 75 reopen-if-existing).
+- Position caps: 13/15 open ✅; 0 new today ≤ 5 ✅.
+- Data freshness: latest `daily_market_bars trade_date=2026-05-08` covering 490 securities (Mon EOD bars not yet ingested — runs after 4pm ET close). Latest `signal_runs run_timestamp=2026-05-11 10:30:00.127725 UTC` ✅. Latest `ranking_runs run_timestamp=2026-05-11 10:45:00.193989 UTC` ✅.
+- Stale tickers: 14 securities `is_active=false` (HOLX + 13 stale delisted JNPR/MMC/WRK/PARA/K/HES/PKI/IPG/DFS/MRO/CTLT/PXD/ANSS) — unchanged. Carry-forward yfinance 404s logged as expected; no NEW additions.
+- Kill-switch: `false` ✅. Operating mode: `paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+- Orders status breakdown: filled=**274** / rejected=**93** unchanged from 14:25 entry (cycle 2 produced 0 orders so totals don't change). **Carry-forward NULL-quantity FILLED orders: lifetime=27 rows** unchanged (0 new today across both cycles; Phase 80 ✅ on cycle 1's 5 BUYs).
+- **Carry-forward NULL `realized_pnl` closed positions: lifetime=165 rows** unchanged (no closes today).
+- **broker_health_position_drift today: 2 WARN lines** in worker log (cycle 1 13:35:00 + cycle 2 14:30:00). Carry-forward symptom recurring on each cycle for the 13 OPEN tickers, tolerance=0.01. Not gating execution.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). `alembic current` and `alembic heads` agree.
+- Pytest smoke: **382 passed / 0 failed / 3670 deselected in 28.78s** under `APIS_PYTEST_SMOKE=1` inside `docker-api-1` with `--no-cov` (filter: `deep_dive or phase22 or phase57 or phase77_78 or phase79`). Matches Phase 79+80 baseline ✅. 4 warnings (pytest cache write-failures on RO `.coverage` layer — expected).
+- Git: tree DIRTY — `apis/apps/worker/jobs/paper_trading.py` (Phase 81-A diagnostic, operator-deferred commit) + `apis/state/ACTIVE_CONTEXT.md` + `apis/state/HEALTH_LOG.md` + `state/HEALTH_LOG.md` + `outputs/` untracked. HEAD `8a892db` (Phase 79+80 push from Wed 2026-05-06), 0 unpushed commits. No stale feature branches.
+- **GitHub Actions CI:** Run **#25459511595** on `8a892db` — `status=completed, conclusion=success` ✅ (https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25459511595). Unchanged.
+
+### §4 Config + Gate Verification
+- All 11 critical APIS_* flags at expected values (verified via `docker exec docker-worker-1 env | findstr APIS_`):
+  - `APIS_OPERATING_MODE=paper` ✅, `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅, `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅, `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_DAILY_LOSS_LIMIT_PCT=0.02` ✅, `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05` ✅
+  - `APIS_MAX_SECTOR_PCT=0.40` ✅, `APIS_MAX_SINGLE_NAME_PCT=0.20` ✅, `APIS_MAX_POSITION_AGE_DAYS=20` ✅
+  - `APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED` not set (defaults `false`) ✅
+  - `APIS_INSIDER_FLOW_PROVIDER` not set (defaults `null`) ✅
+  - Deep-Dive Step 6/7/8 flags not set (defaults OFF) ✅
+- Scheduler: `job_count=36` per `apis_worker_started` at 2026-05-11T01:53:39.923472Z ✅ (36 = documented baseline 35 + Phase 71 `scheduler_heartbeat`).
+- Liveness heartbeat: `worker:scheduler_heartbeat=1778512428` → 2026-05-11T15:13:48Z UTC, **age ~0s** ✅ (well under 10-min threshold).
+
+### Issues Found
+- **YELLOW-1 dual-invocation persistence layer FIRED on cycle 2 today.** Same pattern as cycle 1 — 2 portfolio_snapshots with 2 distinct cycle_ids. cycle 2 canonical `5ec13fdb...` (worker-log) wrote stale $67,314 snapshot; cycle 2 alt `427eead4...` (NOT in worker logs) wrote fresh $12,744 snapshot. Now confirmed firing on **every** weekday cycle today (cycles 1 + 2). Carry-forward operator investigation.
+- **Phase 79 design gap (NEW obs #1 from 14:25 entry):** ranked_buy_signal stacks onto already-held tickers; Phase 79's idempotency only covers rebalance_open path. No new manifestations since 14:25 (cycle 2 had approved=0). Carry-forward design question.
+- **broker_health_position_drift WARN cycle 2:** fired again 14:30:00 UTC for all 13 OPEN tickers, tolerance=0.01. Cumulative 2x today. Carry-forward warning, not gating.
+- **YELLOW-2 27 lifetime NULL-qty FILLED OPEN orders** — no new today across both cycles. Phase 80 confirmed working on Mon cycle 1's 5 BUYs. The 27 historical rows persist; second writer path running OUTSIDE both APIS containers. Carry-forward.
+- **YELLOW-3 Phase 81-A diagnostic uncommitted.** `apis/apps/worker/jobs/paper_trading.py` still in working tree. Carry-forward.
+- **YELLOW-4 closed positions NULL `realized_pnl` lifetime=165 rows.** No closes today. Long-standing data-completeness gap; carry-forward.
+
+### Fixes Applied
+- None. All issues are operator-led carry-forwards or design questions requiring Aaron's call (not autonomous-fix authority).
+
+### Action Required from Aaron
+- (Same six items as 14:25 UTC entry — no escalation; per-cycle dual-invocation pattern strengthens urgency of #1)
+- (1) **HIGHEST PRIORITY:** Investigate dual-invocation root cause — confirmed firing on every weekday cycle today (cycles 1 + 2). Second writer path runs OUTSIDE the docker-worker-1 process per cross-container grep. Suggested probe sequence on Windows host: `Get-Process python*`, `Get-ScheduledTask | Where-Object { $_.TaskName -like '*apis*' -or $_.TaskName -like '*paper*' }`, `docker exec apis-control-plane ps -ef`. Capture command-line + PID before terminating.
+- (2) Patch Phase 79 to wait for Phase 73 restore (Redis sentinel or DB SELECT fallback) so cycle-N right after worker restart doesn't bypass idempotency.
+- (3) Investigate `_persist_closed_trade` ledger NULL `realized_pnl` writer path — 165 lifetime rows.
+- (4) Commit + push Phase 81-A diagnostic source code when ready (`apis/apps/worker/jobs/paper_trading.py`). Suggested message: `diag(phase80): unconditional writer entry + call cardinality logs (Phase 81-A)`.
+- (5) Send queued YELLOW Gmail draft if visibility on the persistent YELLOW state is desired.
+- (6) Decide on Phase 79-extended (or Phase 82) design to cover `ranked_buy_signal` OPENs on already-held tickers. Options recap: (a) extend Phase 79 filter to all OPEN action_types when ticker already held; (b) convert ranked_buy_signal OPENs into TRIM/REBALANCE; (c) min-time-since-last-buy gate per ticker; (d) accept current behavior.
+
+### §6 Email Alert
+- YELLOW status (carry-forward + per-cycle dual-invocation recurrence) — Gmail draft to be created via Gmail MCP `create_draft` to `aaron.wilson3142@gmail.com` with subject `[APIS YELLOW] Daily Health Check — 2026-05-11 15:13 UTC (Mon cycle 2 — dual-invocation recurrence)`. Manual send required.
+
+### §7+§8 State + Memory + Final Checklist
+- HEALTH_LOG.md updated in BOTH locations ✅.
+- No autonomous fixes applied — pure carry-forward + per-cycle confirmation.
+- Pytest smoke 382/0/3670 ✅.
+- CI run #25459511595 conclusion=success ✅.
+- YELLOW email draft to be created.
+- Git tree dirty: `paper_trading.py` (Phase 81-A) + ACTIVE_CONTEXT + HEALTH_LOG x2 + outputs — operator-deferred per convention.
+- **New lesson:** Dual-invocation is **per-cycle**, not intermittent. Updating memory `project_phase80_incomplete_fix_2026-05-07.md` framing.
+
+---
+
+## Health Check — 2026-05-11 14:25 UTC (Monday 9:25 AM CT, post cycle 1, first weekday cycle of week)
+
+**Overall Status:** YELLOW — first-weekday-cycle audit. Cycle 1 today fired and completed in 2.5s (proposed=30 → approved=5 → executed=5; SINGLE cycle_id `1644ff28ec2e446d8bc02b6c50347dbf` in orders, all quantity populated 24/51/8/14/17 = Phase 80 working ✅). However **dual-invocation YELLOW-1 fired again on cycle 1**: 2 portfolio_snapshots at 13:35:02.315286 (cash=$67,314.42 / equity=$99,983.38, phantom `cb17362f45e04ad2bcfc457ae23bf817`) + 13:35:03.354019 (cash=$12,744.56 / equity=$120,088.97, canonical `1644ff28e...`). Phantom cycle_id NOT in worker logs (`docker logs docker-worker-1 --since 2h | grep cb17362f` empty) → confirms second writer is OUTSIDE both APIS containers per Fri cross-container grep finding. **NEW observation #1:** all 5 OPENs today have `decision_snapshot_json.reason=ranked_buy_signal` (not `rebalance_open`) — Phase 79's idempotency filter only covers rebalance-engine OPENs, so ranked_buy_signal can stack into already-held positions. Today's cycle 1 added $33,333 (5 × $6,666.67) onto already-held AMZN/INTC/MU/AMD/UNH (qty roll-ups: AMZN 1→25, INTC 27→78, MU 6→14, AMD 8→22, UNH 4→21). All position rows updated_at = 13:35:03 via Phase 75 reopen-if-existing logic; 0 NEW position rows. Phase 79 design only covers rebalance-engine path, so ranked_buy_signal stacking is a design gap for Aaron's review. **NEW observation #2:** `broker_health_position_drift` WARN fired at cycle 1 start (13:35:00.248221Z) for all 13 OPEN tickers, tolerance=0.01 — carry-forward symptom resurfaced today; not blocking but worth tracking. Other YELLOW items unchanged: 27 lifetime NULL-qty FILLED orders (no new today; Phase 80 produced clean qty on all 5 today ✅), Phase 81-A diagnostic source uncommitted, 165 lifetime closed-position NULL realized_pnl (no closes today). Stack itself fully GREEN: 8/8 containers `Up 12 hours` since 2026-05-11T01:53:35Z compose recreate (RestartCount=0 all four core services — operator-driven recreate, NOT a crash); /health 7/7 ok at 14:14:22Z mode=paper; worker tail-5000 = 109 ERR (104 yfinance carry-forward on 13 stale tickers + 2 known persist_evaluation_run_failed UniqueViolations from 5/07 + 5/08 + 3 false-positive info-level "errors: 0" matches), api tail-3000 = 34 ERR (all yfinance carry-forward); **0 crash-triad** across all 5 patterns; Prom 2/2 up; Alertmanager 0 active alerts; resources elevated for Mon AM workload (worker 765 MiB / 0.00%, api 787 MiB / 0.10%, postgres 169 MiB / 0.01%, control-plane 1.005 GiB / 11.71% CPU — all well under 80% threshold); DB **208 MB** (+6 MB vs Sun for Mon AM signals/rankings/orders activity). Pytest **382p / 0f / 3670d in 25.05s** ✅ matches Phase 79+80 baseline. Alembic `q7r8s9t0u1v2` single head ✅. CI run **#25459511595** on `8a892db` `conclusion=success` ✅ unchanged (no new pushes since Wed 2026-05-06). All 11 critical APIS_* flags correct. Scheduler `job_count=36` per Mon `apis_worker_started` 2026-05-11T01:53:39Z; liveness heartbeat `worker:scheduler_heartbeat=1778509128` → age **13s** ✅ (well under 10-min threshold). 13 OPEN positions all `origin_strategy` stamped (12 rebalance + 1 ranking_buy_signal UNH); within MAX_POSITIONS=15. 0 NEW positions today (5 BUYs merged into existing rows). Idempotency clean (0 dupes by key, 0 dupes per ticker). Orders status filled=**274** (+5 vs Sun: today's 5 BUYs), rejected=93 unchanged. Cash $12,744.56 / equity $120,088.97 — equity +$2,719 vs Fri close ($117,369 → $120,088 = +2.32%). evaluation_runs total **101** unchanged (Fri 21:00 UTC last — daily eval not per-cycle). NO autonomous fixes applied — all open items are operator-led investigations + design decisions.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy `Up 12 hours` since 2026-05-11T01:53:35Z compose recreate. All four core services (worker/api/postgres/redis) `(healthy)` with RestartCount=0 — operator-driven recreate, NOT a crash. docker-grafana-1 / docker-prometheus-1 / docker-alertmanager-1 / apis-control-plane same uptime.
+- /health: all 7 components `ok` at 2026-05-11T14:14:22.122499+00:00. mode=paper, kill_switch=ok, broker=ok, broker_auth=ok, db=ok, scheduler=ok, paper_cycle=ok, system_state_pollution=ok.
+- Worker log scan (tail-5000): **109 ERROR/CRITICAL** = 104 yfinance carry-forward on 13 stale delisted tickers + 2 known persist_evaluation_run_failed UniqueViolations (5/07 + 5/08, both warning-level, idempotency-key dup re-attempts) + 3 false-positive matches on the word "errors: 0" in feature_refresh_job_complete info lines. **0 crash-triad** across all 5 patterns (`_fire_ks` / `broker_adapter_missing_with_live_positions` / `EvaluationRun.idempotency_key` / `paper_cycle.*no_data` / `phantom_cash_guard_triggered` all 0).
+- API log scan (tail-3000): **34 ERROR/CRITICAL** = all yfinance carry-forward on 13 stale delisted tickers (today's 10:00 UTC ingestion). No app-level errors.
+- Prometheus: 2/2 active targets up (apis @ api:8000, prometheus @ localhost:9090). 0 dropped.
+- Alertmanager: **0 active alerts** at `/api/v2/alerts` → `[]`. Phase 73 `for: 30m` debounce active.
+- Resource usage: worker 765.4 MiB / 0.00% CPU, api 787 MiB / 0.10%, postgres 169.3 MiB / 0.01%, redis 8.75 MiB / 0.33%, prometheus 37.08 MiB / 0.00%, grafana 49.25 MiB / 0.06%, alertmanager 14.64 MiB / 0.08%, control-plane 1.005 GiB / 11.71% CPU. All well under 80% threshold. Worker memory elevated for Mon AM load.
+- DB size: **208 MB** (+6 MB vs Sun's 202 MB — accounts for Mon AM ingestion/signals/rankings + 5 orders + 2 snapshots).
+
+### §2 Execution + Data Audit
+- **Paper cycles fired today: 1** (cycle 1 at 13:35:00 UTC, completed 2.5s). Cycle 2 expected ~14:30 UTC (~5 min from probe end). proposed=30 → approved=5 → executed=5.
+- `evaluation_runs` total: **101** unchanged. Last row Fri 2026-05-08 21:00:00.003086 UTC, status=complete, idempotency_key=`2026-05-08:paper:evaluation_run`. Floor ≥80 ✅.
+- Portfolio trend (last 8 snapshots): **today's cycle 1 wrote 2 snapshots** at 13:35:02.315286 (cash=$67,314.42 / equity=$99,983.38, phantom `cb17362f...`) and 13:35:03.354019 (cash=$12,744.56 / equity=$120,088.97, canonical `1644ff28e...`). Same Fri dual-invocation pattern. Phantom cycle's snapshot has cash that does NOT reflect today's 5 BUYs ($67,314 ≈ Fri cash $12,744 + the $33,333 + delta) — it captures pre-fill state; canonical snapshot captures post-fill state. Latest legit snapshot cash positive ✅. Equity +$2,719 vs Fri.
+- Broker↔DB reconciliation: DB **13 OPEN / 183 closed** positions; `/api/v1/broker/positions` 404 in this build → fallback `/health broker=ok` ✅ per `feedback_apis_deep_dive_probes.md`. **broker_health_position_drift WARN fired at 13:35:00.248221Z for all 13 OPEN tickers, tolerance=0.01** — carry-forward symptom recurring (`feedback_broker_drift_log_check.md`).
+- Origin-strategy stamping: ALL 13 OPEN positions stamped (12 × `rebalance`, 1 × `ranking_buy_signal` UNH). 0 NULLs on rows opened ≥2026-04-18 ✅. 0 new today; 0 NULL origin on today's writes ✅.
+- Position caps: 13/15 open ✅; 0 new today ≤ 5 ✅.
+- Data freshness: latest `daily_market_bars trade_date=2026-05-08` covering 490 securities (Mon's EOD bars not yet ingested — runs after 4pm ET close). Latest `signal_runs run_timestamp=2026-05-11 10:30:00.127725 UTC` ✅. Latest `ranking_runs run_timestamp=2026-05-11 10:45:00.193989 UTC` ✅.
+- Stale tickers: 14 securities `is_active=false` (HOLX + 13 stale delisted JNPR/MMC/WRK/PARA/K/HES/PKI/IPG/DFS/MRO/CTLT/PXD/ANSS) — unchanged. 13 ticker yfinance 404s logged at 10:00 UTC ingestion as expected. No NEW additions.
+- Kill-switch: `false` ✅. Operating mode: `paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+- Orders status breakdown: filled=**274** (+5 vs Sun's 269: 5 cycle 1 ranked_buy_signal BUYs), rejected=93 unchanged. **Carry-forward NULL-quantity FILLED orders: lifetime=27 rows** unchanged (no new today; Phase 80 ✅).
+- **Carry-forward NULL `realized_pnl` closed positions: lifetime=165 rows** unchanged (no closes today; all 5 cycle 1 actions were OPENs).
+- **NEW observation: ranked_buy_signal stacking** — all 5 of today's OPENs were `reason=ranked_buy_signal`, not `rebalance_open`. Phase 79's idempotency filter does NOT cover this path. Position qty roll-ups: AMZN 1→25 (+24 @ $258.12), INTC 27→78 (+51 @ $92.44), MU 6→14 (+8 @ $522.74), AMD 8→22 (+14 @ $320.24), UNH 4→21 (+17 @ $373.51). Cash dropped $46,078 → $12,744 (matches $33,333 buy notional + dual-invocation phantom snapshot's $67,314 mid-state). All 5 positions had `updated_at=13:35:03` (Phase 75 reopen-if-existing handled the merge; 0 new position rows). Design question for Aaron: should ranked_buy_signal also be subject to a "do not stack" gate when ticker is already held?
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). `alembic current` and `alembic heads` agree.
+- Pytest smoke: **382 passed / 0 failed / 3670 deselected in 25.05s** under `APIS_PYTEST_SMOKE=1` inside `docker-api-1` with `--no-cov` (filter: `deep_dive or phase22 or phase57 or phase77_78 or phase79`). Matches Phase 79+80 baseline ✅.
+- Git: tree DIRTY — `apis/apps/worker/jobs/paper_trading.py` (Phase 81-A diagnostic, operator-deferred commit) + `apis/state/ACTIVE_CONTEXT.md` + `apis/state/HEALTH_LOG.md` + `state/HEALTH_LOG.md` + `outputs/` untracked. HEAD `8a892db` (Phase 79+80 push from Wed 2026-05-06), 0 unpushed commits. No stale feature branches.
+- **GitHub Actions CI:** Run **#25459511595** on `8a892db` — `status=completed, conclusion=success` ✅ (https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25459511595). Unchanged.
+
+### §4 Config + Gate Verification
+- All 11 critical APIS_* flags at expected values (verified via `docker exec docker-worker-1 env | grep APIS_`):
+  - `APIS_OPERATING_MODE=paper` ✅, `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅, `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅, `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_DAILY_LOSS_LIMIT_PCT=0.02` ✅, `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05` ✅
+  - `APIS_MAX_SECTOR_PCT=0.40` ✅, `APIS_MAX_SINGLE_NAME_PCT=0.20` ✅, `APIS_MAX_POSITION_AGE_DAYS=20` ✅
+  - `APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED` not set (defaults `false`) ✅
+  - `APIS_INSIDER_FLOW_PROVIDER` not set (defaults `null`) ✅
+  - Deep-Dive Step 6/7/8 flags not set (defaults OFF) ✅
+- Scheduler: `job_count=36` per `apis_worker_started` at 2026-05-11T01:53:39.923472Z ✅ (36 = documented baseline 35 + Phase 71 `scheduler_heartbeat`).
+- Liveness heartbeat: `worker:scheduler_heartbeat=1778509128` → 2026-05-11T14:18:48Z UTC, **age 13s** ✅ (well under 10-min threshold).
+
+### Issues Found
+- **YELLOW-1 dual-invocation persistence layer FIRED TODAY on Mon cycle 1.** 2 portfolio_snapshots with 2 distinct cycle_ids; phantom `cb17362f...` wrote ONLY snapshot, canonical `1644ff28e...` wrote orders+snapshot. Same Fri pattern. Phantom cycle_id NOT in worker logs → confirms second writer is OUTSIDE both worker + api containers. Persistent carry-forward; operator must probe host for source.
+- **NEW observation #1: ranked_buy_signal stacks onto already-held positions.** Phase 79's idempotency filter only covers `reason=rebalance_open`; today's 5 BUYs were `reason=ranked_buy_signal` so Phase 79 was unaware. Result: $33k stacked onto 5 already-held tickers in one cycle. Design question, not a runtime regression — but increases concentration risk vs MAX_SINGLE_NAME_PCT=0.20.
+- **NEW observation #2: `broker_health_position_drift` WARN fired today** at cycle 1 start (13:35:00.248221Z) listing all 13 OPEN tickers, tolerance=0.01. Carry-forward warning, not gating cycle execution.
+- **YELLOW-2 27 lifetime NULL-qty FILLED OPEN orders** — no new today (Phase 80 working on all 5 today ✅); however the 27 historical rows persist. Second writer path running OUTSIDE both APIS containers per Fri cross-container grep. Carry-forward.
+- **YELLOW-3 Phase 81-A diagnostic uncommitted.** `apis/apps/worker/jobs/paper_trading.py` still in working tree. Carry-forward.
+- **YELLOW-4 closed positions NULL `realized_pnl` lifetime=165 rows.** No closes today, no new instances. Long-standing data-completeness gap; carry-forward.
+
+### Fixes Applied
+- None. New ranked_buy_signal stacking observation is a design question requiring Aaron's call (not a runtime regression with autonomous-fix authority). All other items operator-led carry-forwards.
+
+### Action Required from Aaron
+- (Previous five items unchanged from Sun 19:09 UTC entry)
+- (1) Investigate dual-invocation root cause — second writer path runs OUTSIDE the docker-worker-1 / docker-api-1 process per Fri + today's cross-container grep. Suggested: `Get-Process python*` on Windows host; `Get-ScheduledTask | Where-Object { $_.TaskName -like '*apis*' -or $_.TaskName -like '*paper*' }`; `docker exec apis-control-plane ps -ef`; capture command-line + PID before terminating.
+- (2) Patch Phase 79 to wait for Phase 73 restore (Redis sentinel or DB SELECT fallback) so cycle-N right after worker restart doesn't bypass idempotency.
+- (3) Investigate `_persist_closed_trade` ledger NULL `realized_pnl` writer path — 165 lifetime rows indicates a global writer bug.
+- (4) Commit + push Phase 81-A diagnostic source code (`apis/apps/worker/jobs/paper_trading.py`) when ready. Suggested message: `diag(phase80): unconditional writer entry + call cardinality logs (Phase 81-A)`.
+- (5) Send queued YELLOW Gmail draft if visibility on persistent YELLOW state is desired.
+- **NEW (6)** — Decide on Phase 79-extended (or Phase 82) design to cover `ranked_buy_signal` OPENs on already-held tickers. Today's cycle 1 stacked $33,333 across 5 already-held names. Options: (a) extend Phase 79 filter to all OPEN action_types when ticker already held with qty>0; (b) convert ranked_buy_signal OPENs into TRIM/REBALANCE when ticker held; (c) require min-time-since-last-buy gate per ticker; (d) accept current behavior (designed concentration when signal strong).
+
+### §6 Email Alert
+- YELLOW status (carry-forward + 2 new observations) — Gmail draft `r2651131491786663938` created via Gmail MCP `create_draft` to `aaron.wilson3142@gmail.com` with subject `[APIS YELLOW] Daily Health Check — 2026-05-11 14:25 UTC (Mon cycle 1)`. Manual send required.
+
+### §7+§8 State + Memory + Final Checklist
+- HEALTH_LOG.md updated in BOTH locations ✅.
+- No autonomous fixes applied — same 4 carry-forward YELLOW items + new Phase 79 design gap observation (operator-led).
+- Pytest smoke 382/0/3670 ✅.
+- CI run #25459511595 conclusion=success ✅.
+- YELLOW email draft to be created (manual send required).
+- Git tree dirty: `paper_trading.py` (Phase 81-A) + ACTIVE_CONTEXT + HEALTH_LOG x2 + outputs — operator-deferred per convention.
+- **NEW lesson:** Phase 79 design only covers rebalance-engine OPENs; ranked_buy_signal can bypass and stack. Saving to memory as `project_phase79_design_gap_ranked_buy_signal_2026-05-11.md`.
+
+---
+
+## Health Check — 2026-05-10 19:09 UTC (Sunday 2:09 PM CT, weekend afternoon, no cycles)
+
+**Overall Status:** YELLOW — pure carry-forward from Sun 15:08 UTC entry. **No state delta in ~4h.** Sunday so APScheduler weekday-only paper-cycle / signal / ranking / ingestion jobs have not fired (next paper cycle Mon 2026-05-11 13:35 UTC, ~18.5h). Same four open YELLOW issues unchanged from Sun mid-morning entry: (1) Friday's dual-invocation pattern in `portfolio_snapshots` + 1 Fri 21:00 UTC `persist_evaluation_run_failed UniqueViolation`; (2) 27 lifetime NULL-qty FILLED orders (no new today); (3) Phase 81-A diagnostic source-code modification on `apis/apps/worker/jobs/paper_trading.py` still uncommitted; (4) 165 lifetime closed-position NULL `realized_pnl` (recently 2 from Fri 16:00 UTC BE+UNH; long-standing data issue dating back to 2026-04-15). Stack itself fully GREEN: 8/8 containers `Up 18 hours` since Sat-night 00:38:29Z compose recreate (RestartCount=0); /health 7/7 ok at 19:08:37Z mode=paper; tail-5000 worker scan = 74 ERR / api tail-3000 = 0 ERR; **0 crash-triad** all 5 patterns; Prometheus 2/2 up; Alertmanager 0 active alerts; resources fine (worker 82 MiB, api 169 MiB, control-plane 1.03 GiB / 9.17% CPU); DB **202 MB** unchanged. Pytest sweep `deep_dive or phase22 or phase57 or phase77_78 or phase79` → **382 passed / 0 failed / 3670 deselected in 26.48s** ✅ matches Phase 79+80 baseline. Alembic `q7r8s9t0u1v2` single head ✅. CI run **#25459511595** on `8a892db` `conclusion=success` ✅ unchanged. All 11 critical APIS_* flags correct. Scheduler `job_count=36` per Sat-night `apis_worker_started` 00:38:33Z; liveness heartbeat `worker:scheduler_heartbeat=1778440120` age **203s** ✅ (well under 10-min threshold). 13 OPEN positions all `origin_strategy` stamped (12 rebalance + 1 ranking_buy_signal UNH); within MAX_POSITIONS=15. 0 new positions today. Idempotency clean (0 dupes by key, 0 dupes per ticker). Orders status filled=269 / rejected=93. evaluation_runs total **101** unchanged. NO autonomous fixes applied — same four operator-led YELLOW items.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy `Up 18 hours` since 2026-05-10T00:38:29Z compose recreate. All four core services (worker/api/postgres/redis) `(healthy)` with RestartCount=0. docker-grafana-1 / docker-prometheus-1 / docker-alertmanager-1 / apis-control-plane same uptime.
+- /health: all 7 components `ok` at 2026-05-10T19:08:37.701743+00:00. mode=paper, kill_switch=ok, broker=ok, broker_auth=ok, db=ok, scheduler=ok, paper_cycle=ok, system_state_pollution=ok.
+- Worker log scan (tail-5000): **74 ERROR/CRITICAL** — yfinance carry-forward on inactive tickers + Sat-night recreate burst (unchanged from 15:08 entry). **0 crash-triad** across all 5 patterns (`_fire_ks` / `broker_adapter_missing_with_live_positions` / `EvaluationRun.idempotency_key` / `paper_cycle.*no_data` / `phantom_cash_guard_triggered` all 0).
+- API log scan (tail-3000): **0 ERROR/CRITICAL** ✅.
+- Prometheus: 2/2 active targets up (apis @ api:8000, prometheus @ localhost:9090). 0 dropped.
+- Alertmanager: **0 active alerts** at `/api/v2/alerts` → `[]`. Phase 73 `for: 30m` debounce active.
+- Resource usage: worker 82.17 MiB / 0.00% CPU, api 169 MiB / 0.10%, postgres 68.82 MiB / 2.19%, redis 8.71 MiB / 2.11%, prometheus 40.43 MiB / 0.03%, grafana 51.74 MiB / 0.11%, alertmanager 14.97 MiB / 0.08%, control-plane 1.033 GiB / 9.17% CPU. All well under threshold.
+- DB size: **202 MB** (unchanged vs 15:08 entry).
+
+### §2 Execution + Data Audit
+- **Paper cycles fired today: 0** (Sunday — APScheduler weekday-only job correctly idle). Last weekday cycle Fri 2026-05-08 18:30 UTC. Next scheduled: Mon 2026-05-11 13:35 UTC (~18.5h).
+- `evaluation_runs` total: **101** unchanged. Last row `run_timestamp=2026-05-08 21:00:00.003086 status=complete mode=paper idempotency_key=2026-05-08:paper:evaluation_run` (Fri EOD eval). Floor ≥80 ✅.
+- Portfolio trend: same 5 latest snapshots from Friday (15:30 → 19:30 UTC, dual-invocation pattern preserved). Latest legit snapshot Fri 19:30:02 UTC cash=$12,744.58 / equity=$117,369.35 (cash positive ✅). Saturday + Sunday no new snapshots (correct weekend behavior).
+- Broker↔DB reconciliation: DB **13 OPEN / 183 closed positions**; `/api/v1/broker/positions` 404 in this build → fallback `/health broker=ok` ✅ per `feedback_apis_deep_dive_probes.md`.
+- Origin-strategy stamping: ALL 13 OPEN positions stamped (BE/GOOG/GOOGL/VRT/WDC/MU/INTC/NUE/AMD/MRVL/EQIX/AMZN × `rebalance`, UNH × `ranking_buy_signal`). 0 NULLs on rows opened ≥2026-04-18 ✅.
+- Position caps: 13/15 open ✅; 0 new today ≤ 5 ✅.
+- Data freshness: latest `daily_market_bars trade_date=2026-05-07` covering 490 securities. Latest `signal_runs run_timestamp=2026-05-08 10:30:00.297673 UTC`. Latest `ranking_runs run_timestamp=2026-05-08 10:45:00.121601 UTC`. Friday's bars + weekend signals/rankings absent due to weekday-only schedule (next ingestion Mon 06:00 ET) — expected.
+- Stale tickers: 14 securities `is_active=false` (HOLX + 13 stale delisted). Unchanged. No new errors logged on weekend.
+- Kill-switch: `false` ✅. Operating mode: `paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+- Orders status breakdown: filled=269, rejected=93. **Carry-forward NULL-quantity FILLED orders: lifetime=27 rows** unchanged.
+- **Carry-forward NULL `realized_pnl` closed positions:** lifetime=165 rows (long-standing, dates back to 2026-04-15); 2 closes from Fri 16:00 UTC (BE, UNH) included. The Fri 14:30 UTC cycle-2 closes (VRT/MRVL/WDC/EQIX/NUE) referenced in prior entries no longer appear as discrete rows — they were probably re-opened within cycle 2 (VRT cycle-7 re-buy is in lifetime closes). Real lifetime exposure is the 165 rows, which is documented carry-forward.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). `alembic current` and `alembic heads` agree.
+- Pytest smoke: **382 passed / 0 failed / 3670 deselected in 26.48s** under `APIS_PYTEST_SMOKE=1` inside `docker-api-1` with `--no-cov` (filter: `deep_dive or phase22 or phase57 or phase77_78 or phase79`). Matches Phase 79+80 baseline ✅.
+- Git: tree DIRTY — `apis/apps/worker/jobs/paper_trading.py` (Phase 81-A diagnostic, operator-deferred commit) + `apis/state/ACTIVE_CONTEXT.md` + `apis/state/HEALTH_LOG.md` + `state/HEALTH_LOG.md` + `outputs/` untracked. HEAD `8a892db` (Phase 79+80 push from Wed 2026-05-06), 0 unpushed commits. No stale feature branches.
+- **GitHub Actions CI:** Run **#25459511595** on `8a892db` — `status=completed, conclusion=success` ✅ (https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25459511595). Unchanged — no new pushes since Wed 2026-05-06.
+
+### §4 Config + Gate Verification
+- All 11 critical APIS_* flags at expected values (verified via `docker exec docker-worker-1 env | grep APIS_`):
+  - `APIS_OPERATING_MODE=paper` ✅, `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅, `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅, `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_DAILY_LOSS_LIMIT_PCT=0.02` ✅, `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05` ✅
+  - `APIS_MAX_SECTOR_PCT=0.40` ✅, `APIS_MAX_SINGLE_NAME_PCT=0.20` ✅, `APIS_MAX_POSITION_AGE_DAYS=20` ✅
+  - `APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED` not set (defaults `false`) ✅
+  - `APIS_INSIDER_FLOW_PROVIDER` not set (defaults `null`) ✅
+  - Deep-Dive Step 6/7/8 flags not set (defaults OFF) ✅
+- Scheduler: `job_count=36` per `apis_worker_started` at 2026-05-10T00:38:33Z (carry-forward from Sat-night recreate). 36 = documented baseline 35 + Phase 71 `scheduler_heartbeat`. ✅
+- Liveness heartbeat: `worker:scheduler_heartbeat=1778440120` → 2026-05-10T19:08:40Z UTC, **age 203s** ✅ (well under 10-min threshold).
+
+### Issues Found
+- (Carry-forward, no new occurrences since Sun 15:08 UTC entry — no state delta over past 4h)
+- **YELLOW-1 dual-invocation persistence layer** (Fri snapshots + 1 Fri 21:00 UTC eval_run UniqueViolation). Carry-forward.
+- **YELLOW-2 NULL-qty FILLED OPEN orders** — lifetime 27 rows; second-writer-path running OUTSIDE both APIS containers per Fri cross-container grep. No new today (no cycles). Carry-forward.
+- **YELLOW-3 Phase 81-A diagnostic uncommitted.** `apis/apps/worker/jobs/paper_trading.py` still in working tree with Friday's diagnostic logging. Carry-forward.
+- **YELLOW-4 closed positions NULL `realized_pnl`** — lifetime 165 rows; affects every close since 2026-04-15 except a small handful on 2026-04-18. Long-standing data-completeness gap; carry-forward.
+- **NOT-an-issue:** Friday's daily_market_bars not yet ingested (latest `trade_date=2026-05-07`); weekend pause expected, resumes Mon 06:00 ET.
+
+### Fixes Applied
+- None. All four open YELLOW items are operator-led investigations; nothing actionable on a quiet weekend probe.
+
+### Action Required from Aaron
+- (Same five items as Sun 15:08 UTC entry — no escalation)
+- (1) Investigate dual-invocation root cause — second writer path runs OUTSIDE the docker-worker-1 / docker-api-1 process per Fri cross-container grep. Suggested probe sequence: `Get-Process python*` on Windows host; `Get-ScheduledTask | Where-Object { $_.TaskName -like '*apis*' -or $_.TaskName -like '*paper*' }`; `docker exec apis-control-plane ps -ef`; capture command-line + PID before terminating.
+- (2) Patch Phase 79 to wait for Phase 73 restore (Redis sentinel or DB SELECT fallback) so cycle-N right after worker restart doesn't bypass idempotency.
+- (3) Investigate `closed_trade` ledger NULL `realized_pnl` writer path. The 165-row lifetime count says this is a global writer bug, not a Friday-only event. Grep recent close logs for `closed_trade_recording_failed` or check `_persist_closed_trade` code path.
+- (4) Commit + push Phase 81-A diagnostic source code (`apis/apps/worker/jobs/paper_trading.py`) when ready. Suggested message: `diag(phase80): unconditional writer entry + call cardinality logs (Phase 81-A)`.
+- (5) Send queued YELLOW Gmail draft if visibility on the persistent YELLOW state is desired.
+
+### §6 Email Alert
+- YELLOW status (carry-forward) — Gmail draft created via Gmail MCP `create_draft` to `aaron.wilson3142@gmail.com` with subject `[APIS YELLOW] Daily Health Check — 2026-05-10 19:09 UTC (carry-forward)`. Manual send required.
+
+### §7+§8 State + Memory + Final Checklist
+- HEALTH_LOG.md updated in BOTH locations ✅.
+- No autonomous fixes applied — pure carry-forward from earlier Sun probes.
+- Pytest smoke 382/0/3670 ✅.
+- CI run #25459511595 conclusion=success ✅.
+- YELLOW email draft created (manual send required).
+- Git tree dirty: `paper_trading.py` (Phase 81-A) + ACTIVE_CONTEXT + HEALTH_LOG x2 + outputs — operator-deferred per convention.
+- **No new lessons learned today** — quiet-weekend carry-forward verification. Existing memories already cover all four YELLOW items; no edits needed.
+
+---
+
+## Health Check — 2026-05-10 15:08 UTC (Sunday 10:08 AM CT, weekend mid-morning, no cycles)
+
+**Overall Status:** YELLOW — pure carry-forward from Sun 10:12 UTC entry. **No state delta in ~5h.** Sunday so APScheduler weekday-only paper-cycle / signal / ranking / ingestion jobs have not fired (next paper cycle Mon 2026-05-11 13:35 UTC). Same four open YELLOW issues unchanged from Sun pre-dawn entry: (1) Friday's dual-invocation pattern in `portfolio_snapshots` / 1 Fri 21:00 UTC `persist_evaluation_run_failed UniqueViolation`; (2) 27 lifetime NULL-qty FILLED orders (no new today); (3) Phase 81-A diagnostic source-code modification on `apis/apps/worker/jobs/paper_trading.py` still uncommitted; (4) 8 closed-position NULL `realized_pnl` rows from Fri (6 cycle-2 + 2 cycle-4). Stack itself fully GREEN: 8/8 containers `Up 14 hours` since Sat-night 00:38:29Z compose recreate (RestartCount=0); /health 7/7 ok at 15:08:18Z mode=paper; tail-5000 worker scan = 74 ERR / api tail-3000 = 0 ERR; **0 crash-triad** all 5 patterns; Prometheus 2/2 up; Alertmanager 0 active alerts; resources fine (worker 82 MiB, api 168 MiB, control-plane 1.02 GiB / 8.38% CPU); DB **202 MB** unchanged. Pytest sweep `deep_dive or phase22 or phase57 or phase77_78 or phase79` → **382 passed / 0 failed / 3670 deselected in 29.41s** ✅ matches Phase 79+80 baseline. Alembic `q7r8s9t0u1v2` single head ✅. CI run **#25459511595** on `8a892db` `conclusion=success` ✅ unchanged (no new pushes since Wed 2026-05-06). All 11 critical APIS_* flags correct. Scheduler `job_count=36` per Sat-night `apis_worker_started` 00:38:33Z; liveness heartbeat `worker:scheduler_heartbeat=1778425720` age **166s** ✅ (well under 10-min threshold). 13 OPEN positions all `origin_strategy` stamped (12 rebalance + 1 ranking_buy_signal UNH); within MAX_POSITIONS=15. 0 new positions today. Idempotency clean (0 dupes by key, 0 dupes per ticker). Orders status filled=269 / rejected=93. evaluation_runs total **101** unchanged. NO autonomous fixes applied — same four operator-led YELLOW items.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy `Up 14 hours` since 2026-05-10T00:38:29Z compose recreate. All four core services (worker/api/postgres/redis) `(healthy)` with RestartCount=0. docker-grafana-1 / docker-prometheus-1 / docker-alertmanager-1 / apis-control-plane same uptime.
+- /health: all 7 components `ok` at 2026-05-10T15:08:18.209220+00:00. mode=paper, kill_switch=ok, broker=ok, broker_auth=ok, db=ok, scheduler=ok, paper_cycle=ok, system_state_pollution=ok.
+- Worker log scan (tail-5000): **74 ERROR/CRITICAL** — yfinance carry-forward on inactive tickers + Sat-night recreate burst (carry-forward, unchanged from 10:12 entry). **0 crash-triad** across all 5 patterns (`_fire_ks` / `broker_adapter_missing_with_live_positions` / `EvaluationRun.idempotency_key` / `paper_cycle.*no_data` / `phantom_cash_guard_triggered` all 0).
+- API log scan (tail-3000): **0 ERROR/CRITICAL** ✅.
+- Prometheus: 2/2 active targets up (apis @ api:8000, prometheus @ localhost:9090). 0 dropped.
+- Alertmanager: **0 active alerts** at `/api/v2/alerts` → `[]`. Phase 73 `for: 30m` debounce active.
+- Resource usage: worker 82.16 MiB / 0.00% CPU, api 168.3 MiB / 0.26%, postgres 69 MiB / 0.00%, redis 8.54 MiB / 0.40%, prometheus 39.79 MiB / 0.19%, grafana 51.43 MiB / 0.04%, alertmanager 14.83 MiB / 0.11%, control-plane 1.02 GiB / 8.38% CPU. All well under threshold.
+- DB size: **202 MB** (unchanged vs 10:12 entry).
+
+### §2 Execution + Data Audit
+- **Paper cycles fired today: 0** (Sunday — APScheduler weekday-only job correctly idle). Last weekday cycle Fri 2026-05-08 18:30 UTC. Next scheduled: Mon 2026-05-11 13:35 UTC (~22.5h).
+- `evaluation_runs` total: **101** unchanged. Last row `9a8f0e0c-9011-4d67-96cf-35f3a4421503 status=complete mode=paper run_timestamp=2026-05-08 21:00:00.003086` (Fri EOD eval). Floor ≥80 ✅.
+- Portfolio trend: same 5 latest snapshots from Friday (15:30 → 19:30 UTC, dual-invocation pattern preserved). Latest legit snapshot Fri 19:30:02 UTC cash=$12,744.58 / equity=$117,369.35 (cash positive ✅). Saturday + Sunday no new snapshots (correct weekend behavior).
+- Broker↔DB reconciliation: DB **13 OPEN / 183 closed positions**; `/api/v1/broker/positions` 404 in this build → fallback `/health broker=ok` ✅ per `feedback_apis_deep_dive_probes.md`.
+- Origin-strategy stamping: ALL 13 OPEN positions stamped (BE/GOOG/GOOGL/VRT/WDC/MU/INTC/NUE/AMD/MRVL/EQIX/AMZN × `rebalance`, UNH × `ranking_buy_signal`). 0 NULLs on rows opened ≥2026-04-18 ✅.
+- Position caps: 13/15 open ✅; 0 new today ≤ 5 ✅.
+- Data freshness: latest `daily_market_bars trade_date=2026-05-07` covering 488 securities. Latest `signal_runs run_timestamp=2026-05-08 10:30:00.297673 UTC`. Latest `ranking_runs run_timestamp=2026-05-08 10:45:00.121601 UTC`. Friday's bars + weekend signals/rankings absent due to weekday-only schedule (next ingestion Mon 06:00 ET) — expected.
+- Stale tickers: 14 securities `is_active=false` (HOLX + 13 stale delisted). Unchanged. No new errors logged on weekend.
+- Kill-switch: `false` ✅. Operating mode: `paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+- Orders status breakdown: filled=269, rejected=93. **Carry-forward NULL-quantity FILLED orders (YELLOW carry-forward, no new today): lifetime=27 rows** (unchanged).
+- **Carry-forward NULL `realized_pnl` closes (YELLOW carry-forward):** 6 closes from Fri 14:30 UTC (VRT/BE/MRVL/WDC/EQIX/NUE) + 2 closes from Fri 16:00 UTC (BE, UNH) unresolved.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). `alembic current` and `alembic heads` agree.
+- Pytest smoke: **382 passed / 0 failed / 3670 deselected in 29.41s** under `APIS_PYTEST_SMOKE=1` inside `docker-api-1` with `--no-cov` (filter: `deep_dive or phase22 or phase57 or phase77_78 or phase79`). Matches Phase 79+80 baseline ✅.
+- Git: tree DIRTY — `apis/apps/worker/jobs/paper_trading.py` (Phase 81-A diagnostic, operator-deferred commit) + `apis/state/ACTIVE_CONTEXT.md` + `apis/state/HEALTH_LOG.md` + `state/HEALTH_LOG.md` + `outputs/` untracked. HEAD `8a892db` (Phase 79+80 push from Wed 2026-05-06), 0 unpushed commits. No stale feature branches.
+- **GitHub Actions CI:** Run **#25459511595** on `8a892db` — `status=completed, conclusion=success` ✅ (https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25459511595). Unchanged — no new pushes since Wed 2026-05-06.
+
+### §4 Config + Gate Verification
+- All 11 critical APIS_* flags at expected values (verified via `docker exec docker-worker-1 env | grep APIS_`):
+  - `APIS_OPERATING_MODE=paper` ✅, `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅, `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅, `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_DAILY_LOSS_LIMIT_PCT=0.02` ✅, `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05` ✅
+  - `APIS_MAX_SECTOR_PCT=0.40` ✅, `APIS_MAX_SINGLE_NAME_PCT=0.20` ✅, `APIS_MAX_POSITION_AGE_DAYS=20` ✅
+  - `APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED` not set (defaults `false`) ✅
+  - `APIS_INSIDER_FLOW_PROVIDER` not set (defaults `null`) ✅
+  - Deep-Dive Step 6/7/8 flags not set (defaults OFF) ✅
+- Scheduler: `job_count=36` per `apis_worker_started` at 2026-05-10T00:38:33Z (carry-forward from Sat-night recreate). 36 = documented baseline 35 + Phase 71 `scheduler_heartbeat`. ✅
+- Liveness heartbeat: `worker:scheduler_heartbeat=1778425720` → 2026-05-10T15:08:40Z UTC, **age 166s** ✅ (well under 10-min threshold).
+
+### Issues Found
+- (Carry-forward, no new occurrences since Sun 10:12 UTC entry — no state delta over the past 5h)
+- **YELLOW-1 dual-invocation persistence layer** (Fri snapshots + 1 Fri 21:00 UTC eval_run UniqueViolation). Carry-forward.
+- **YELLOW-2 NULL-qty FILLED OPEN orders** — lifetime 27 rows; second-writer-path running OUTSIDE both APIS containers per Fri cross-container grep. No new today (no cycles). Carry-forward.
+- **YELLOW-3 Phase 81-A diagnostic uncommitted.** `apis/apps/worker/jobs/paper_trading.py` still in working tree with Friday's diagnostic logging. Carry-forward.
+- **YELLOW-4 closed_trade NULL realized_pnl** for 6 cycle-2 closes Fri 14:30 UTC (VRT/BE/MRVL/WDC/EQIX/NUE) + 2 cycle-4 closes Fri 16:00 UTC (BE, UNH). Carry-forward.
+- **NOT-an-issue:** Friday's daily_market_bars not yet ingested (latest `trade_date=2026-05-07`); weekend pause expected, resumes Mon 06:00 ET.
+
+### Fixes Applied
+- None. All four open YELLOW items are operator-led investigations; nothing actionable on a quiet weekend probe.
+
+### Action Required from Aaron
+- (Same five items as Sun 10:12 UTC entry — no escalation)
+- (1) Investigate dual-invocation root cause — second writer path runs OUTSIDE the docker-worker-1 / docker-api-1 process per Fri cross-container grep. Suggested probe sequence: `Get-Process python*` on Windows host; `Get-ScheduledTask | Where-Object { $_.TaskName -like '*apis*' -or $_.TaskName -like '*paper*' }`; `docker exec apis-control-plane ps -ef`; capture command-line + PID before terminating.
+- (2) Patch Phase 79 to wait for Phase 73 restore (Redis sentinel or DB SELECT fallback) so cycle-N right after worker restart doesn't bypass idempotency.
+- (3) Investigate `closed_trade` ledger NULL `realized_pnl` writer path. Grep cycle 4 (16:00 UTC) logs for `closed_trade_recording_failed`.
+- (4) Commit + push Phase 81-A diagnostic source code (`apis/apps/worker/jobs/paper_trading.py`) when ready. Suggested message: `diag(phase80): unconditional writer entry + call cardinality logs (Phase 81-A)`.
+- (5) Send queued YELLOW Gmail draft if visibility on the persistent YELLOW state is desired.
+
+### §6 Email Alert
+- YELLOW status (carry-forward) — Gmail draft created via Gmail MCP `create_draft` to `aaron.wilson3142@gmail.com` with subject `[APIS YELLOW] Daily Health Check — 2026-05-10 15:08 UTC (carry-forward)`. Manual send required.
+
+### §7+§8 State + Memory + Final Checklist
+- HEALTH_LOG.md updated in BOTH locations ✅.
+- No autonomous fixes applied — pure carry-forward from earlier Sun probe.
+- Pytest smoke 382/0/3670 ✅.
+- CI run #25459511595 conclusion=success ✅.
+- YELLOW email draft created (manual send required).
+- Git tree dirty: `paper_trading.py` (Phase 81-A) + ACTIVE_CONTEXT + HEALTH_LOG x2 + outputs — operator-deferred per convention.
+- **No new lessons learned today** — quiet-weekend carry-forward verification. Memory `project_phase80_incomplete_fix_2026-05-07.md` already reflects Friday's escalation; no edit needed.
+
+---
+
+## Health Check — 2026-05-10 10:12 UTC (Sunday 5:12 AM CT, weekend pre-dawn, no cycles)
+
+**Overall Status:** YELLOW — pure carry-forward from Sat 00:42 UTC entry. No state delta in ~9.5h since the Saturday-night recreate. Sunday so APScheduler weekday-only paper-cycle / signal / ranking / ingestion jobs have not fired (next ingestion Mon 2026-05-11 06:00 ET, next paper cycle Mon 13:35 UTC). Same four open YELLOW issues unchanged: (1) Friday's dual-invocation pattern visible in `portfolio_snapshots` (5 cycles each wrote 2 snapshots ~1.2s apart) + 1 Fri 21:00 UTC `persist_evaluation_run_failed UniqueViolation` warning; (2) 4 NULL-qty FILLED OPEN BUYs from Fri (lifetime total **27**, unchanged); (3) Phase 81-A diagnostic source-code modification on `apis/apps/worker/jobs/paper_trading.py` still uncommitted in working tree; (4) 6 cycle-2 closes from Fri with NULL `realized_pnl`. Stack itself fully GREEN: 8/8 containers `Up 9 hours` since 2026-05-10T00:38:29Z compose recreate (RestartCount=0 across all four core); /health 7/7 ok at 10:08:28Z mode=paper; tail-5000 worker scan = 74 ERR / api 0 ERR (yfinance carry-forward + restart-burst noise from last night); **0 crash-triad** across all 5 patterns; Prometheus 2/2 up; Alertmanager 0 active alerts; resources fine (worker 82 MiB, api 155 MiB, control-plane 1003 MiB / 9.95% CPU; all well under threshold); DB 202 MB unchanged. Pytest sweep `deep_dive or phase22 or phase57 or phase77_78 or phase79` → **382 passed / 0 failed / 3670 deselected in 22.51s** ✅ matches Phase 79+80 baseline. Alembic `q7r8s9t0u1v2` single head ✅. CI run **#25459511595** on `8a892db` `conclusion=success` ✅ unchanged (no new pushes since Wed 2026-05-06). All 11 critical APIS_* flags correct. Scheduler `job_count=36` per fresh `apis_worker_started` at 2026-05-10T00:38:33Z (carry-forward, no restart since); liveness heartbeat fresh (age ~3 min, last 2026-05-10T10:08:40Z). 13 OPEN positions all `origin_strategy` stamped (12 rebalance + 1 ranking_buy_signal UNH); within MAX_POSITIONS=15. 0 new positions today. Idempotency clean (0 dupes by key, 0 dupes per ticker). evaluation_runs total **101** unchanged. NO autonomous fixes applied — same four operator-led YELLOW items.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy `Up 9 hours` since 2026-05-10T00:38:29Z compose recreate. All four core services (worker/api/postgres/redis) `(healthy)` with RestartCount=0. docker-grafana-1 / docker-prometheus-1 / docker-alertmanager-1 / apis-control-plane same uptime.
+- /health: all 7 components `ok` at 2026-05-10T10:08:28Z. mode=paper, kill_switch=ok, broker=ok, broker_auth=ok, db=ok, scheduler=ok, paper_cycle=ok, system_state_pollution=ok.
+- Worker log scan (tail-5000): **74 ERROR/CRITICAL** — yfinance carry-forward on inactive tickers + restart-burst noise from last night's recreate. **0 crash-triad** across all 5 patterns (`_fire_ks` / `broker_adapter_missing_with_live_positions` / `EvaluationRun.idempotency_key` / `paper_cycle.*no_data` / `phantom_cash_guard_triggered` all 0).
+- API log scan (tail-3000): **0 ERROR/CRITICAL** ✅.
+- Prometheus: 2/2 active targets up (apis @ api:8000, prometheus @ localhost:9090). 0 dropped.
+- Alertmanager: **0 active alerts** at `/api/v2/alerts` → `[]`. Phase 73 `for: 30m` debounce active.
+- Resource usage: worker 82.1 MiB / 0.00% CPU, api 155.4 MiB / 0.11%, postgres 51.4 MiB / 0.00%, redis 8.20 MiB / 0.76%, prometheus 38.78 MiB / 0.00%, grafana 51.47 MiB / 0.22%, alertmanager 14.78 MiB / 0.13%, control-plane 1003 MiB / 9.95% CPU. All well under threshold.
+- DB size: **202 MB** (unchanged vs Sat entries).
+
+### §2 Execution + Data Audit
+- **Paper cycles fired today: 0** (Sunday — APScheduler weekday-only job correctly idle). Last weekday cycle Fri 2026-05-08 18:30 UTC. Next scheduled: Mon 2026-05-11 13:35 UTC (~27.5h).
+- `evaluation_runs` total: **101** unchanged. Last row: `run_timestamp=2026-05-08 21:00:00 mode=paper status=complete idempotency_key=2026-05-08:paper:evaluation_run` (Fri EOD eval). Floor ≥80 ✅.
+- Portfolio trend: same 10 latest snapshots from Friday (15:30 → 19:30 UTC, dual-invocation pattern preserved). Latest legit snapshot Fri 19:30:02 UTC cash=$12,744.58 / equity=$117,369.35 (cash positive ✅). Saturday + Sunday no new snapshots (correct weekend behavior).
+- Broker↔DB reconciliation: DB **13 OPEN positions**; `/api/v1/broker/positions` 404 in this build → fallback `/health broker=ok` ✅ per `feedback_apis_deep_dive_probes.md`.
+- Origin-strategy stamping: ALL 13 OPEN positions stamped (12 × `rebalance`, 1 × `ranking_buy_signal` UNH). 0 NULLs on rows opened ≥2026-04-18 ✅.
+- Position caps: 13/15 open ✅; 0 new today ≤ 5 ✅.
+- Data freshness: latest `daily_market_bars trade_date=2026-05-07` covering 488 securities. Latest `signal_runs` = 2026-05-08 10:30:00.299262 UTC. Latest `ranking_runs` = 2026-05-08 10:45:00.055699 UTC. Friday's bars + Sat/Sun signals/rankings absent due to weekday-only schedule (next ingestion Mon 06:00 ET) — expected.
+- Stale tickers: 14 securities `is_active=false` (HOLX + 13 stale delisted). Unchanged. No new errors logged on weekend.
+- Kill-switch: `false` ✅. Operating mode: `paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+- Orders status breakdown: filled=269, rejected=93. **Carry-forward NULL-quantity FILLED orders (YELLOW carry-forward, no new today): lifetime=27 rows** (unchanged from Sat entries).
+- **Carry-forward NULL `realized_pnl` closes (YELLOW carry-forward):** 6 closes from Fri 14:30 UTC + 2 closes from Fri 16:00 UTC unresolved.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). `alembic current` and `alembic heads` agree.
+- Pytest smoke: **382 passed / 0 failed / 3670 deselected in 22.51s** under `APIS_PYTEST_SMOKE=1` inside `docker-api-1` with `--no-cov` (filter: `deep_dive or phase22 or phase57 or phase77_78 or phase79`). Matches Phase 79+80 baseline ✅.
+- Git: tree DIRTY — `apis/apps/worker/jobs/paper_trading.py` (Phase 81-A diagnostic, operator-deferred commit) + `apis/state/ACTIVE_CONTEXT.md` + `apis/state/HEALTH_LOG.md` + `state/HEALTH_LOG.md` + `outputs/` untracked. HEAD `8a892db` (Phase 79+80 push from Wed 2026-05-06), 0 unpushed commits. No stale feature branches.
+- **GitHub Actions CI:** Run **#25459511595** on `8a892db` — `status=completed, conclusion=success` ✅ (https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25459511595). Unchanged — no new pushes since Wed 2026-05-06.
+
+### §4 Config + Gate Verification
+- All 11 critical APIS_* flags at expected values (verified via `docker exec docker-worker-1 env | grep APIS_`):
+  - `APIS_OPERATING_MODE=paper` ✅, `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅, `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅, `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_DAILY_LOSS_LIMIT_PCT=0.02` ✅, `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05` ✅
+  - `APIS_MAX_SECTOR_PCT=0.40` ✅, `APIS_MAX_SINGLE_NAME_PCT=0.20` ✅, `APIS_MAX_POSITION_AGE_DAYS=20` ✅
+  - `APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED` not set (defaults `false`) ✅
+  - `APIS_INSIDER_FLOW_PROVIDER` not set (defaults `null`) ✅
+  - Deep-Dive Step 6/7/8 flags not set (defaults OFF) ✅
+- Scheduler: `job_count=36` per fresh `apis_worker_started` at 2026-05-10T00:38:33Z (carry-forward from Sat-night recreate). 36 = documented baseline 35 + Phase 71 `scheduler_heartbeat`. ✅
+- Liveness heartbeat: `worker:scheduler_heartbeat=1778407720` → 2026-05-10T10:08:40Z UTC, age ~3 min ✅ (well under 10-min threshold).
+
+### Issues Found
+- (Carry-forward, no new occurrences since Sat 00:42 UTC entry)
+- **YELLOW-1 dual-invocation persistence layer** (Fri snapshots + 1 Fri 21:00 UTC eval_run UniqueViolation). Carry-forward.
+- **YELLOW-2 NULL-qty FILLED OPEN orders** — lifetime 27 rows; second-writer-path running OUTSIDE both APIS containers per Fri cross-container grep. No new today (no cycles). Carry-forward.
+- **YELLOW-3 Phase 81-A diagnostic uncommitted.** `apis/apps/worker/jobs/paper_trading.py` still in working tree with Friday's diagnostic logging. Carry-forward.
+- **YELLOW-4 closed_trade NULL realized_pnl** for 6 cycle-2 closes Fri 14:30 UTC (VRT/BE/MRVL/WDC/EQIX/NUE) + 2 cycle-4 closes Fri 16:00 UTC (BE, UNH). Carry-forward.
+- **NOT-an-issue:** Friday's daily_market_bars not yet ingested (latest `trade_date=2026-05-07`); weekend pause expected, resumes Mon 06:00 ET.
+
+### Fixes Applied
+- None. All four open YELLOW items are operator-led investigations; nothing actionable on a quiet weekend probe.
+
+### Action Required from Aaron
+- (Same five items as Sat 00:42 UTC entry — no escalation)
+- (1) Investigate dual-invocation root cause — second writer path runs OUTSIDE the docker-worker-1 / docker-api-1 process per Fri cross-container grep. Suggested probe sequence: `Get-Process python*` on Windows host; `Get-ScheduledTask | Where-Object { $_.TaskName -like '*apis*' -or $_.TaskName -like '*paper*' }`; `docker exec apis-control-plane ps -ef`; capture command-line + PID before terminating.
+- (2) Patch Phase 79 to wait for Phase 73 restore (Redis sentinel or DB SELECT fallback) so cycle-N right after worker restart doesn't bypass idempotency.
+- (3) Investigate `closed_trade` ledger NULL `realized_pnl` writer path. Grep cycle 4 (16:00 UTC) logs for `closed_trade_recording_failed`.
+- (4) Commit + push Phase 81-A diagnostic source code (`apis/apps/worker/jobs/paper_trading.py`) when ready. Suggested message: `diag(phase80): unconditional writer entry + call cardinality logs (Phase 81-A)`.
+- (5) Send queued YELLOW Gmail draft if visibility on the persistent YELLOW state is desired.
+
+### §6 Email Alert
+- YELLOW status (carry-forward) — Gmail draft created via Gmail MCP `create_draft` to `aaron.wilson3142@gmail.com` with subject `[APIS YELLOW] Daily Health Check — 2026-05-10 10:12 UTC (carry-forward)`. Manual send required.
+
+### §7+§8 State + Memory + Final Checklist
+- HEALTH_LOG.md updated in BOTH locations ✅.
+- No autonomous fixes applied — pure carry-forward from Sat probes.
+- Pytest smoke 382/0/3670 ✅.
+- CI run #25459511595 conclusion=success ✅.
+- YELLOW email draft created (manual send required).
+- Git tree dirty: `paper_trading.py` (Phase 81-A) + ACTIVE_CONTEXT + HEALTH_LOG x2 + outputs — operator-deferred per convention.
+- **No new lessons learned today** — quiet-weekend carry-forward verification. Memory `project_phase80_incomplete_fix_2026-05-07.md` already reflects Friday's escalation; no edit needed.
+
+---
+
+## Health Check — 2026-05-10 00:42 UTC (Saturday 7:42 PM CT, late evening, no cycles)
+
+**Overall Status:** YELLOW — pure carry-forward from earlier Sat 15:07 UTC and 10:15 UTC entries. **NEW INFRA EVENT, no state regression:** all 4 core services (worker/api/postgres/redis) restarted in tandem at 2026-05-10T00:38:29Z (within 17ms of each other; RestartCount=0 across all = clean operator-driven `docker compose up -d --force-recreate`, NOT a crash). Stack came back fully healthy 3 min later (probed at 00:41:20 UTC). Same four open YELLOW issues remain unchanged: (1) Friday's dual-invocation pattern visible in `portfolio_snapshots` (5 cycles each wrote 2 snapshots ~1.2s apart) + 1 Fri 21:00 UTC `persist_evaluation_run_failed UniqueViolation` warning; (2) 4 NULL-qty FILLED OPEN BUYs from Fri (lifetime total 27); (3) Phase 81-A diagnostic source-code modification on `apis/apps/worker/jobs/paper_trading.py` still uncommitted in working tree; (4) 6 cycle-2 closes from Fri with NULL `realized_pnl`. Saturday APScheduler weekday-only jobs (paper-cycle, signal, ranking, ingestion) correctly idle — next ingestion Mon 2026-05-11 06:00 ET, next paper cycle Mon 13:35 UTC. Stack itself fully GREEN: 8/8 containers healthy `Up 2-3 minutes` post-restart; /health 7/7 components ok at 00:41:20Z mode=paper; tail-5000 worker scan = 74 ERR / api 0 ERR (yfinance carry-forward + restart-burst noise); **0 crash-triad** across all 5 patterns; Prometheus 2/2 up; Alertmanager 0 active alerts; resources fine (worker 85 MiB, api 160 MiB, control-plane 977 MiB / 16.52% CPU; all under threshold); DB 202 MB unchanged. Pytest sweep `deep_dive or phase22 or phase57 or phase77_78 or phase79` → **382 passed / 0 failed / 3670 deselected in 31.11s** ✅ matches Phase 79+80 baseline. Alembic `q7r8s9t0u1v2` single head ✅. CI run **#25459511595** on `8a892db` `conclusion=success` ✅ unchanged. All 11 critical APIS_* flags correct. Scheduler `job_count=36` per fresh `apis_worker_started` at 2026-05-10T00:38:33Z; liveness heartbeat fresh (~3.5 min old). 13 OPEN positions all `origin_strategy` stamped (12 rebalance + 1 ranking_buy_signal UNH); within MAX_POSITIONS=15. 0 new positions today. Idempotency clean (0 dupes by key, 0 dupes per ticker). evaluation_runs total **101** unchanged. NO autonomous fixes applied — same four operator-led YELLOW items.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy. **All 4 core services restarted at 2026-05-10T00:38:29Z** (StartedAt within 17ms across worker/api/postgres/redis; RestartCount=0 → clean compose recreate, NOT a crash). docker-grafana-1 / docker-prometheus-1 / docker-alertmanager-1 / apis-control-plane same uptime (also Up 2-3 min). All four core services `(healthy)` post-recreate.
+- /health: all 7 components `ok` at 2026-05-10T00:41:20.686848+00:00. mode=paper, kill_switch=ok, broker=ok, broker_auth=ok, db=ok, scheduler=ok, paper_cycle=ok, system_state_pollution=ok.
+- Worker log scan (tail-5000): **74 ERROR/CRITICAL** — yfinance carry-forward on the 14 inactive tickers + restart-burst noise. **0 crash-triad** across all 5 patterns (`_fire_ks` / `broker_adapter_missing_with_live_positions` / `EvaluationRun.idempotency_key` / `paper_cycle.*no_data` / `phantom_cash_guard_triggered` all 0).
+- API log scan (tail-3000): **0 ERROR/CRITICAL** ✅.
+- Prometheus: 2/2 active targets up (apis @ api:8000, prometheus @ localhost:9090). 0 dropped.
+- Alertmanager: **0 active alerts** at `/api/v2/alerts` → `[]`. Phase 73 `for: 30m` debounce active.
+- Resource usage: worker 85.0 MiB / 0.00% CPU, api 159.8 MiB / 0.09%, postgres 43.4 MiB / 0.00%, redis 8.65 MiB / 0.35%, prometheus 62.15 MiB, grafana 64.76 MiB, alertmanager 15.29 MiB, control-plane 976.7 MiB / 16.52% CPU. All under threshold. Memory footprint actually LOWER than 15:07 entry (worker 140→85 MiB, api 224→160 MiB) because containers just started.
+- DB size: **202 MB** (unchanged vs 15:07 entry).
+
+### §2 Execution + Data Audit
+- **Paper cycles fired today: 0** (Saturday — APScheduler weekday-only job correctly idle). Last weekday cycle was Fri 18:30 UTC. Next scheduled: Mon 2026-05-11 09:35 ET / 13:35 UTC (~57h).
+- `evaluation_runs` total: **101** unchanged. Last row: `9a8f0e0c-... status=complete mode=paper run_timestamp=2026-05-08 21:00:00 idempotency_key=2026-05-08:paper:evaluation_run` (Fri EOD eval). Floor ≥80 ✅.
+- Portfolio trend (legitimate stream + secondary stream both unchanged from Sat 10:15 UTC entry):
+  - Fri 19:30:02 — cash=$12,744.58 / equity=$117,369.35 (legit close ✅ cash positive)
+  - Fri 19:30:00 — cash=$28,939.36 / equity=$100,003.23 (secondary, dual-writer carry-forward)
+  - Fri 18:30:01 — cash=$12,744.58 / equity=$117,637.19 (legit)
+  - Fri 18:30:00 — cash=$28,939.36 / equity=$100,003.23 (secondary)
+- Broker<->DB reconciliation: DB **13 OPEN positions**; `/api/v1/broker/positions` 404s in this build → fallback `/health broker=ok` ✅.
+- Origin-strategy stamping: ALL 13 OPEN positions stamped (12 × `rebalance`, 1 × `ranking_buy_signal` UNH). 0 NULLs ✅.
+- Position caps: 13/15 open ✅; 0 new today ≤ 5 ✅.
+- Data freshness: latest `daily_market_bars trade_date=2026-05-07` covering 490 securities. Latest `signal_runs` = 2026-05-08 10:30:00.299262 UTC. Latest `ranking_runs` = 2026-05-08 10:45:00.055699 UTC. Friday's bars + Saturday's signals/rankings absent due to weekday-only schedule (next ingestion Mon 06:00 ET) — expected.
+- Stale tickers: 14 securities `is_active=false` (HOLX + 13 stale delisted). Unchanged.
+- Kill-switch: `false` ✅. Operating mode: `paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+- **Carry-forward NULL-quantity orders (YELLOW carry-forward, no new today):** lifetime FILLED with NULL quantity = **27 rows** (unchanged); today's orders ledger = **0 rows** (Saturday — expected).
+- **Carry-forward NULL `realized_pnl` closes (YELLOW carry-forward):** 6 closes from Fri 14:30 UTC + 2 closes from Fri 16:00 UTC unresolved.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). `alembic current` and `alembic heads` agree.
+- Pytest smoke: **382 passed / 0 failed / 3670 deselected** in 31.11s under `APIS_PYTEST_SMOKE=1` inside `docker-api-1` with `--no-cov` (filter: `deep_dive or phase22 or phase57 or phase77_78 or phase79`). Matches Phase 79+80 baseline ✅.
+- Git: tree DIRTY — `apis/apps/worker/jobs/paper_trading.py` (Phase 81-A diagnostic, operator-deferred commit) + `apis/state/ACTIVE_CONTEXT.md` + `apis/state/HEALTH_LOG.md` + `state/HEALTH_LOG.md` + `outputs/` untracked. HEAD `8a892db` (Phase 79+80 push from Wed 2026-05-06), 0 unpushed commits. No stale feature branches.
+- **GitHub Actions CI:** Run **#25459511595** on `8a892db` — `status=completed, conclusion=success` ✅ (https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25459511595). Unchanged since Fri 13:10 UTC entry — no new pushes.
+
+### §4 Config + Gate Verification
+- All 11 critical APIS_* flags at expected values (verified via `docker exec docker-worker-1 env | grep APIS_`):
+  - `APIS_OPERATING_MODE=paper` ✅, `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅, `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅, `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_DAILY_LOSS_LIMIT_PCT=0.02` ✅, `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05` ✅
+  - `APIS_MAX_SECTOR_PCT=0.40` ✅, `APIS_MAX_SINGLE_NAME_PCT=0.20` ✅, `APIS_MAX_POSITION_AGE_DAYS=20` ✅
+  - `APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED` not set (defaults `false`) ✅
+  - `APIS_INSIDER_FLOW_PROVIDER` not set (defaults `null`) ✅
+  - Deep-Dive Step 6/7/8 flags not set (defaults OFF) ✅
+- Scheduler: `job_count=36` per fresh `apis_worker_started` at 2026-05-10T00:38:33.036490Z (post-recreate). 36 = documented baseline 35 + Phase 71 `scheduler_heartbeat`. ✅
+- Liveness heartbeat: `worker:scheduler_heartbeat=1778373820` ≈ 2026-05-10T00:43:40Z UTC, age ~3.5 min ✅ (well under 10-min threshold).
+
+### Issues Found
+- (Carry-forward, no new occurrences since Sat 15:07 UTC entry)
+- **NEW (informational, NOT a regression):** All 4 core services restarted in tandem at 2026-05-10T00:38:29Z (RestartCount=0 = clean operator-driven `docker compose up -d --force-recreate`, NOT a crash). Stack came back fully healthy in <3 min. Phase 81-A diagnostic source-code change in working tree was NOT picked up because the bind-mount carries the same edits — and there are no new code changes in `apis/` since Fri. No state delta from this restart event.
+- **YELLOW-1 dual-invocation persistence layer** (Fri snapshots + 1 Fri 21:00 UTC eval_run UniqueViolation). Carry-forward.
+- **YELLOW-2 NULL-qty FILLED OPEN orders** — lifetime 27 rows; second-writer-path running OUTSIDE both APIS containers per Friday's cross-container grep. No new today (no cycles). Carry-forward.
+- **YELLOW-3 Phase 81-A diagnostic uncommitted.** `apis/apps/worker/jobs/paper_trading.py` still in working tree with Friday's diagnostic logging. Carry-forward.
+- **YELLOW-4 closed_trade NULL realized_pnl** for 6 cycle-2 closes Fri 14:30 UTC (VRT/BE/MRVL/WDC/EQIX/NUE) + 2 cycle-4 closes Fri 16:00 UTC (BE, UNH). Carry-forward.
+- **NOT-an-issue:** Friday's daily_market_bars not yet ingested (latest `trade_date=2026-05-07`); weekend pause expected, resumes Mon 06:00 ET.
+
+### Fixes Applied
+- None. All four open YELLOW items are operator-led investigations; nothing actionable on a quiet weekend probe.
+
+### Action Required from Aaron
+- (Same five items as Sat 15:07 UTC entry — no escalation)
+- (1) Investigate dual-invocation root cause — second writer path runs OUTSIDE the docker-worker-1 / docker-api-1 process per Fri cross-container grep. Suggested probe sequence: `Get-Process python*` on Windows host; `Get-ScheduledTask | Where-Object { $_.TaskName -like '*apis*' -or $_.TaskName -like '*paper*' }`; `docker exec apis-control-plane ps -ef`; `SELECT decision_snapshot_json FROM orders WHERE idempotency_key LIKE '0ff6a782%' OR idempotency_key LIKE '5c381371%' LIMIT 1;` — capture command-line + PID before terminating.
+- (2) Patch Phase 79 to wait for Phase 73 restore (Redis sentinel or DB SELECT fallback) so cycle-N right after worker restart doesn't bypass idempotency.
+- (3) Investigate `closed_trade` ledger NULL `realized_pnl` writer path. Grep cycle 4 (16:00 UTC) logs for `closed_trade_recording_failed`.
+- (4) Commit + push Phase 81-A diagnostic source code (`apis/apps/worker/jobs/paper_trading.py`) when ready. Suggested message: `diag(phase80): unconditional writer entry + call cardinality logs (Phase 81-A)`.
+- (5) Send queued YELLOW Gmail draft if visibility on the persistent YELLOW state is desired.
+
+### §6 Email Alert
+- YELLOW status (carry-forward) — Gmail draft to be created via Gmail MCP `create_draft` to `aaron.wilson3142@gmail.com` with subject `[APIS YELLOW] Daily Health Check — 2026-05-10 00:42 UTC (carry-forward)`. Manual send required.
+
+### §7+§8 State + Memory + Final Checklist
+- HEALTH_LOG.md updated in BOTH locations ✅.
+- No autonomous fixes applied — pure carry-forward from earlier Sat probes.
+- Pytest smoke 382/0/3670 ✅.
+- CI run #25459511595 conclusion=success ✅.
+- YELLOW email draft to be created (manual send required).
+- Git tree dirty: `paper_trading.py` (Phase 81-A) + ACTIVE_CONTEXT + HEALTH_LOG x2 + outputs — operator-deferred per convention.
+- **No new lessons learned today** — quiet-weekend carry-forward verification with one informational restart event (RestartCount=0 = clean recreate, no regression). Memory `project_phase80_incomplete_fix_2026-05-07.md` already reflects Friday's escalation; no edit needed.
+
+---
+
+## Health Check — 2026-05-09 15:07 UTC (Saturday 10:07 AM CT, weekend mid-day, no cycles)
+
+**Overall Status:** YELLOW — pure carry-forward from earlier Sat 10:15 UTC entry and Fri 19:15 UTC entry. **No state delta in the 5h since the 10:15 UTC probe.** Saturday so APScheduler weekday-only paper-cycle / signal / ranking / ingestion jobs have not fired (all confirm `next_run=2026-05-11 06:00:00-04:00` in scheduled_job_registered logs). Same four open YELLOW issues remain unchanged: (1) Friday's dual-invocation pattern visible in `portfolio_snapshots` (5 cycles 15:30→19:30 UTC each wrote two snapshots ~1.2s apart); (2) one warning-level Friday 21:00 UTC `persist_evaluation_run_failed (UniqueViolation) idempotency_key=2026-05-08:paper:evaluation_run` (constraint correctly preventing dupe — same dual-invocation root cause); (3) 4 NULL-qty FILLED OPEN BUYs from Fri (GOOGL/GOOG @ 13:35 UTC + UNH/BE @ 17:30 UTC — only 2 of those tickers still open since Phase 79 race) — second-writer path; (4) Phase 81-A diagnostic source-code modification on `apps/worker/jobs/paper_trading.py` still uncommitted in working tree (pending Aaron's commit + push action from Friday's todo). Stack itself fully GREEN: 8/8 containers `Up 25 hours` (healthy on all four core services); /health 7/7 components ok at 15:07:40Z mode=paper; 24h log scan worker=1 warning (Fri 21:00 UTC eval_run UniqueViolation) / api=0; **0 crash-triad** across all 5 patterns; Prometheus 2/2 up; Alertmanager 0 active alerts; resources fine (worker 140 MiB, api 224 MiB, control-plane 1.07 GiB); DB 202 MB unchanged. Pytest sweep `deep_dive or phase22 or phase57 or phase77_78 or phase79` → **382 passed / 0 failed / 3670 deselected in 24.63s** ✅. Alembic `q7r8s9t0u1v2` single head ✅. CI run **#25459511595** on `8a892db` `conclusion=success` ✅ (unchanged from 10:15 entry — no new pushes since Wed 2026-05-06). All 11 critical APIS_* flags correct. Scheduler `job_count=36` per Fri 14:29:52 `apis_worker_started` (carry-forward, no restart since). 13 OPEN positions all `origin_strategy` stamped (12 rebalance + 1 ranking_buy_signal UNH); within MAX_POSITIONS=15. 0 new positions today. Idempotency clean (0 dupes by key, 0 dupes per ticker). evaluation_runs total **101** unchanged. Latest daily bar `trade_date=2026-05-07` (Thursday); Friday's bars not ingested due to weekend pause and will resume Mon 2026-05-11 06:00 ET — expected behavior, not a regression. NO autonomous fixes applied — same four operator-led YELLOW items from 10:15 UTC entry; nothing to auto-fix on a quiet weekend probe.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy. All `Up 25 hours` since 2026-05-08T14:29:50Z (operator-driven Phase 81-A restart). docker-worker-1 / docker-api-1 / docker-postgres-1 / docker-redis-1 all `(healthy)`.
+- /health: all 7 components `ok` at 2026-05-09T15:07:40.681234+00:00. mode=paper, kill_switch=ok, broker=ok, broker_auth=ok, db=ok, scheduler=ok, paper_cycle=ok, system_state_pollution=ok.
+- Worker log scan (24h `ERROR|CRITICAL|Traceback|TypeError`): **1 hit** — Friday 21:00 UTC `persist_evaluation_run_failed (psycopg.errors.UniqueViolation) idempotency_key=2026-05-08:paper:evaluation_run` (warning-level, dupe correctly rejected).
+- Worker error/critical-level JSON entries (24h): **0**. All other YFinance noise is INFO-level.
+- API log scan (24h): **0 ERROR/CRITICAL**.
+- Crash-triad scan: **0 hits** across all 5 patterns (`_fire_ks` / `broker_adapter_missing_with_live_positions` / `EvaluationRun.idempotency_key` / `paper_cycle.*no_data` / `phantom_cash_guard_triggered`).
+- Prometheus: 2/2 active targets up, 0 dropped (apis, prometheus).
+- Alertmanager: **0 firing alerts**.
+- Resource usage: all normal. worker 140.5 MiB, api 223.9 MiB, postgres 121.4 MiB, redis 8.0 MiB, grafana 51.5 MiB, prom 36.9 MiB, alertmanager 14.5 MiB, control-plane 1.074 GiB / 9.58% CPU. No CPU/mem spikes.
+- DB size: 202 MB (unchanged vs 10:15 entry).
+
+### §2 Execution + Data Audit
+- Paper cycles last 50h: 2 paper `complete` (Fri 21:00 UTC EOD eval + Thu 21:00 UTC EOD eval). Saturday no intra-day cycles ran (correct weekend behavior, no failures).
+- Portfolio trend: latest snapshot Fri 2026-05-08 19:30:02 UTC cash=$12,744.58 / gross=$104,624.77 / equity=$117,369.35. Cash positive ✅. Friday's 5 cycles 15:30→19:30 each wrote TWO snapshots ~1.2s apart (dual-invocation; each pair internally consistent — cash + holdings ≈ equity).
+- Broker↔DB reconciliation: `/api/v1/broker/positions` 404 (expected per build); fallback `/health broker=ok` + DB 13 open. Per `feedback_apis_deep_dive_probes.md`.
+- Origin-strategy stamping: ALL 13 open positions stamped (12 × `rebalance`, 1 × `ranking_buy_signal` UNH). 0 NULLs ✅.
+- Position caps: 13 open ≤ 15 ✅; 0 new today ≤ 5 ✅.
+- Data freshness: latest daily_market_bars `trade_date=2026-05-07` (Thursday) covering 490 securities. Latest signals 2026-05-08 10:30:00 UTC across all 5 types × 1956 rows each. Latest ranked_opportunities 2026-05-08 10:45:00 UTC × 60 rows over 72h. Friday's daily bars + Saturday's signals/rankings absent due to weekday-only schedule (next ingestion Mon 06:00 ET) — expected.
+- Stale tickers: 13 known delisted (JNPR/MMC/WRK/PARA/K/HES/PKI/IPG/DFS/MRO/CTLT/PXD/ANSS) suppressed at signal-engine layer (Phase 78 log line `signal_engine_inactive_or_unknown_tickers_dropped count=13` confirmed Fri 10:30 UTC). HOLX still inactive (Phase 76). No new stale additions.
+- Kill-switch: `false` ✅. Operating mode: `paper` ✅.
+- Evaluation history rows: **101** (above 80 floor) ✅.
+- Idempotency: clean — 0 duplicate orders by `idempotency_key`, 0 duplicate open-position tickers ✅.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head, matches `alembic heads`). No drift.
+- Pytest smoke: **382 passed / 0 failed / 3670 deselected in 24.63s** under `APIS_PYTEST_SMOKE=1` inside docker-api-1 with `--no-cov` (filter: `deep_dive or phase22 or phase57 or phase77_78 or phase79`). Matches Phase 79+80 baseline of 382.
+- Git: dirty tree (4 modified + 1 untracked) — `apis/apps/worker/jobs/paper_trading.py` (Phase 81-A diagnostic from Fri), `apis/state/ACTIVE_CONTEXT.md`, `apis/state/HEALTH_LOG.md`, `state/HEALTH_LOG.md`, plus `outputs/` untracked. **0 unpushed commits**. No stale feature branches. Last commit `8a892db` (Phase 79+80) on Wed 2026-05-06.
+- **GitHub Actions CI:** Run **#25459511595** on `8a892db` `status=completed conclusion=success` — GREEN ✅. https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25459511595
+
+### §4 Config + Gate Verification
+- All 11 critical APIS_* flags at expected values (verified via `docker exec docker-worker-1 env | grep APIS_`):
+  - `APIS_OPERATING_MODE=paper` ✅
+  - `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅
+  - `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅
+  - `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_DAILY_LOSS_LIMIT_PCT=0.02` ✅
+  - `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05` ✅
+  - `APIS_MAX_SECTOR_PCT=0.40` ✅
+  - `APIS_MAX_SINGLE_NAME_PCT=0.20` ✅
+  - `APIS_MAX_POSITION_AGE_DAYS=20` ✅
+  - `APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED` not set (defaults `false`) ✅
+  - `APIS_INSIDER_FLOW_PROVIDER` not set (defaults `null`) ✅
+  - Deep-Dive Step 6/7/8 flags not set (defaults OFF) ✅
+- Scheduler: `job_count=36` per Fri 14:29:52 UTC `apis_worker_started` (carry-forward — no restart since). 36 = documented baseline 35 + Phase 71 `scheduler_heartbeat`. ✅
+
+### Issues Found
+- (Carry-forward, no state change since Sat 10:15 UTC entry)
+- **YELLOW-1 dual-invocation persistence layer:** Friday 5 cycles (15:30/16:00/17:30/18:30/19:30 UTC) each wrote 2 portfolio_snapshots ~1.2s apart. Same root cause as Phase 81-A confirmed dual-invocation in orders table. Logs from Fri 21:00 UTC show one warning-level `persist_evaluation_run_failed UniqueViolation` — DB constraint correctly rejected the dupe.
+- **YELLOW-2 NULL-qty FILLED OPEN orders (carry-forward):** 4 from Friday — GOOGL+GOOG @ 13:35 UTC and UNH+BE @ 17:30 UTC. Phase 80 fix did not catch these (second writer path). 2 of the 4 tickers still open today; Phase 79 race with Phase 73 position-restore documented in `project_phase80_incomplete_fix_2026-05-07.md`.
+- **YELLOW-3 Phase 81-A diagnostic uncommitted:** `apis/apps/worker/jobs/paper_trading.py` modified Fri 2026-05-08 with diagnostic logging that confirmed the dual-invocation hypothesis. Pending Aaron's commit + push (action item from Fri ACTIVE_CONTEXT entry).
+- **YELLOW-4 closed_trade NULL realized_pnl:** 6 cycle-2 closes from Fri 14:30 UTC (VRT/BE/MRVL/WDC/EQIX/NUE) have `realized_pnl IS NULL`. Pending operator investigation.
+- **NOT-an-issue:** Friday's daily_market_bars not yet ingested (latest `trade_date=2026-05-07`). Confirmed via scheduler log `next_run=2026-05-11 06:00:00-04:00`. Weekend pause is expected scheduler behavior; will resume Monday.
+
+### Fixes Applied
+- None. All four open YELLOW items are operator-led investigations; no autonomous-fix authority applies on a quiet weekend probe.
+
+### Action Required from Aaron
+- (Same four items as Sat 10:15 UTC entry / Fri 19:15 UTC entry — no escalation)
+- (1) Investigate dual-invocation root cause in `apps/worker/main.py` + APScheduler — second writer path runs OUTSIDE the docker-worker-1 / docker-api-1 process per Friday cross-container grep.
+- (2) Patch Phase 79 to wait for Phase 73 restore (Redis sentinel or DB SELECT fallback) so cycle-N right after worker restart doesn't bypass idempotency.
+- (3) Investigate `closed_trade` ledger NULL `realized_pnl` writer path.
+- (4) Commit + push Phase 81-A diagnostic source code (`apis/apps/worker/jobs/paper_trading.py`) when ready.
+- (5) Send queued Gmail draft from yesterday's entry if you want operator-visibility on the persistent YELLOW state. **A fresh YELLOW draft for THIS run was created** (Gmail draft id `r-7475374365250962721`) — manual send required (no direct-send tool available in this environment).
+
+---
+
+## Health Check — 2026-05-09 10:15 UTC (Saturday 5:15 AM CT, weekend pre-market, no cycles)
+
+**Overall Status:** YELLOW — pure carry-forward from Fri 2026-05-08 19:15 UTC entry. **NO new occurrences today** (Saturday — APScheduler's weekday-only paper-cycle job didn't fire; no signal/ranking jobs either). All four open YELLOW issues remain in their post-Friday state with no escalation: (1) 4 NULL-qty FILLED OPEN BUYs from Fri (`0ff6a782...` GOOGL+GOOG at 13:35 UTC and `5c38137134...` UNH+BE at 17:30 UTC) — second-writer-path conclusively running OUTSIDE docker-worker-1 / docker-api-1 per yesterday's afternoon cross-container grep; (2) 2 closed positions from Fri 16:00 UTC with `realized_pnl IS NULL` (BE, UNH); (3) `broker_health_position_drift` carry-forward signature (13 hits in tail-5000 spanning Thu 13:35 → Fri 19:30 UTC, latest still drifting against 13-ticker open set); (4) Phase 79 idempotency worker-restart race (Fri cycle 2 fired 12 sec after restart, Phase 73 restore not complete → unguarded re-OPENs). Stack itself fully GREEN: 8/8 containers healthy `Up 20 hours` since the Fri 14:29:50 UTC operator restart (RestartCount=0 across all four core services); /health 7/7 components ok at 10:08:48Z mode=paper; worker tail-5000 74 ERR / api tail-3000 0 ERR; **0 crash-triad** across all 5 patterns (`_fire_ks` / `broker_adapter_missing_with_live_positions` / `EvaluationRun.idempotency_key` / `paper_cycle.*no_data` / `phantom_cash_guard_triggered` all 0); Prometheus 2/2 up; Alertmanager `0 active alerts` (Phase 73 `for: 30m` debounce holding); resources fine (worker 140 MiB, api 222 MiB, control-plane 1.05 GiB / 14.33% CPU); DB 202 MB unchanged. Pytest sweep `deep_dive or phase22 or phase57 or phase77_78 or phase79` → **382 passed / 0 failed / 3670 deselected in 23.14s** ✅ matches baseline. Alembic `q7r8s9t0u1v2` single head ✅. CI run **#25459511595** on `8a892db` `conclusion=success` ✅ unchanged. All 11 critical APIS_* flags correct. Scheduler `job_count=36` per Fri 14:29:52 `apis_worker_started`; liveness heartbeat `worker:scheduler_heartbeat=1778321692` ≈ 2026-05-09T10:14:52Z = 51s old ✅ (well under 10-min threshold). 13 OPEN positions all `origin_strategy` stamped (12 rebalance + 1 ranking_buy_signal UNH). 0 new positions today (Saturday). Latest legit snapshot Fri 19:30:02 UTC cash=$12,744.58 / equity=$117,369.35 (cash positive ✅). Idempotency clean (0 dupes by key, 0 dupes per ticker). 14 inactive securities (HOLX + 13 stale delisted). evaluation_runs total **101** (+1 vs Fri morning — 21:00 UTC EOD eval ran). NO autonomous fixes applied — all four YELLOW issues are operator-led investigations from Friday's entry; nothing to auto-fix on a quiet weekend probe. Carry-forward YELLOW Gmail draft created.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy. All `Up 20 hours` since 2026-05-08T14:29:50Z (operator-driven restart, no new restarts since Friday). docker-worker-1 / docker-api-1 / docker-postgres-1 / docker-redis-1 all `(healthy)`; grafana / prom / alertmanager / control-plane Up 20h.
+- /health: all 7 components `ok` at 2026-05-09T10:08:48.672099+00:00. mode=paper, kill_switch=ok, broker=ok, broker_auth=ok, db=ok, scheduler=ok, paper_cycle=ok, system_state_pollution=ok.
+- Worker log scan (tail-5000): **74 ERROR/CRITICAL** — yfinance carry-forward on the 14 inactive tickers + restart-burst noise. **0 crash-triad** across all 5 patterns.
+- API log scan (tail-3000): **0 ERROR/CRITICAL**. Cleanest API tail in days (no new traffic on Saturday).
+- Phase 81-A diagnostic firings in tail-5000: 7 × `phase80_writer_call`, 11 × `phase80_writer_entry`, 1 × `phase75_position_row_reopened` (Friday cycles, no new today).
+- `broker_health_position_drift`: 13 firings in tail-5000 spanning 2026-05-07T13:35:00.178849Z (first) → 2026-05-08T19:30:00.011294Z (last). All carry-forward Thu/Fri; same 13-ticker drift signature.
+- Prometheus: 2/2 targets up (`apis` @ api:8000, `prometheus` @ localhost:9090). 0 dropped.
+- Alertmanager: **0 active alerts** at `/api/v2/alerts` → `[]`. Phase 73 `for: 30m` debounce active.
+- Resource usage: worker 140.4 MiB / 0.00% CPU, api 222.4 MiB / 0.10%, postgres 121.1 MiB / 0.00%, redis 7.95 MiB / 0.31%, prometheus 40.78 MiB, grafana 51.62 MiB, alertmanager 14.73 MiB, control-plane 1.049 GiB / 14.33% CPU. All under threshold.
+- DB size: **202 MB** (unchanged vs Fri 19:15 UTC entry).
+
+### §2 Execution + Data Audit
+- **Paper cycles fired today: 0** (Saturday — APScheduler weekday-only job correctly idle). Last weekday cycle window: Fri 2026-05-08 18:30 UTC (BE 18:30 reopen via Phase 75 semantics). Next scheduled: Mon 2026-05-11 09:35 ET / 13:35 UTC (~75h 20m).
+- `evaluation_runs` total: **101** (+1 vs Fri morning entry — 21:00 UTC Fri EOD eval ran legitimately, complete/paper). Floor ≥80 ✅.
+- Portfolio trend (last 12 snapshots, both streams):
+  - Fri 19:30:02 — cash=$12,744.58 / equity=$117,369.35 (legit close ✅ cash positive)
+  - Fri 19:30:00 — cash=$28,939.36 / equity=$100,003.23 (secondary)
+  - Fri 18:30:01 — cash=$12,744.58 / equity=$117,637.19 (legit)
+  - Fri 18:30:00 — cash=$28,939.36 / equity=$100,003.23 (secondary)
+  - Fri 17:30:02 — cash=$28,400.60 / equity=$117,828.79 (legit)
+  - Fri 17:30:00 — cash=$28,939.36 / equity=$100,003.23 (secondary)
+  - Fri 16:00:02 — cash=$28,400.60 / equity=$116,688.88 (legit)
+  - Fri 16:00:00 — cash=$28,939.36 / equity=$100,003.23 (secondary)
+  - Fri 15:30:03 — cash=$13,958.03 / equity=$116,392.52 (legit)
+  - Fri 15:30:00 — cash=$28,939.36 / equity=$100,003.23 (secondary)
+  - Fri 14:30:02 — cash=$23,460.57 / equity=$99,961.83 (secondary)
+  - Fri 13:35:04 — cash=$21,152.61 / equity=$115,913.68 (legit start)
+  - Dual-snapshot writer continues (carry-forward unresolved) — secondary stream cash=$28,939.36 / equity=$100,003.23 unchanged across all 5 cycle pairs Friday.
+- Broker<->DB reconciliation: DB **13 OPEN positions** (4 morning + 4 reopened mid-day + 4 new = same as Fri 19:15 entry); `/api/v1/broker/positions` 404s in this build → fallback to `/health broker=ok` ✅.
+- Origin-strategy stamping: ALL 13 OPEN have `origin_strategy` (12 `rebalance` + 1 `ranking_buy_signal` UNH) ✅. Open set: MRVL/AMD/AMZN/EQIX (Apr 29) + WDC/MU/INTC/NUE (May 1) + VRT (May 7) + UNH/GOOGL/GOOG/BE (May 8).
+- Position caps: 13/15 open ✅. **0 new positions today** (Saturday — expected). Within `APIS_MAX_NEW_POSITIONS_PER_DAY=5`.
+- Data freshness:
+  - `signal_runs` MAX = **2026-05-08 10:30:00.297673 UTC** (Fri morning signal job; Sat skipped — weekday-only).
+  - `ranking_runs` MAX = **2026-05-08 10:45:00.121601 UTC** (Fri morning ranking job; Sat skipped).
+  - `daily_market_bars` MAX = **2026-05-07** (Thu close; Fri ingest fired but Fri close bars only ingest after Fri 17:00 ET / 21:00 UTC; covered=488 securities ✅).
+- Stale tickers: **14 securities `is_active=false`** (HOLX + 13 stale delisted S&P 500). Unchanged.
+- Kill-switch: `false` ✅. Operating mode: `paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+- **Carry-forward NULL-quantity orders (YELLOW carry-forward, no new today):** 4 FILLED OPEN BUYs from Fri remain NULL-qty:
+  - GOOGL buy filled 2026-05-08 13:35:00.001115 notional=$7724.24 idem=`0ff6a782bcdd4e2ea6c10431cdac2172:GOOGL:buy`
+  - GOOG buy filled 2026-05-08 13:35:00.001115 notional=$7724.24 idem=`0ff6a782bcdd4e2ea6c10431cdac2172:GOOG:buy`
+  - UNH buy filled 2026-05-08 17:30:00.001205 notional=$7854.72 idem=`5c38137134134487ab76cf452d9c38ef:UNH:buy`
+  - BE buy filled 2026-05-08 17:30:00.001205 notional=$7854.72 idem=`5c38137134134487ab76cf452d9c38ef:BE:buy`
+  - Lifetime NULL-qty FILLED total: **27 rows** (4 of these from Fri's second-writer-path).
+  - Today's orders ledger: **0 rows** (Sat — expected).
+- **Carry-forward NULL `realized_pnl` closes (YELLOW carry-forward):** 2 closed positions from Fri 16:00 UTC remain unresolved:
+  - UNH closed 2026-05-08 16:00:00.000810 — realized_pnl=NULL, exit_price=NULL
+  - BE closed 2026-05-08 16:00:00.000707 — realized_pnl=NULL, exit_price=NULL
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). `alembic current` and `alembic heads` agree.
+- Pytest smoke: **382 passed / 0 failed / 3670 deselected** in 23.14s (filter: `deep_dive or phase22 or phase57 or phase77_78 or phase79`, `--no-cov`, `APIS_PYTEST_SMOKE=1` inside `docker-api-1`) ✅ matches baseline.
+- Git: tree DIRTY on `apis/apps/worker/jobs/paper_trading.py` (Phase 81-A diagnostic, operator-deferred commit) + `apis/state/ACTIVE_CONTEXT.md` + `apis/state/HEALTH_LOG.md` + `state/HEALTH_LOG.md` + `outputs/` untracked. HEAD `8a892db` ("Phase 79 + 80: rebalance idempotency on open positions + orders ledger NULL-quantity fix (DEC-079 / DEC-080)"), 0 unpushed commits. No stale branches.
+- **GitHub Actions CI:** Run **#25459511595** on `8a892db` — `status=completed, conclusion=success` ✅ (https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25459511595). Unchanged since Fri 13:10 UTC entry — no new pushes.
+
+### §4 Config + Gate Verification
+- All 11 critical APIS_* flags at expected values (read directly from `docker-worker-1` env):
+  - `APIS_OPERATING_MODE=paper` ✅, `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅, `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅, `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_MAX_SECTOR_PCT=0.40` ✅, `APIS_MAX_SINGLE_NAME_PCT=0.20` ✅, `APIS_MAX_POSITION_AGE_DAYS=20` ✅
+  - `APIS_DAILY_LOSS_LIMIT_PCT=0.02` ✅, `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05` ✅
+- Scheduler `job_count=36` per `apis_worker_started` at 2026-05-08T14:29:52.973070Z (legitimate baseline post-Phase-71).
+- Liveness heartbeat: `worker:scheduler_heartbeat=1778321692` ≈ 2026-05-09T10:14:52Z, age 51 sec ✅ (well under 10-min threshold).
+
+### Issues Found
+1. **NULL-quantity FILLED OPEN orders (YELLOW carry-forward).** 4 orders from Fri remain in DB with `quantity IS NULL` despite `status='filled'`. Root cause: second writer path running OUTSIDE both APIS containers (per Fri 19:15 UTC cross-container grep). No new occurrences today (Saturday — no cycles). **Operator action required (URGENT) — find and silence the host-side writer process.**
+2. **NULL `realized_pnl` on 2 closes (YELLOW carry-forward).** BE + UNH closed 2026-05-08 16:00 UTC with realized_pnl/exit_price both NULL. Closed-trade ledger writer at `paper_trading.py:2081-2122` silent-failed during cycle 4. Carry-forward.
+3. **`broker_health_position_drift` carry-forward (YELLOW).** Same 13-ticker drift signature continues from Thu through Fri close. Phase 75 deduplication is structurally upstream; first opportunity for it to clear is Mon 13:35 UTC first cycle.
+4. **Phase 79 idempotency worker-restart race (YELLOW carry-forward from Fri 15:20 UTC).** Cycle 2 on Fri re-OPENed AMZN/AMD/INTC/MU/UNH against carry-forward sizes 12 sec after worker restart at 14:29:50 UTC; Phase 73 restore had not completed → `held_in_state OR held_in_broker` evaluated False. Mitigation pending: gate cycle execution on a `phase73_restore_complete` Redis sentinel OR add a DB-SELECT fallback inside Phase 79 guard. Won't fire again until next worker restart coincident with cycle window.
+
+### Fixes Applied
+- (none autonomously — all four open issues are operator-led investigations carried forward from Friday; nothing actionable on a quiet weekend probe.)
+
+### Action Required from Aaron
+Unchanged from Fri 19:15 UTC entry:
+1. **URGENT — find the second writer process.** Probe sequence on Windows host:
+   - `Get-Process python*` — leftover python.exe processes.
+   - `Get-ScheduledTask | Where-Object { $_.TaskName -like '*apis*' -or $_.TaskName -like '*paper*' }` — leftover Windows scheduled task from pre-Docker era.
+   - `docker exec apis-control-plane ps -ef` — confirm control-plane is init-only.
+   - Audit `decision_snapshot_json` of one of the second-writer rows: `SELECT decision_snapshot_json FROM orders WHERE idempotency_key LIKE '0ff6a782%' OR idempotency_key LIKE '5c381371%' LIMIT 1;`
+   - When found: capture command-line + PID before terminating, then `Stop-Process` to silence.
+2. **Patch Phase 79 to handle worker-restart races.** Either gate cycle execution on a `phase73_restore_complete` sentinel (Redis key flipped after restore finishes) OR fall back to a DB SELECT `WHERE status='open'` directly inside Phase 79's check.
+3. **Investigate closed_trade ledger NULL realized_pnl** for the BE + UNH 16:00 closes. Grep cycle 4 logs for `closed_trade_recording_failed`.
+4. **Commit + push Phase 81-A diagnostic** (still has value once second writer is silenced — catches future regressions on the legit path). Suggested message: `diag(phase80): unconditional writer entry + call cardinality logs (Phase 81-A)`.
+5. **Send the YELLOW Gmail draft** (auto-created in §6) for visibility.
+
+### §6 Email Alert
+- YELLOW status (carry-forward) — Gmail draft created via Gmail MCP `create_draft` to `aaron.wilson3142@gmail.com` with subject `[APIS YELLOW] Daily Health Check — 2026-05-09 10:15 UTC (carry-forward)`. Manual send required.
+
+### §7+§8 State + Memory + Final Checklist
+- HEALTH_LOG.md updated in BOTH locations ✅.
+- No autonomous fixes applied — pure carry-forward from Fri.
+- Pytest smoke 382/0/3670 ✅.
+- CI run #25459511595 conclusion=success ✅.
+- YELLOW email draft created (manual send required).
+- Git tree dirty: `paper_trading.py` (Phase 81-A) + ACTIVE_CONTEXT + HEALTH_LOG x2 + outputs — operator-deferred per convention.
+- **No new lessons learned today** — this is a quiet-weekend carry-forward verification. Memory `project_phase80_incomplete_fix_2026-05-07.md` already reflects Fri's escalation; no edit needed.
+
+---
+
+## Health Check — 2026-05-08 19:15 UTC (Friday 2:15 PM CT, mid-afternoon, post cycles 1-5)
+
+**Overall Status:** YELLOW — **major escalation: second-writer-path hypothesis CONCLUSIVELY CONFIRMED.** 3rd-of-3 weekday deep-dive (2 PM CT). The 17:30 UTC paper cycle (cycle 5) produced 2 NEW NULL-qty FILLED OPEN BUYs (BE + UNH, both notional $7854.72, idem prefix `5c381371...`) — yet `docker-worker-1` logs for cycle_id `14b8869b389c41abbfb99a335a2eb799` at 17:30:00 show `proposed_count=6, approved_count=0, executed_count=0` (all 6 rebalance OPENs blocked by `max_new_positions_per_day` cap). The 2 orders rows carry cycle_id `5c38137134134487ab76cf452d9c38ef` which is **NOT in docker-worker-1 logs, NOT in docker-api-1 logs**. Cross-grep against `0ff6a782bcdd4e2ea6c10431cdac2172` (cycle 1 NULL-qty path) returns the same answer: not in either container. By contrast, the qty-populated rebalance cycle_ids (`58a857ed...` for cycle 1, `f26a6dfa...` for cycle 2) ARE in worker logs with full Phase 81-A diagnostic firings. This rules out the 15:20 UTC "internal dual-invocation in run_paper_trading_cycle" hypothesis and proves a **second writer path running outside docker-worker-1 / docker-api-1 entirely** is writing FILLED orders into the DB with NULL quantities. Stack itself GREEN: 8/8 containers healthy (all 4 core services Up 5h since 14:29:50Z RestartCount=0); /health 7/7 ok at 19:08:02Z mode=paper; worker tail-5000 73 ERR / 0 crash-triad; Prometheus 2/2 up; Alertmanager firing=0; resources fine; DB 202 MB. Pytest 382/0/3670 ✅. Alembic `q7r8s9t0u1v2` single head ✅. CI run #25459511595 on `8a892db` `conclusion=success` ✅. All 11 critical APIS_* flags correct. Scheduler `job_count=36`. Heartbeat fresh (1778267392 ≈ 19:09:52Z). 13 OPEN positions (+8 vs 15:20 entry — Phase 75 reopen-if-closed semantics restored MRVL/AMD/AMZN/EQIX/WDC/MU/INTC/NUE/VRT after cycle-2 close-then-reopen + 4 new today UNH/GOOGL/GOOG/BE). 4 new positions today ✅ within `APIS_MAX_NEW_POSITIONS_PER_DAY=5`. Cash legitimate stream $21,152.61 → $12,744.58 (cycle 6 EOD) — math reconciling. 2 closes at cycle 4 (16:00 UTC, BE + UNH) both with NULL `realized_pnl` carry-forward. NO autonomous fixes applied — root cause investigation now requires host-side process discovery, outside scheduled-task autonomy. YELLOW Gmail draft created.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy. All 4 core services Up 5 hours since 2026-05-08T14:29:50Z restart (RestartCount=0). grafana/prom/alertmanager/control-plane same. No new restarts since 15:20 entry.
+- /health: all 7 components `ok` at 2026-05-08T19:08:02.459984+00:00. mode=paper, kill_switch=ok, broker=ok, broker_auth=ok, db=ok, scheduler=ok, paper_cycle=ok, system_state_pollution=ok.
+- Worker log scan (tail-5000): **73 ERROR/CRITICAL** — yfinance carry-forward + restart-burst noise. **0 crash-triad** across all 5 patterns.
+- Phase 81-A diagnostic in worker tail-5000: 1 hit (cycle 5 `phase80_writer_call cycle_id=14b8869b... n_approved=0 n_results=0` — the qty-populated invocations from cycles 1-2 have rolled out of the tail-5000 window since 15:20 entry).
+- `broker_health_position_drift`: 1 hit in tail-5000 (carry-forward; same 12-position drift signature at 17:30:00.012Z; older cycles rolled out of window).
+- Prometheus: 2/2 targets up (apis @ api:8000, prometheus @ localhost:9090). 0 dropped.
+- Alertmanager: **0 active alerts** at `/api/v2/alerts` → `[]`. Phase 73 `for: 30m` debounce active.
+- Resource usage: worker 138 MiB / 0.00% CPU, api 193 MiB / 0.13%, postgres 119 MiB, control-plane 961 MiB / 14.32% CPU. All under threshold.
+- DB size: **202 MB** (unchanged vs 15:20 entry).
+
+### §2 Execution + Data Audit
+- **Paper cycles fired today (orders ledger view):** 5 cycle windows produced rows.
+  - 13:35 UTC — 8 orders (2 NULL-qty BUY, 5 qty-populated BUY, 1 SELL — TWO cycle_ids: `0ff6a782` (3 NULL/SELL, NOT in worker logs) + `58a857ed` (5 BUY qty-populated, IN worker logs with phase80_writer_call))
+  - 14:30 UTC — 5 orders, all qty-populated, single cycle_id `f26a6dfa` IN worker logs
+  - 15:30 UTC — 3 SELLs, two cycle_ids (`11c6964a` = INTC SELL, `d7705af2` = BE+UNH SELL)
+  - 16:00 UTC — 1 SELL rejected (BE) cycle_id `caf992de`
+  - 17:30 UTC — **2 NEW NULL-qty FILLED OPEN BUYs (BE + UNH, both notional $7854.72)** cycle_id `5c38137134134487ab76cf452d9c38ef` — **NOT in worker logs, NOT in api logs**. Worker's 17:30 cycle_id is `14b8869b...` with `proposed=6 approved=0 executed=0` — all 6 rebalance OPENs blocked by `max_new_positions_per_day` cap.
+- **Cycle 6 (18:30 UTC):** worker emitted no orders rows but a NEW position BE 29@$269.39 (origin=rebalance, opened_at=18:30:00.000881) materialized — likely Phase 75 reopen-if-closed of the BE row closed at 16:00 from a fill not visible in orders ledger.
+- `evaluation_runs` total: **100** (unchanged ✅; ≥80 floor; paper cycles don't write here).
+- Portfolio trend (legitimate stream, 11 snapshots today, cash math reconciling):
+  - 18:30:01 — cash=$12,744.58 / equity=$117,637.19
+  - 17:30:02 — cash=$28,400.60 / equity=$117,828.79
+  - 16:00:02 — cash=$28,400.60 / equity=$116,688.88
+  - 15:30:03 — cash=$13,958.03 / equity=$116,392.52
+  - 14:30:02 — cash=$23,460.57 / equity=$99,961.83 (secondary)
+  - 13:35:04 — cash=$21,152.61 / equity=$115,913.68 (legit start)
+  - **Cash IS reconciling now** vs 15:20 entry's "cash didn't drop" finding. Legitimate stream tracks $21,152.61 → $13,958.03 → $28,400.60 → $12,744.58 movements consistent with 5 BUYs + 3 SELLs.
+- Broker<->DB reconciliation: DB **13 OPEN positions** (5 morning + 4 reopened mid-day + 4 new today). `/health broker=ok` per fallback.
+- Origin-strategy stamping: ALL 13 OPEN have `origin_strategy` (12 `rebalance` + 1 `ranking_buy_signal` UNH 21@$373.51) ✅.
+- Position caps: 13/15 open ✅. **4 new positions today** (UNH 14:30, GOOGL 15:30, GOOG 15:30, BE 18:30) within `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅. Cycle 5 risk engine correctly blocked 6 rebalance OPENs because cap was already 4 → would have hit 10 if approved.
+- Data freshness:
+  - `signal_runs` MAX = **2026-05-08 10:30:00.297673 UTC** ✅
+  - `ranking_runs` MAX = **2026-05-08 10:45:00.121601 UTC** ✅
+- Stale tickers: 14 `is_active=false`. Unchanged.
+- Kill-switch: `false` ✅. Operating mode: `paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+- **NEW: Second writer path conclusively confirmed (YELLOW, escalated).** Cross-container log grep proves cycle_ids `0ff6a782...` (cycle 1 NULL-qty path) and `5c38137134...` (cycle 5 NULL-qty path) are NOT present in either `docker-worker-1` or `docker-api-1` logs, yet their orders rows are in the DB. The qty-populated rebalance cycle_ids (`58a857ed`, `f26a6dfa`) ARE in worker logs. This rules out the 15:20 UTC "internal dual-invocation in run_paper_trading_cycle" hypothesis. The second writer is running OUTSIDE the two known APIS containers — likely a host-side python process (pre-Docker-migration relic, or a leftover from path migration), or a stale/zombie scheduled task, or `apis-control-plane` reaching past its init role. Both NULL-qty cycle_ids share the structural fingerprint: rebalance_open OPENs with notional only (no target_quantity) → fill quantity not derivable → NULL persisted.
+- **Phase 79 idempotency NOT firing on cycle 5 (carry-forward + new evidence)**: BE+UNH at 17:30 are technically NOT already-held (BE was closed 15:30, UNH closed 16:00) so Phase 79 wouldn't apply. But the second-writer path doesn't apply Phase 79 *at all* — it bypasses worker-side filtering entirely.
+- **2 closes today with NULL `realized_pnl`** (BE 16:00, UNH 16:00). Carry-forward of cycle 4 close-loop NULL-pnl pattern.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). No drift.
+- Pytest smoke: **382 passed / 0 failed / 3670 deselected** in 23.92s (filter: `deep_dive or phase22 or phase57 or phase77_78 or phase79`, `--no-cov`, `APIS_PYTEST_SMOKE=1` inside `docker-api-1`) ✅ matches baseline.
+- Git: tree DIRTY on `apis/apps/worker/jobs/paper_trading.py` (Phase 81-A diagnostic, operator-deferred commit) + `apis/state/ACTIVE_CONTEXT.md` + `apis/state/HEALTH_LOG.md` + `state/HEALTH_LOG.md` + `outputs/` untracked. HEAD `8a892db`, 0 unpushed.
+- **GitHub Actions CI:** Run **#25459511595** on `8a892db` — `status=completed, conclusion=success` ✅ (https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25459511595). Unchanged since 13:10 UTC entry.
+
+### §4 Config + Gate Verification
+- All 11 critical APIS_* flags at expected values:
+  - `APIS_OPERATING_MODE=paper` ✅, `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅, `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅, `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_MAX_SECTOR_PCT=0.40` ✅, `APIS_MAX_SINGLE_NAME_PCT=0.20` ✅, `APIS_MAX_POSITION_AGE_DAYS=20` ✅
+  - `APIS_DAILY_LOSS_LIMIT_PCT=0.02` ✅, `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05` ✅
+- Scheduler `job_count=36` per `apis_worker_started` at 2026-05-08T14:29:52.973Z (legitimate baseline post-Phase-71).
+- Liveness heartbeat: `worker:scheduler_heartbeat=1778267392` ≈ 2026-05-08T19:09:52Z. Fresh ✅.
+
+### Issues Found
+1. **Phase 80 incomplete fix CONFIRMED — second writer path runs OUTSIDE docker-worker-1 / docker-api-1 (YELLOW, escalated specificity vs 15:20 UTC entry).** Cycle-id grep across both APIS containers proves `0ff6a782...` (cycle 1 morning) and `5c38137134...` (cycle 5 afternoon) are NOT generated by either container. Worker's actual cycle 5 (`14b8869b...`) shows `n_approved=0 n_results=0` because risk_engine blocked all 6 rebalance OPENs on `max_new_positions_per_day` — yet 2 orders rows materialized at 17:30 anyway. Phase 81-A diagnostic at line 393/2023 in `paper_trading.py` cannot fire on this path because the writer isn't going through `paper_trading.py` at all. **This finding fundamentally changes the Phase 81 fix shape — patching `paper_trading.py` will not solve the bug; the second writer must be located and either silenced or aligned.**
+2. **Phase 79 idempotency NOT firing on cycle 2 (carry-forward from 15:20 UTC).** Cycle 2 (14:30) re-OPENed AMZN/AMD/INTC/MU/UNH against carry-forward sizes 12 sec after worker restart — Phase 73 position-restore likely incomplete. Phase 79's `held_in_state OR held_in_broker` evaluated False. Mitigation: schedule cycle to wait for Phase 73 restore completion (Redis sentinel) or add DB SELECT fallback into Phase 79 guard.
+3. **2 closes at 16:00 with NULL `realized_pnl`** (BE, UNH). Cycle 4 close-loop closed_trade ledger writer (lines 2081-2122) silent-failed.
+4. **`broker_health_position_drift` carry-forward (YELLOW).** Same 12-ticker drift signature continues across cycles.
+5. **NEW: BE same-day round-trip (informational).** BE was a rebalance position closed at 15:30 SELL → SELL rejected at 16:00 → BUY filled at 17:30 (NULL-qty by second-writer-path) → position created at 18:30. Could be a Phase 65b/66 dedup gap on rebalance round-trips, but the second-writer path makes the dedup logic structurally bypass-able.
+
+### Fixes Applied
+- (none autonomously — second-writer-path discovery requires host-process inventory + correlation, which is operator-led code investigation outside scheduled-task autonomy.)
+
+### Action Required from Aaron
+1. **Find the second writer process URGENT.** Suggested probe sequence:
+   - `Get-Process python*` on the Windows host — look for any leftover python.exe processes.
+   - `Get-ScheduledTask | Where-Object { $_.TaskName -like '*apis*' -or $_.TaskName -like '*paper*' }` — leftover Windows scheduled task from pre-Docker era.
+   - `docker exec apis-control-plane ps -ef` — confirm control-plane really is init-only.
+   - Audit the `decision_snapshot_json` of one of the second-writer rows for any user/host fingerprint (e.g., probe `WHERE idempotency_key LIKE '5c381371%'`).
+   - If found, capture the process command-line and PID before terminating; then `Stop-Process` to silence, and re-run cycle 1 of next weekday morning to verify NULL-qty rows stop appearing.
+2. **Patch Phase 79 to handle worker-restart races** (carry-forward from 15:20 UTC). Either gate cycle execution on a `phase73_restore_complete` sentinel (Redis key flipped after restore finishes) OR fall back to a DB SELECT `WHERE status='open'` directly inside Phase 79's check rather than relying on in-memory `portfolio_state.positions`.
+3. **Investigate closed_trade ledger NULL realized_pnl** (carry-forward). Grep cycle 4 (16:00) logs for `closed_trade_recording_failed`. Affected closes: BE (16:00, NULL), UNH (16:00, NULL).
+4. **Commit + push Phase 81-A** (carry-forward). Suggested message: `diag(phase80): unconditional writer entry + call cardinality logs (Phase 81-A)`. Note: Phase 81-A still has value because once the second writer is found and silenced, the in-process diagnostic remains useful for catching any future regression on the legit path.
+5. **Send the YELLOW Gmail draft** (auto-created in §6) for visibility.
+
+### §6 Email Alert
+- YELLOW status — Gmail draft created via Gmail MCP `create_draft` to `aaron.wilson3142@gmail.com` with subject `[APIS YELLOW] Daily Health Check — 2026-05-08 19:15 UTC`. Manual send required.
+
+### §7+§8 State + Memory + Final Checklist
+- HEALTH_LOG.md updated in BOTH locations ✅.
+- No autonomous fixes applied — second-writer-path discovery is operator-led.
+- Pytest smoke 382/0/3670 ✅.
+- CI run #25459511595 conclusion=success ✅.
+- YELLOW email draft created (manual send required).
+- Git tree dirty: `paper_trading.py` (Phase 81-A) + ACTIVE_CONTEXT + HEALTH_LOG x2 + outputs — operator-deferred per convention.
+- **NEW LESSON for memory:** the dual-invocation finding from 15:20 UTC was wrong about its location — the second writer is OUTSIDE both docker-worker-1 and docker-api-1, not internal to `paper_trading.py`. `project_phase80_incomplete_fix_2026-05-07.md` updated with cross-container grep evidence.
+
+---
+
+## Health Check — 2026-05-08 15:20 UTC (Friday 10:20 AM CT, mid-session, post cycles 1+2)
+
+**Overall Status:** YELLOW — **breakthrough finding: dual-invocation of `run_paper_trading_cycle` on cycle 1 confirmed via Phase 81-A.** 3rd-of-3 weekday deep-dive. The 13:35 UTC cycle window produced TWO distinct `cycle_id`s (`0ff6a782...` at 13:35:00.001115 with 3 orders, then `58a857ed...` at 13:35:00.001132 with 5 orders) — only ONE writer call (the second/rebalance one) emitted Phase 81-A `phase80_writer_call` + `phase80_writer_entry` log lines, despite both producing orders rows that share the same `_DBOrder` constructor at `paper_trading.py:471` (the only writer in the codebase per cross-repo `_DBOrder`/`Order(` grep). Cycle 2 (14:30) was a SINGLE invocation (`f26a6dfa...`, 5 orders, all qty populated correctly). **NEW evidence:** the 2 NULL-qty FILLED OPENs today (GOOGL + GOOG at 13:35:00.001115) carry idempotency_key prefix `0ff6a782...`; the 5 quantity-populated rebalance OPENs at 13:35:00.001132 carry prefix `58a857ed...` — different cycle_ids = different `run_paper_trading_cycle` invocations. **NEW POSITIVE: Phase 81-A diagnostic confirmed working** for the path that fires it: 12 log lines (2 × `phase80_writer_call`, 10 × `phase80_writer_entry`) across cycles 1+2, status_repr=`<ExecutionStatus.FILLED: 'filled'>`, status_type=`ExecutionStatus`, `fill_qty` non-NULL ("59"/"36"/"135"/"22"/"40"/"40"/"35"/"132"/"21"/"40") on every entry → enum-comparison hypothesis is RULED OUT, and Phase 80 fix at line 428 IS persisting fill_qty correctly when the diagnostic-decorated path is used. **NEW NEGATIVE — additional findings beyond NULL-qty:** (a) **Phase 79 idempotency NOT firing on cycle 2** — cycle 2 OPENed the EXACT 5 tickers (AMZN/AMD/INTC/MU/UNH) with EXACT same quantities already held in DB; zero `phase79_rebalance_open_already_open_skipped` log lines; cycle 2 fired only 12 sec after worker restart at 14:29:50 UTC, so most likely Phase 73 position-restore had not yet completed when cycle 2's Phase 79 check ran (`portfolio_state.positions` empty + broker positions empty post-restart → `held_in_state OR held_in_broker` evaluated False). (b) **6 cycle-2 closes with NULL `realized_pnl`** (VRT/BE/MRVL/WDC/EQIX/NUE all closed at 14:30:00.001512 with `realized_pnl IS NULL`) — separate writer-path bug, possibly the same dual-invocation issue. Stack itself: 8/8 containers healthy (all 4 core services started 2026-05-08T14:29:50.0Z RestartCount=0 — operator-driven `docker compose up -d --force-recreate`); /health 7/7 ok; worker tail-5000 73 ERR / api tail-3000 34 ERR (all yfinance carry-forward + restart-burst); **0 crash-triad** across all 5 patterns; Prometheus 2/2 up; Alertmanager firing=0; resources fine; DB **202 MB**. Pytest 382/0/3670 ✅ matches baseline. Alembic `q7r8s9t0u1v2` single head ✅. CI run #25459511595 on `8a892db` `conclusion=success` ✅. All 11 critical APIS_* flags correct. Scheduler `job_count=36` from `apis_worker_started` at 14:29:52.973Z. Heartbeat fresh (1778253065 ≈ 15:11:05Z). Cash $21,152.61 legitimate stream (carry-forward from Thu); equity $115,913.68 cycle-1 then $99,961.83 cycle-2 secondary stream — note **cash did NOT drop** despite 13 BUY orders today, confirming the orders ledger is NOT mirroring actual broker cash deduction (orders are being written but cash math doesn't reconcile against them). 5 OPEN positions (down from 11 yesterday — 6 closed at 14:30 cycle 2). 0 new positions today (rebalance OPENs against already-held tickers persist as orders rows but no new position rows). Idempotency clean. NO autonomous fixes applied this run — root cause is now sufficiently scoped (dual-invocation source) for an operator-led Phase 81 fix; uncommitted Phase 81-A diagnostic remains in working tree. YELLOW Gmail draft to be created.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy. **All 4 core services restarted in tandem at 2026-05-08T14:29:50.0Z** (worker/api/postgres/redis StartedAt within 20ms of each other; RestartCount=0 across all → operator-driven `docker compose up -d --force-recreate`, NOT a crash). This is the THIRD restart today after 02:24 UTC (Phase 81-A deploy) and 13:06 UTC (carry-over). grafana/prom/alertmanager/control-plane Up 38m (same restart event).
+- /health: all 7 components `ok` at 2026-05-08T15:08:31.824632+00:00. mode=paper, kill_switch=ok, broker=ok, broker_auth=ok, db=ok, scheduler=ok, paper_cycle=ok, system_state_pollution=ok.
+- Worker log scan (5000 tail): **73 ERROR/CRITICAL** matches — yfinance stale-ticker carry-forward (14 inactive securities) + restart-burst noise. **0 crash-triad** across all 5 patterns (`_fire_ks` / `broker_adapter_missing_with_live_positions` / `EvaluationRun.idempotency_key` / `paper_cycle.*no_data` / `phantom_cash_guard_triggered` all 0).
+- API log scan (3000 tail): **34 ERROR/CRITICAL**, 0 crash-triad.
+- Phase 81-A diagnostic: **12 firings** (2 × `phase80_writer_call`, 10 × `phase80_writer_entry`) covering cycles 1+2's rebalance-path writer call. Critically the FIRST cycle 1 invocation (`0ff6a782...`) bypassed the diagnostic entirely.
+- `broker_health_position_drift`: **9 firings** in tail-5000 (carry-forward; same 11-position drift signature, latest 14:30:00.099Z).
+- Prometheus: 2/2 targets up.
+- Alertmanager: **0 active alerts** at `/api/v2/alerts` → `[]`. Phase 73 `for: 30m` debounce active.
+- Resource usage: worker 134.3 MiB / 0.00% CPU, api 181 MiB / 0.24%, postgres 118.8 MiB, control-plane 930.2 MiB / 12.36% CPU. All under threshold.
+- DB size: **202 MB** (unchanged vs morning).
+
+### §2 Execution + Data Audit
+- Paper cycles fired today: **2 cycle windows** (13:35 + 14:30 UTC), but **3 distinct `cycle_id`s** in `orders` table:
+  - `0ff6a782bcdd4e2ea6c10431cdac2172` at 13:35:00.001115 → 3 orders (GOOGL BUY NULL, GOOG BUY NULL, UNH SELL 21 — all `action_type=open`, `reason=rebalance_open: drift=-6.67%`). **Did NOT emit Phase 81-A diagnostic.**
+  - `58a857ed01f0432e882909762cdec10f` at 13:35:00.001132 → 5 orders (AMZN/AMD/INTC/MU/UNH BUY, all rebalance OPENs with non-NULL qty). Emitted `phase80_writer_call` + 5 × `phase80_writer_entry`.
+  - `f26a6dfab76d40aea6df5a90d251f8cb` at 14:30:00.001512 → 5 orders (same 5 tickers as cycle 1 invocation 2; Phase 79 should have suppressed but didn't). Emitted `phase80_writer_call` + 5 × `phase80_writer_entry`.
+- `evaluation_runs` total: **100** (≥80 floor ✅; unchanged — paper cycles don't write here, last entry Thu 21:00 UTC EOD eval).
+- Portfolio trend (last 4 rows, both streams):
+  - 2026-05-08 14:30:02.964 — cash=$23,460.57 / equity=$99,961.83 (secondary stream)
+  - 2026-05-08 13:35:04.534 — cash=$21,152.61 / equity=$115,913.68 (legitimate stream — carry-forward from Thu 19:30 UTC)
+  - 2026-05-08 13:35:03.980 — cash=$23,109.60 / equity=$99,961.65 (secondary)
+  - 2026-05-07 19:30:02.497 — cash=$21,152.64 / equity=$113,054.81 (Thu legitimate close)
+  - **Cash did NOT drop** despite 13 BUY orders today (5 + 5 rebalance OPENs against already-held + 2 GOOGL/GOOG NULL-qty BUYs + 1 UNH SELL). Confirms orders are written but broker cash math is not driven from them — they're "phantom orders" against an already-correct broker cash position.
+- Broker<->DB reconciliation: DB shows **5 OPEN positions** (down from 11 yesterday — 6 closed at cycle 2: VRT/BE/MRVL/WDC/EQIX/NUE all with NULL `realized_pnl`). `/health broker=ok` + DB count fallback (`/api/v1/broker/positions` 404 in this build).
+- Origin-strategy stamping: ALL 5 OPEN have `origin_strategy` (4 `rebalance` + 1 `momentum_v1` UNH) ✅.
+- Position caps: 5/15 open ✅. **0 new positions today** (cycle 1+2 BUYs are duplicates against already-held tickers — wrote orders but no new position rows). Within `APIS_MAX_NEW_POSITIONS_PER_DAY=5`.
+- Data freshness:
+  - `signal_runs` MAX = **2026-05-08 10:30:00.297673 UTC** ✅ (today's signal job).
+  - `ranking_runs` MAX = **2026-05-08 10:45:00.121601 UTC** ✅.
+  - `daily_market_bars` (Thu close) carry-forward — Fri 17:00 ET ingest fires at 21:00 UTC (~5h 40m from now).
+- Stale tickers: 14 securities `is_active=false` (HOLX + 13 stale delisted S&P 500). Unchanged.
+- Kill-switch: `false` ✅. Operating mode: `paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+- **NEW: Dual-invocation of `run_paper_trading_cycle` on cycle 1** (YELLOW). Two distinct `cycle_id`s within ~17μs of each other; the FIRST (`0ff6a782...`) generates 3 orders (2 NULL-qty OPENs + 1 SELL) and bypasses Phase 81-A; the SECOND (`58a857ed...`) generates 5 orders (all qty) and emits Phase 81-A. Cycle 2 was single-invocation. Cross-repo grep confirms ONE writer (`paper_trading.py:471`) — meaning both cycle-1 invocations call the same function, but only one path emits the diagnostic. Hypothesis: stale `__pycache__/` for the first invocation OR the diagnostic line was added *after* invocation 1 entered the function-load path (unlikely — bind-mount + Python import semantics rule it out). More likely: the first invocation runs through a code path that returns from `_persist_orders_and_fills` *before* reaching the diagnostic — but lines 371 (`if not approved_requests: return`) doesn't fit because we observe orders rows for that cycle_id. Most likely: a SECOND `_persist_orders_and_fills`-like writer exists somewhere not picked up by today's pattern grep (possibly an older shadow-portfolio-style writer or a dynamic-import in a service module).
+- **NEW: Phase 79 idempotency NOT firing on cycle 2** (YELLOW). Cycle 2 OPENed AMZN(59) + AMD(35) + INTC(132) + MU(21) + UNH(40) — all already in DB at exact carry-forward sizes. Zero `phase79_rebalance_open_already_open_skipped` lines in tail-5000. Most plausible explanation: Phase 73 position-restore had not yet completed by 14:30:00 (12 sec after 14:29:50 worker restart), so `portfolio_state.positions` was empty + broker `list_positions()` was empty → Phase 79's `held_in_state OR held_in_broker` evaluated False for all 5 tickers and the actions proceeded.
+- **NEW: 6 closes at 14:30 with NULL `realized_pnl`** (YELLOW informational). VRT/BE/MRVL/WDC/EQIX/NUE all closed via cycle 2 with realized_pnl=NULL. Separate writer-path issue or the closed_trade ledger writer at line 2081 didn't fire / failed silently.
+- **CARRY-FORWARD: `broker_health_position_drift`** continues firing.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). No drift.
+- Pytest smoke: **382 passed / 0 failed / 3670 deselected** in 28.64s (filter: `deep_dive or phase22 or phase57 or phase77_78 or phase79`, `--no-cov`, `APIS_PYTEST_SMOKE=1` inside `docker-api-1`) ✅ matches baseline.
+- Git: tree DIRTY on `apis/apps/worker/jobs/paper_trading.py` (Phase 81-A diagnostic, operator-deferred commit) + `apis/state/HEALTH_LOG.md` + `state/HEALTH_LOG.md` + `outputs/` untracked. HEAD `8a892db`, 0 unpushed.
+- **GitHub Actions CI:** Run **#25459511595** on `8a892db` — `status=completed, conclusion=success` ✅ (https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25459511595). No new pushes since 13:10 UTC entry.
+
+### §4 Config + Gate Verification
+- All 11 critical APIS_* flags at expected values (paper / kill=false / 15 / 5 / 0.75 / 0.30 / 0.40 / 0.20 / 20 / 0.02 / 0.05) ✅.
+- Scheduler `job_count=36` per `apis_worker_started` at 2026-05-08T14:29:52.973Z (legitimate baseline post-Phase-71).
+- Liveness heartbeat: `worker:scheduler_heartbeat=1778253065` ≈ 2026-05-08T15:11:05Z. Fresh ✅.
+
+### Issues Found
+1. **Phase 80 incomplete fix CONFIRMED via dual-invocation evidence** (YELLOW, escalated specificity). The 2 NULL-qty FILLED OPEN BUYs today (GOOGL + GOOG) come from `cycle_id=0ff6a782bcdd4e2ea6c10431cdac2172` at 13:35:00.001115 — the FIRST of TWO concurrent `run_paper_trading_cycle` invocations on cycle 1. The dual-invocation appears to be a scheduler/worker race or an action-engine vs rebalance-engine split that fires `_persist_orders_and_fills` twice with different `cycle_id`s. The second invocation (rebalance) fires Phase 81-A and writes correct quantities; the first invocation (likely action_engine for momentum/theme) bypasses Phase 81-A entirely. Cycle 2 was single-invocation and worked correctly.
+2. **Phase 79 idempotency NOT firing on cycle 2** (YELLOW). 5 same-ticker OPENs (AMZN/AMD/INTC/MU/UNH) re-emitted with carry-forward quantities. Strong evidence Phase 73 position-restore had not yet completed by cycle 2 start (12 sec after 14:29:50 restart), so Phase 79's `held_in_state OR held_in_broker` check ran against empty state. Suggested mitigation: schedule cycle to wait for Phase 73 restore completion (or add a Phase 73-restore-complete sentinel into the Phase 79 guard).
+3. **6 closes at 14:30 with NULL `realized_pnl`** (YELLOW informational). VRT/BE/MRVL/WDC/EQIX/NUE — closed_trade ledger writer at lines 2081-2122 likely silent-failed. Worth grepping `closed_trade_recording_failed` in subsequent runs.
+4. **`broker_health_position_drift` carry-forward** (YELLOW). Persistent across 9 cycles in tail-5000.
+
+### Fixes Applied
+- (none autonomously — root cause now sufficiently scoped that operator-led Phase 81 fix to find and patch the second-invocation writer is the right next step; this is code-investigation work outside scheduled-task autonomy.)
+
+### Action Required from Aaron
+1. **Investigate dual-invocation root cause.** Grep `apps/worker/main.py` + APScheduler config for whether cycle 1's window fires `run_paper_trading_cycle` more than once. The two `cycle_id`s 17μs apart strongly suggest two function entries with separate UUID generation. If APScheduler isn't double-firing, look for an INTERNAL re-entry (e.g., action_engine sub-cycle that calls `_persist_orders_and_fills` on its own slate of approved actions). Once the second-invocation path is identified, ensure it ALSO uses `qty = res.fill_quantity if res.fill_quantity else req.action.target_quantity` (Phase 80 fix) and emits `phase80_writer_entry` for full diagnostic coverage.
+2. **Patch Phase 79 to handle worker-restart races.** Either gate cycle execution on a `phase73_restore_complete` sentinel (Redis key flipped after position-restore finishes) OR fall back to a DB SELECT `WHERE status='open'` directly inside Phase 79's check rather than relying on in-memory `portfolio_state.positions`.
+3. **Investigate closed_trade ledger NULL realized_pnl.** Grep cycle 2 logs for `closed_trade_recording_failed` and review service.realize_pnl path for `_pos.opened_at` / `_fill_qty` early-returns.
+4. **Commit + push Phase 81-A** (the diagnostic IS providing value — please don't lose it). Suggested message: `diag(phase80): unconditional writer entry + call cardinality logs (Phase 81-A)`.
+5. **Send the YELLOW Gmail draft** if visibility on these findings is desired (auto-created in §6).
+
+### §6 Email Alert
+- YELLOW status — Gmail draft to be created via Gmail MCP (`create_draft`) to `aaron.wilson3142@gmail.com` with subject `[APIS YELLOW] Daily Health Check — 2026-05-08 15:20 UTC`. Manual send required (no direct-send tool available).
+
+### §7+§8 State + Memory + Final Checklist
+- HEALTH_LOG.md updated in BOTH locations ✅.
+- No autonomous fixes applied — no DECISION_LOG/CHANGELOG entry needed for this run beyond the dual-invocation finding.
+- Pytest smoke 382/0/3670 ✅ matches baseline.
+- CI run #25459511595 conclusion=success ✅.
+- YELLOW email draft created (manual send required).
+- Git tree dirty: `paper_trading.py` (Phase 81-A) + HEALTH_LOG x2 — operator-deferred per convention.
+- Memory: NEW lesson — dual-invocation of `run_paper_trading_cycle` per cycle window is a recurring pattern that explains lifetime NULL-qty distribution (25 NULL-qty FILLED rows across 18 tickers; pattern matches "rebalance_open" reason on every one). Memory `project_phase80_incomplete_fix_2026-05-07.md` to be updated with dual-invocation root cause; new feedback memory not needed (this is a project-specific finding, not a tooling lesson).
+
+---
+
+## Health Check — 2026-05-08 13:10 UTC (Friday 8:10 AM CT, market-open + ~25 min before first cycle)
+
+**Overall Status:** YELLOW — carry-forward, NO escalation. 2nd-of-3 weekday deep-dive (~25 min before first weekday paper cycle at 13:35 UTC). All 3 carry-forward issues from the 10:18 UTC pre-market entry persist with **no new occurrences yet** because no cycles have fired today. **NEW POSITIVE: Phase 81-A diagnostic re-confirmed loaded — Aaron recreated `docker-worker-1` again at 2026-05-08T13:06:01.200572Z** (4 min before this probe; RestartCount=0; `apis_worker_started job_count=36` confirmed at 13:06 UTC). The bind-mounted Phase 81-A diagnostic from this morning's 02:24 UTC deploy survives across the new restart (file is on host disk). 13:35 UTC cycle is 25 min away and will produce the first `phase80_writer_entry` data points of the day. All other subsystems GREEN: 8/8 containers healthy; /health 7/7 ok at 13:07 UTC mode=paper kill=ok; worker tail-3000 73 ERR / api tail-3000 34 ERR — yfinance carry-forward on 14 inactive tickers (HOLX + 13 stale delisted) + early heartbeat noise; **0 crash-triad** across all 5 patterns (`_fire_ks` / `broker_adapter_missing_with_live_positions` / `EvaluationRun.idempotency_key` / `paper_cycle.*no_data` / `phantom_cash_guard_triggered` all 0/0); 0 Phase 81-A diagnostic firings yet (expected — no cycles today since 13:06 UTC restart); Prometheus 2/2 up; Alertmanager firing=0 (Phase 73 `for: 30m` debounce holding); resources fine (worker fresh 74.6 MiB / 0.00% CPU post-restart, api 208.8 MiB, postgres 118.1 MiB, control-plane 997 MiB); DB **202 MB** (+6 MB vs 10:18 UTC, expected from morning signal/ranking jobs at 10:30/10:45 UTC); pytest deep_dive+phase22+phase57+phase77_78+phase79 → **382 passed / 0 failed / 3670 deselected** ✅ matches baseline; alembic `q7r8s9t0u1v2` single head ✅; **GitHub Actions CI run #25459511595 on `8a892db` conclusion=success** ✅ (no new pushes — Phase 81-A still uncommitted); all 11 critical APIS_* flags correct; scheduler `job_count=36` from 2026-05-08T13:06:01Z `apis_worker_started` log line; liveness heartbeat fresh (`worker:scheduler_heartbeat=1778246825` ≈ 13:13:45 UTC). Cash positive at $21,152.64 / equity $113,054.81 (last legit snapshot 2026-05-07 19:30 UTC carry-forward). 11 OPEN positions (10 `rebalance` + 1 `momentum_v1` UNH), all `origin_strategy` stamped ✅. 0 new positions today (pre-cycle). Today's orders ledger: 0 rows. Yesterday's 3 NULL-qty FILLED OPEN BUYs (UNH 13:35 + UNH 14:30 + VRT 13:35) persist as carry-forward (23 NULL-qty filled rows total in lifetime, all pre-Phase-81-A). evaluation_runs=100 (≥80 floor ✅; unchanged from morning — paper cycles don't write here). Idempotency clean (0 order dupes, 0 position dupes per ticker). 14 securities `is_active=false`. Data freshness: `daily_market_bars` MAX=2026-05-07 (490 sec, Thu close, expected for Fri morning); `signal_runs` MAX=2026-05-08 10:30 UTC ✅ (today's signal job fired); `ranking_runs` MAX=2026-05-08 10:45 UTC ✅. NO autonomous fixes applied — Phase 80 OPEN-path root cause remains operator-review territory until 13:35 UTC cycle produces diagnostic data. YELLOW Gmail draft created (manual send required). **Action required from Aaron unchanged from 10:18 UTC entry** — see below.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy. **`docker-worker-1` restarted 4 min before probe at 2026-05-08T13:06:01.200572Z** (RestartCount=0 — operator-driven `docker compose up -d` recreate, NOT a crash; this is the SECOND restart today after the 02:24 UTC Phase 81-A deploy). `docker-api-1` Up ~2 days since 2026-05-05T20:19:52Z. postgres/redis/grafana/prom/alertmanager/control-plane Up 3 days. All RestartCount=0.
+- /health: all 7 components `ok` at 2026-05-08 13:07 UTC. mode=paper, kill_switch=ok, broker=ok, broker_auth=ok, db=ok, scheduler=ok, paper_cycle=ok, system_state_pollution=ok.
+- Worker log scan (3000 tail): **73 ERROR/CRITICAL** matches — yfinance stale-ticker carry-forward (K, HES, PXD, PARA, PKI, IPG, DFS et al.) + restart-burst noise. **0 crash-triad regressions** across all 5 patterns.
+- API log scan (3000 tail): **34 ERROR/CRITICAL**, 0 crash-triad, all yfinance stale-ticker carry-forward.
+- Phase 81-A diagnostic: 0 firings yet — expected, no cycles today since 13:06 UTC restart. First cycle 13:35 UTC will exercise the instrumentation.
+- Prometheus: 2/2 targets up (apis @ `api:8000`, prometheus @ `localhost:9090`), 0 dropped.
+- Alertmanager: **0 active alerts** at `http://localhost:9093/api/v2/alerts` → `[]`. Phase 73 `for: 30m` debounce active.
+- Resource usage: worker 74.6 MiB / 0.00% CPU (fresh post-restart, will grow as it runs cycles), api 208.8 MiB / 0.10%, postgres 118.1 MiB, apis-control-plane 997.6 MiB / 8.40% CPU. All well under threshold.
+- DB size: **202 MB** (+6 MB vs 10:18 UTC entry's 196 MB; expected from 10:30+10:45 UTC signal/ranking jobs writing daily security_signals + ranked_opportunities rows).
+
+### §2 Execution + Data Audit
+- Paper cycles fired today: **0** (pre-cycle — first weekday cycle 13:35 UTC, ~25 min from probe). Last completed `evaluation_run` was 2026-05-07 21:00:00 UTC EOD eval (Wed evening — actually Thu evening Eastern). 7 paper cycles fired Thursday 2026-05-07 (per snapshot trail).
+- `evaluation_runs` total: **100** (≥80 floor ✅; unchanged from morning).
+- Portfolio trend (legitimate stream, last 4 rows):
+  - 2026-05-07 19:30:02 — cash=$21,152.64 / equity=$113,054.81 (Thu final cycle — carry-forward)
+  - 2026-05-07 18:30:02 — cash=$21,152.64 / equity=$113,029.29
+  - 2026-05-07 17:30:02 — cash=$21,152.64 / equity=$113,285.28
+  - 2026-05-07 16:00:04 — cash=$21,152.64 / equity=$114,116.81
+  - Cash positive ✅. No new snapshots today (pre-cycle).
+  - Dual-snapshot writer carry-forward continues (secondary stream $67,136.16 / $99,983.29 — pre-existing benign).
+- Broker<->DB reconciliation: DB shows **11 OPEN positions** (carry-forward unchanged: 9 operator-restored rebalance opened 04-29 + 05-01, plus VRT 23 sh @ $351.41 rebalance + UNH 42 sh @ $366.24 momentum_v1 from Thu cycles 1+2). `/api/v1/broker/positions` 404s (endpoint not in this build); reconciliation falls back to `/health broker=ok` + DB OPEN count per acceptable practice.
+- Origin-strategy stamping: ALL 11 OPEN have `origin_strategy` stamped ✅ (10 `rebalance` + 1 `momentum_v1` UNH).
+- Position caps: **11/15 open** ✅. **0 new positions today** (pre-cycle) — within `APIS_MAX_NEW_POSITIONS_PER_DAY=5`.
+- Data freshness:
+  - `daily_market_bars` MAX = **2026-05-07** (490 securities, Thu close ✅) — Fri EOD ingest fires 17:00 ET = 21:00 UTC.
+  - `signal_runs` MAX = **2026-05-08 10:30:00.299262 UTC** ✅ (today's signal job).
+  - `ranking_runs` MAX = **2026-05-08 10:45:00.055699 UTC** ✅.
+  - `signals` last 48h: 4 signal_runs total — fresh.
+- Stale tickers: 14 securities `is_active=false` (HOLX + 13 stale delisted S&P 500). Unchanged. Phase 78 expected to fire `signal_engine_inactive_or_unknown_tickers_dropped count=13` on the 10:30 UTC run (pattern from yesterday holds).
+- Kill-switch: `false` ✅. Operating mode: `paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+- **CARRY-FORWARD: Phase 80 NULL-quantity bug NOT FIXED for OPEN paths.** 23 NULL-qty FILLED orders in lifetime; the 6 most recent are all post-Phase-80 (UNH 2× on 2026-05-07, VRT 4× spanning 2026-05-06+07). 0 NEW NULL-qty rows today (no cycles yet). Phase 81-A diagnostic remains loaded — first cycle at 13:35 UTC will reveal `res.status` shape.
+- **CARRY-FORWARD: `broker_health_position_drift`** continues firing post-restart. The 11-position carry-forward set is still the persistent source. Phase 79 symmetric filter doesn't catch the asymmetric `in broker, not in state` case.
+- **CARRY-FORWARD: cycle 2 SELL rejection** on already-closed positions — informational only; pre-existing pattern.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). No drift.
+- Pytest smoke: **382 passed / 0 failed / 3670 deselected** ✅ (filter: `deep_dive or phase22 or phase57 or phase77_78 or phase79`, `--no-cov`, `APIS_PYTEST_SMOKE=1` inside `docker-api-1`). Same pass count as morning baseline. NEW failures: zero. Phase 81-A diagnostic adds no new test cases (pure logging instrumentation).
+- Git: tree DIRTY on `apis/apps/worker/jobs/paper_trading.py` (Phase 81-A diagnostic, +27 lines, operator-deferred commit) + `apis/state/HEALTH_LOG.md` + `state/HEALTH_LOG.md` (this entry + carry-forward 10:18 + Thursday 3 entries) + `outputs/` untracked (normal). HEAD `8a892db`, 0 unpushed.
+- **GitHub Actions CI:** Run **#25459511595** on `8a892db` — `status=completed, conclusion=success` ✅ (https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25459511595). Same as morning — no new pushes. Phase 81-A change uncommitted, so CI hasn't been re-exercised yet.
+
+### §4 Config + Gate Verification
+- All 11 critical APIS_* flags at expected values:
+  - `APIS_OPERATING_MODE=paper` ✅, `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅, `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅, `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_MAX_SECTOR_PCT=0.40` ✅, `APIS_MAX_SINGLE_NAME_PCT=0.20` ✅, `APIS_MAX_POSITION_AGE_DAYS=20` ✅
+  - `APIS_DAILY_LOSS_LIMIT_PCT=0.02` ✅, `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05` ✅
+- `APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED` not in env (default False from settings.py — readiness-gated). `APIS_INSIDER_FLOW_PROVIDER` not in env (default null per Phase 57 Part 2). `APIS_PHASE79_REBALANCE_IDEMPOTENCY_ENABLED` not in env (default True from settings.py). Deep-Dive Step 6/7/8 flags all default OFF.
+- Scheduler `job_count=36` per `apis_worker_started` log at `2026-05-08T13:06:01.200572Z` (legitimate baseline post-Phase-71).
+- Liveness heartbeat: `worker:scheduler_heartbeat=1778246825` ≈ `2026-05-08T13:13:45Z`. Fresh ✅.
+
+### Issues Found
+1. **Phase 80 NULL-quantity bug carry-forward** (YELLOW). Same 3 NULL-qty FILLED OPEN BUYs from 2026-05-07 persist; no new occurrences today (pre-cycle). Phase 81-A diagnostic loaded and waiting for first cycle (13:35 UTC, +25 min) to surface `res.status` shape.
+2. **`broker_health_position_drift` carry-forward** (YELLOW). The 11-position carry-forward set remains the persistent source. Phase 79 symmetric filter doesn't catch the asymmetric case.
+3. **Orders writer count discrepancy carry-forward** (YELLOW informational). Yesterday's cycle 1 had 9 orders rows but `app=5 exec=5` cycle metric. Phase 81-A's `phase80_writer_call` log will surface `n_approved` vs `n_results` cardinality on next cycle.
+4. **Cycle 2 SELL rejection on already-closed positions** (informational). Pre-existing pattern; not blocking.
+
+### Fixes Applied
+- (none — all 4 carry-forward issues remain operator-review-required pending the 13:35 UTC first-cycle diagnostic data.)
+
+### Action Required from Aaron
+1. **Watch 13:35 UTC first cycle for Phase 81-A diagnostic output.** Specifically grep `docker logs docker-worker-1` post-cycle for `phase80_writer_entry` lines: any row where `fill_qty=None target_qty=None status_repr=...` reveals the actual `res.status` type/value, which should immediately confirm or rule out the enum-comparison hypothesis. Also grep `phase80_writer_call` to compare `n_approved=n_results` against the orders-table row count for the cycle.
+2. **Commit + push Phase 81-A** when ready. Suggested message: `diag(phase80): unconditional writer entry + call cardinality logs (Phase 81-A)`. Files touched: `apis/apps/worker/jobs/paper_trading.py` (+27 lines pure logging — no test additions needed for instrumentation).
+3. **Send the YELLOW Gmail draft** if visibility on these findings is desired (auto-created in §6).
+4. **Phase 81 broker-DB resync** for the asymmetric-drift case remains a candidate (separate from Phase 81-A diagnostic). Once Phase 80 root cause is confirmed via Phase 81-A logs, the path to a real Phase 81 (broker-DB resync on API/worker restart) is unblocked.
+
+### §6 Email Alert
+- YELLOW status — Gmail draft to be created via Gmail MCP to `aaron.wilson3142@gmail.com` with subject `[APIS YELLOW] Daily Health Check — 2026-05-08 13:10 UTC`. Manual send required (no direct-send tool available).
+
+### §7+§8 State + Memory + Final Checklist
+- HEALTH_LOG.md updated in BOTH locations ✅.
+- No autonomous fixes applied — no DECISION_LOG/CHANGELOG entry needed for this run. Phase 81-A is operator-authored and remains uncommitted; it'll log via the next operator-driven commit.
+- Pytest smoke 382/0/3670 ✅ matches baseline.
+- CI run #25459511595 conclusion=success ✅.
+- YELLOW email draft created (manual send required).
+- Git tree dirty: `paper_trading.py` (Phase 81-A) + HEALTH_LOG x2 (this + carry-forward) — all operator-deferred per convention.
+- Memory: no new lessons learned this run; carry-forward state matches `project_phase80_incomplete_fix_2026-05-07.md` already on file.
+
+---
+
+## Health Check — 2026-05-08 10:18 UTC (Friday 5:18 AM CT, pre-market)
+
+**Overall Status:** YELLOW — carry-forward, NO escalation. Pre-market deep-dive. The 4 issues from yesterday's 19:14 UTC entry persist with **no new occurrences since pre-market** (no cycles today; first weekday cycle 13:35 UTC, ~3.25h from now). **NEW POSITIVE:** Aaron added the Phase 81-A diagnostic instrumentation overnight (`phase80_writer_entry` + `phase80_writer_call` log lines at `apis/apps/worker/jobs/paper_trading.py:393` and `:2023`) — exactly what yesterday's 19:14 UTC report recommended. Worker recreated at 2026-05-08T02:24:07Z to pick up the bind-mounted change; container grep `phase80_writer_entry` returns 1 ✅. The instrumentation is **loaded** but **not yet exercised** — first cycle 13:35 UTC will surface the actual `res.status` shape on the OPEN-path NULL-qty fills (UNH+VRT yesterday). Phase 81-A change is uncommitted on `main` (operator-deferred per convention; will commit after first cycle confirms the hypothesis). All other subsystems GREEN: 8/8 containers healthy; /health 7/7 ok at 10:08:53Z mode=paper kill=ok; worker tail-3000 54 ERR / api tail-3000 15 ERR (yfinance carry-forward + 7 `broker_health_position_drift` since 02:24 UTC restart — likely from API-side restart sync, not from cycles since none have fired today; **0 crash-triad** across all 5 patterns); Prometheus 2/2 up; Alertmanager firing=0 (Phase 73 `for: 30m` debounce holding); resources fine (worker 750.5 MiB / 12.42% CPU mid-spike, api 873.5 MiB / 8.04%, postgres 172.3 MiB); DB **196 MB** (+1 MB since yesterday — Thu EOD ingest fired correctly: `daily_market_bars` MAX = 2026-05-07 with 490 securities); pytest deep_dive+phase22+phase57+phase77_78+phase79 → **382 passed / 0 failed / 3670 deselected in 36.90s** ✅ matches baseline; alembic `q7r8s9t0u1v2` single head ✅; **GitHub Actions CI run #25459511595 on `8a892db` conclusion=success** ✅ (no new pushes — Phase 81-A not yet committed); all 11 critical APIS_* flags correct; scheduler `job_count=36` from 2026-05-08T02:24:07Z `apis_worker_started` log line; liveness heartbeat fresh (`worker:scheduler_heartbeat=1778235322` ≈ 10:15:22Z, ~3 min before probe). Cash positive $21,152.64; equity $113,054.81 (last legit snapshot 2026-05-07 19:30 UTC, +0.02% vs 18:30 — final cycle 7 fired yesterday at 19:30 UTC, so yesterday actually ran 7/12 not 6/12 as the 19:14 entry predicted). 11 OPEN positions (10 rebalance + 1 momentum_v1 UNH), all `origin_strategy` stamped ✅. 0 new positions today (pre-market). Today's orders ledger: 0 rows (no cycles yet). Yesterday's 3 NULL-qty FILLED OPEN BUYs persist in the ledger as carry-forward. evaluation_runs=100 (≥80 floor ✅; +1 since yesterday from Thu 21:00 UTC EOD eval). Idempotency clean (0 order dupes, 0 position dupes per ticker). 14 securities `is_active=false` (HOLX + 13 stale). NO autonomous fixes applied — Phase 80 root cause remains operator-review territory; today's first cycle will produce the diagnostic data needed. YELLOW Gmail email will be drafted (manual send).
+
+### §1 Infrastructure
+- Containers: 8/8 healthy. **`docker-worker-1` Up 8 hours** since `2026-05-08T02:24:00.463319626Z` (Phase 81-A diagnostic deploy via bind-mount + restart). RestartCount=0 — was a `docker compose up -d` recreate, not a crash. `docker-api-1` Up 2 days since `2026-05-05T20:19:52.537272359Z`. postgres/redis/grafana/prom/alertmanager/control-plane Up 3 days. RestartCount=0 across all core services.
+- /health: all 7 components `ok` at `2026-05-08T10:08:53.433613+00:00`. mode=paper, kill_switch=ok, broker=ok, broker_auth=ok, db=ok, scheduler=ok, paper_cycle=ok, system_state_pollution=ok.
+- Worker log scan (3000 tail): **54 ERROR/CRITICAL** matches — yfinance stale-ticker carry-forward on the 14 inactive securities + 7 `broker_health_position_drift` warnings. **0 crash-triad regressions** across all 5 patterns (`_fire_ks` / `broker_adapter_missing_with_live_positions` / `EvaluationRun.idempotency_key` / `paper_cycle.*no_data` / `phantom_cash_guard_triggered` all 0).
+- API log scan (3000 tail): **15 ERROR/CRITICAL** matches, **0 crash-triad** across all 5 patterns.
+- Prometheus: 2/2 targets up (apis @ `api:8000`, prometheus @ `localhost:9090`), both `health=up` last scrape `2026-05-08T10:14:24Z`. 0 dropped.
+- Alertmanager: **0 active alerts** at `http://localhost:9093/api/v2/alerts` → `[]`. Phase 73 `for: 30m` debounce active.
+- Resource usage: worker 750.5 MiB / 12.42% CPU (mid-CPU spike during stats sample, likely heartbeat or scheduler tick), api 873.5 MiB / 8.04%, postgres 172.3 MiB / 4.59%, grafana 50.44 MiB, prometheus 39.24 MiB, alertmanager 14.72 MiB, redis 8.453 MiB, apis-control-plane 1.459 GiB / 13.01%. All under threshold.
+- DB size: **196 MB** (+1 MB since 2026-05-07 19:14 UTC entry; expected from Thu EOD ingest of 490 securities + EOD eval row).
+
+### §2 Execution + Data Audit
+- Paper cycles fired today: **0** (pre-market — first weekday cycle scheduled 13:35 UTC, ~3.25h after this report). Yesterday actually ran 7 cycles (13:35, 14:30, 15:30, 16:00, 17:30, 18:30, 19:30 UTC) per snapshot trail — the 19:14 UTC HEALTH_LOG predicted 12 but late-afternoon cycles 8-12 didn't fire (likely cap-consumed days produce fewer cycles or scheduler quiesces; pre-existing pattern, non-blocking).
+- `evaluation_runs` total: **100** (≥80 floor ✅; +1 since yesterday's 99 from Thu 21:00 UTC EOD eval).
+- Portfolio trend (legitimate stream, last 8 rows):
+  - 2026-05-07 19:30:02 — cash=$21,152.64 / equity=$113,054.81 (Thu final cycle)
+  - 2026-05-07 18:30:02 — cash=$21,152.64 / equity=$113,029.29
+  - 2026-05-07 17:30:02 — cash=$21,152.64 / equity=$113,285.28
+  - 2026-05-07 16:00:04 — cash=$21,152.64 / equity=$114,116.81
+  - 2026-05-07 15:30:02 — cash=$14,253.04 / equity=$115,017.54 (cycle 3 — VRT TRIM SELL settled)
+  - 2026-05-07 14:30:02 — cash=$21,918.88 / equity=$115,896.51
+  - 2026-05-07 13:35:04 — cash=$22,999.56 / equity=$115,652.53 (cycle 1 settled)
+  - Cash positive ✅. Equity intraday Thu $115,652 → $113,054 (-2.27% MTM, normal market move).
+  - Dual-snapshot writer carry-forward continues (secondary stream $67,136.16 / $99,983.29 — pre-existing benign).
+- Broker<->DB reconciliation: DB shows **11 OPEN positions** (carry-forward unchanged from yesterday: 9 operator-restored rebalance + UNH 14:30 momentum_v1 qty=42 + VRT 13:35 rebalance qty=23). `/api/v1/broker/positions` returns 404 (endpoint not in this build); reconciliation falls back to `/health broker=ok` + DB-side OPEN count per acceptable practice.
+- Origin-strategy stamping: ALL 11 OPEN have `origin_strategy` stamped ✅ (10 `rebalance` + 1 `momentum_v1`). No NULLs.
+- Position caps: **11/15 open** ✅. **0 new positions today** (pre-market) — within `APIS_MAX_NEW_POSITIONS_PER_DAY=5`.
+- Data freshness:
+  - daily_market_bars MAX = **2026-05-07** (Thu close, 490 securities) ✅ — Thu EOD ingest fired correctly at 21:00 UTC.
+  - signal_runs MAX = **2026-05-07 10:30:00.30807 UTC** ✅ (Thu morning signal job).
+  - ranking_runs MAX = **2026-05-07 10:45:00.070248 UTC** ✅.
+- Stale tickers: 14 securities `is_active=false` (HOLX + 13 stale delisted S&P 500). Unchanged.
+- Kill-switch: `false` ✅. Operating mode: `paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+- **CARRY-FORWARD: Phase 80 NULL-quantity bug NOT FIXED for OPEN paths.** 3 yesterday's orders rows still have `status=filled` AND `quantity=NULL` (UNH BUY 13:35 cycle 1, UNH BUY 14:30 cycle 2, VRT BUY 13:35 cycle 1). **0 NEW NULL-qty rows since pre-market** (no cycles today). Phase 81-A diagnostic now loaded in worker container — first cycle 13:35 UTC will write `phase80_writer_entry` log lines that reveal the actual `res.status` repr/type on the OPEN path.
+- **CARRY-FORWARD: `broker_health_position_drift`** continues firing (7 hits in worker logs since 02:24 UTC restart). The 11-position carry-forward set is the persistent source. Phase 79 symmetric filter still does not catch the asymmetric `in broker, not in state` case.
+- **CARRY-FORWARD: cycle 2 SELL rejection** on already-closed positions — informational only; pre-existing pattern.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). No drift.
+- Pytest smoke: **382 passed / 0 failed / 3670 deselected in 36.90s** ✅ (filter: `deep_dive or phase22 or phase57 or phase77_78 or phase79`, `--no-cov`, `APIS_PYTEST_SMOKE=1` inside `docker-api-1`). Same pass count as baseline. NEW failures: zero. Phase 81-A diagnostic adds no new test cases (pure logging instrumentation).
+- Git: tree DIRTY on `apis/apps/worker/jobs/paper_trading.py` (+27 lines: Phase 81-A diagnostic, operator-deferred commit) + `apis/state/HEALTH_LOG.md` + `state/HEALTH_LOG.md` (this entry plus carry-forward yesterday's 3 entries) + `outputs/` untracked (normal). HEAD `8a892db`, 0 unpushed.
+- **GitHub Actions CI:** Run **#25459511595** on `8a892db` — `status=completed, conclusion=success` ✅ (https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25459511595). Same as yesterday — no new pushes. Phase 81-A change uncommitted, so CI hasn't been re-exercised yet.
+
+### §4 Config + Gate Verification
+- All 11 critical APIS_* flags at expected values:
+  - `APIS_OPERATING_MODE=paper` ✅, `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅, `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅, `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_MAX_SECTOR_PCT=0.40` ✅, `APIS_MAX_SINGLE_NAME_PCT=0.20` ✅, `APIS_MAX_POSITION_AGE_DAYS=20` ✅
+  - `APIS_DAILY_LOSS_LIMIT_PCT=0.02` ✅, `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05` ✅
+- `APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED` not in env (default False from settings.py — readiness-gated). `APIS_INSIDER_FLOW_PROVIDER` not in env (default null per Phase 57 Part 2). Deep-Dive Step 6/7/8 flags all default OFF.
+- Scheduler `job_count=36` per `apis_worker_started` log at `2026-05-08T02:24:07.306268Z` (legitimate baseline post-Phase-71).
+- Liveness heartbeat: `worker:scheduler_heartbeat=1778235322` ≈ `2026-05-08T10:15:22Z` (~3 min before probe time). Fresh ✅.
+
+### Issues Found
+1. **Phase 80 NULL-quantity bug carry-forward** (YELLOW). Same 3 NULL-qty FILLED OPEN BUY rows from yesterday persist; no new occurrences since pre-market because no cycles have fired today. Aaron's Phase 81-A diagnostic instrumentation is now loaded in the worker container (`phase80_writer_entry` + `phase80_writer_call`); first cycle 13:35 UTC will produce the data needed to confirm or rule out the `res.status` enum-vs-string hypothesis.
+2. **`broker_health_position_drift` carry-forward** (YELLOW). 7 hits in current worker log window (since 02:24 UTC restart). The 11-position carry-forward set is the persistent source. Phase 79 symmetric filter doesn't catch the asymmetric case.
+3. **Orders writer count discrepancy carry-forward** (YELLOW informational). Yesterday's cycle 1 had 9 orders rows but `app=5 exec=5` cycle metric. Phase 81-A's `phase80_writer_call` log will surface `n_approved` vs `n_results` cardinality on next cycle.
+4. **Cycle 2 SELL rejection on already-closed positions** (informational). Pre-existing pattern; not blocking.
+
+### Fixes Applied
+- (none — Phase 81-A diagnostic was Aaron's overnight work, not an autonomous fix this run; all 4 carry-forward issues remain operator-review-required pending the 13:35 UTC first-cycle data.)
+
+### Action Required from Aaron
+1. **Watch 13:35 UTC first cycle for Phase 81-A diagnostic output.** Specifically grep `docker logs docker-worker-1` post-cycle for `phase80_writer_entry` lines: any row where `fill_qty=None target_qty=None status_repr=...` reveals the `res.status` type/value, which should immediately confirm or rule out the enum-comparison hypothesis. Also grep `phase80_writer_call` to compare `n_approved=n_results` against the orders-table row count for the cycle.
+2. **Commit + push Phase 81-A** when ready. Suggested message: `diag(phase80): unconditional writer entry + call cardinality logs (Phase 81-A)`. Files touched: `apis/apps/worker/jobs/paper_trading.py` (+27 lines pure logging — no test additions needed for instrumentation).
+3. **Send the YELLOW Gmail draft** if visibility on these findings is desired (will be auto-created in §6).
+4. **Phase 81 broker-DB resync** for the asymmetric-drift case remains a candidate (separate from Phase 81-A diagnostic). Once Phase 80 root cause is confirmed via Phase 81-A logs, the path to a real Phase 81 (broker-DB resync on API/worker restart) is unblocked.
+
+### §6 Email Alert
+- YELLOW status — Gmail draft to be created via Gmail MCP to `aaron.wilson3142@gmail.com` with subject `[APIS YELLOW] Daily Health Check — 2026-05-08`. Manual send required (no direct-send tool available).
+
+### §7+§8 State + Memory + Final Checklist
+- HEALTH_LOG.md updated in BOTH locations ✅.
+- No autonomous fixes applied — no DECISION_LOG/CHANGELOG entry needed for this run. Phase 81-A is operator-authored; it'll log via the next operator-driven commit.
+- Pytest smoke 382/0/3670 ✅ matches baseline.
+- CI run #25459511595 conclusion=success ✅.
+- YELLOW email draft will be created (manual send required).
+- Git tree dirty: `paper_trading.py` (Phase 81-A) + HEALTH_LOG x2 (this + yesterday's 3 entries) — all operator-deferred per convention.
+- Memory: minor update to `project_phase80_incomplete_fix_2026-05-07.md` to reflect Phase 81-A diagnostic is loaded.
+
+---
+
+## Health Check — 2026-05-07 19:14 UTC (Thursday 2:14 PM CT, late-afternoon market, 6/12 cycles fired)
+
+**Overall Status:** YELLOW — carry-forward, NO escalation. 3rd-of-3 weekday deep-dive (~50 min before cycle 7 / final-hour window starts at 19:30 UTC). All 4 issues from the 15:13 UTC entry persist with no new regressions added: (1) Phase 80 NULL-quantity bug remains open — same 3 NULL-qty FILLED OPEN orders (UNH 13:35, UNH 14:30, VRT 13:35) carry forward unchanged; ZERO new NULL-qty rows since cycle 2 (cycles 3-6 all `app=0 exec=0` because daily cap was consumed by cycle 1). (2) Orders writer count discrepancy still present — cycle 1 cycle-id has 9 orders rows but `paper_trading_cycle_complete` reports `app=5 exec=5`; the 4 extra rows = 2 NULL-qty OPEN BUYs (Phase 80 hole) + 2 SELLs that closed SLB+CAT (the SELL count mismatch was a misread in 15:13 entry — only 2 SELLs cycle 1, not the apparent 3). (3) `broker_health_position_drift` fired all 6 cycles today on the operator-restored rebalance set (no Phase 79 incidental reduction — Phase 79's `rebalance_actions_merged` log shows `phase79_skipped=0` every cycle because the symmetric `held_in_state AND held_in_broker` condition never triggered today). (4) Cycle 2 SELL rejections on already-closed SLB+CAT (`status=rejected` but rows still consumed idempotency slots) — informational only. **One new mid-day data point:** cycle 3 (15:30 UTC) VRT TRIM SELL filled qty=20 — the orders writer DOES persist correct quantity on TRIM/CLOSE paths (cycles 1-3 emitted 3 proper-qty SELLs total: SLB=129, CAT=8, VRT=20), narrowing the Phase 80 root cause to OPEN-direction notional-only fills specifically. Position table now shows UNH=42 / VRT=23 (UNH grew 21→42 via the 14:30 NULL-qty BUY despite risk_engine blocking the action — confirms the writer is bypassing risk approval for OPEN-path orders). All other subsystems GREEN: 8/8 containers healthy 23h uptime RestartCount=0, /health 7/7 ok at 19:08:47Z mode=paper kill=ok, worker tail-3000 38 ERR / api tail-5000 34 ERR (yfinance carry-forward + 6 drift warnings — **0 crash-triad** across all 5 patterns), Prometheus 2/2 up, Alertmanager firing=0, resources fine (worker 734.8 MiB, api 846.2 MiB), DB **195 MB** (unchanged from 15:13 — expected; no EOD ingest yet), pytest deep_dive+phase22+phase57+phase77_78+phase79 → **382 passed / 0 failed / 3670 deselected in 38.02s** ✅, alembic `q7r8s9t0u1v2` single head ✅, git HEAD `8a892db` 0 unpushed (only HEALTH_LOG mod from morning + 15:13 entries), **GitHub Actions CI run #25459511595 on `8a892db` conclusion=success** ✅, all 11 critical APIS_* flags correct, scheduler `job_count=36` per Wed 20:33 UTC `apis_worker_started`, liveness heartbeat fresh (`worker:scheduler_heartbeat=1778181187` ≈ 19:13:07Z, ~1 min before probe). Cash positive at $21,152.64 (legit stream cycle 6 18:30 UTC), equity=$113,029.29 (intraday $115,652→$113,029 = -2.27% MTM, normal market move). evaluation_runs=99 (≥80 floor ✅; unchanged from morning — paper cycles don't write to this table, only 21:00 UTC EOD eval does). Idempotency clean (0 order dupes, 0 OPEN-position dupes per ticker). 14 securities `is_active=false` (HOLX + 13 stale, all expected). Phase 78 fired correctly at 10:30 UTC: `signal_engine_inactive_or_unknown_tickers_dropped count=13 tickers=[ANSS,CTLT,DFS,HES,IPG,JNPR,K,MMC,MRO,PARA,PKI,PXD,WRK]` ✅ (HOLX upstream-filtered as designed). NO autonomous fixes applied — all 4 YELLOW issues are operator-review-required. YELLOW Gmail email will be drafted (manual send required). **Action required from Aaron unchanged from 15:13 UTC** with one micro-update: the cycle 3 VRT TRIM SELL qty=20 narrows Phase 80 root cause to "broker returns `fill_quantity=None` for notional-only OPEN fills, which survives the `if res.fill_quantity` truthy check at line 411 → falls through to `req.action.target_quantity` which is ALSO None for notional-only OPENs → final `quantity` insert is None — but the diagnostic at line 416 `if qty_d is None and res.status == _ExecStatus.FILLED` doesn't fire". Suspected enum import drift OR `_ExecStatus.FILLED` not equal to `res.status` value-wise (e.g., `res.status` is the string `"filled"` rather than `_ExecStatus.FILLED` enum member). **Recommended next action for Aaron:** add an unconditional `logger.info("phase80_writer_entry", ticker=ticker, fill_qty=str(res.fill_quantity), target_qty=str(req.action.target_quantity), status=str(res.status), status_type=type(res.status).__name__)` at the top of `_persist_orders_and_fills` (before the qty resolution) so the next cycle's logs reveal what the writer is actually receiving on the OPEN path.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy. `docker-worker-1` `Up 23 hours` since 2026-05-06T20:33:07Z (Phase 79+80 deploy). `docker-api-1` `Up 47 hours`. `docker-postgres-1` / `docker-redis-1` / grafana / prometheus / alertmanager / apis-control-plane `Up 2 days` since 2026-05-05T03:31:12Z. RestartCount=0 across all 4 core services.
+- /health: all 7 components `ok` at 2026-05-07T19:08:47.565533Z. mode=paper, kill_switch=ok.
+- Worker log scan (3000 tail): **38 ERROR/CRITICAL** — yfinance stale-ticker carry-forward on the 14 inactive securities + 6 `broker_health_position_drift` warnings (one per cycle today). **0 crash-triad regressions** across all 5 patterns (`_fire_ks` / `broker_adapter_missing_with_live_positions` / `EvaluationRun.idempotency_key` / `paper_cycle.*no_data` / `phantom_cash_guard_triggered` all 0/0 worker/api).
+- API log scan (5000 tail): **34 ERROR/CRITICAL**, 0 crash-triad.
+- Prometheus: 2/2 targets up (apis, prometheus), 0 dropped.
+- Alertmanager: 0 active alerts. Phase 73 `for: 30m` debounce holding through the 23h since restart.
+- Resource usage: worker 734.8 MiB / 0.00% CPU, api 846.2 MiB / 0.11%, postgres 170.3 MiB, grafana 51.07 MiB, prometheus 39.31 MiB, alertmanager 14.73 MiB, redis 8.71 MiB, apis-control-plane 1.355 GiB / 12.88%. All under threshold.
+- DB size: **195 MB** (unchanged from 15:13 UTC entry; 21:00 UTC EOD ingest hasn't fired yet).
+
+### §2 Execution + Data Audit
+- Paper cycles fired today: **6 of expected 12 so far** (13:35, 14:30, 15:30, 16:00, 17:30, 18:30 UTC). Per `paper_trading_cycle_complete` log line: cycle 1 prop=30 app=5 exec=5; cycles 2-6 prop=20 app=0 exec=0. Next cycle 19:30 UTC (~16 min after this report).
+- `evaluation_runs` total: **99** (≥80 floor ✅; unchanged from morning baseline. Paper cycles don't write here, only 21:00 UTC EOD eval).
+- Phase 79 idempotency log: `rebalance_actions_merged count=15 phase79_skipped=0` (cycle 1), `count=10 phase79_skipped=0` (cycles 2+3 both). **Phase 79 has not fired today** — the rebalance engine never proposed an OPEN against a ticker that was BOTH in `portfolio_state.positions` AND `_broker.list_positions()` (the symmetric condition).
+- Portfolio trend (legitimate stream, last 6 rows):
+  - 2026-05-07 18:30:02 — cash=$21,152.64 / equity=$113,029.29
+  - 2026-05-07 17:30:02 — cash=$21,152.64 / equity=$113,285.28
+  - 2026-05-07 16:00:04 — cash=$21,152.64 / equity=$114,116.81
+  - 2026-05-07 15:30:02 — cash=$14,253.04 / equity=$115,017.54 (cycle 3 — VRT TRIM SELL settled here)
+  - 2026-05-07 14:30:02 — cash=$21,918.88 / equity=$115,896.51
+  - 2026-05-07 13:35:04 — cash=$22,999.56 / equity=$115,652.53
+  - Cash positive ✅. Cash deltas: $30,519 (Wed final) → $22,999 (cycle 1 settled BUYs+SELLs) → $14,253 (cycle 3 BUY clearance hit before the SELL cleared) → $21,152 (cycle 4 SELL credit cleared). Equity intraday $115,652 → $113,029 (-2.27% MTM, normal). Dual-snapshot writer carry-forward continues (secondary stream $67,136 / $99,983 — pre-existing benign).
+- Broker<->DB reconciliation: DB shows **11 OPEN positions** — 9 carry-forward operator-restored rebalance positions (NUE+MU+WDC+BE+INTC opened 05-01 13:35; AMD+MRVL+EQIX+AMZN opened 04-29 16:00) PLUS 2 added today (UNH 14:30 momentum_v1 qty=42, VRT 13:35 rebalance qty=23 — was 43 before cycle 3's TRIM SELL of 20). All `origin_strategy` stamped ✅ (10 `rebalance` + 1 `momentum_v1`). `broker_health_position_drift` fired all 6 cycles today (one warning per cycle on the carry-forward set).
+- **Carry-forward finding: Phase 80 NULL-quantity bug NOT FIXED for OPEN paths**. Same 3 orders rows from morning persist with `status=filled` AND `quantity=NULL`:
+  - VRT BUY 13:35 cycle 1 (`rebalance_open` reason)
+  - UNH BUY 13:35 cycle 1 (rebalance_open reason)
+  - UNH BUY 14:30 cycle 2 (rebalance_open reason — fired DESPITE risk_engine blocking it; writer bypasses approval)
+  - **0 NEW NULL-qty rows added since cycle 2** (cycles 3-6 had `app=0 exec=0` due to daily cap consumption)
+  - **NEW data point**: cycle 3 VRT TRIM SELL filled qty=20 — the orders writer **does** correctly persist quantity on TRIM/CLOSE paths. Combined with cycle 1's SLB SELL qty=129 + CAT SELL qty=8 = 3 proper-qty SELLs today. Phase 80 root-cause narrowed to OPEN-direction notional-only fills specifically.
+- **Carry-forward finding: orders writer count discrepancy with cycle metrics** unchanged from 15:13 entry. Cycle 1 has 9 orders rows but `app=5 exec=5`. Extra rows = 2 NULL-qty OPEN BUYs (UNH+VRT) + 2 SELLs (SLB+CAT) — the SELL writer bypasses the `app/exec` counters per same Phase 80 path.
+- Today's order ledger by status: **9 filled** (5 proper-qty TRIM-rebalance BUYs from cycle 1 + 2 NULL-qty cycle-1 OPENs + 1 NULL-qty cycle-2 OPEN + 3 proper-qty SELLs across cycles 1+3); **2 rejected** (SLB+CAT cycle-2 SELLs on already-closed positions — risk-blocked correctly but the writer ledger persists rejected orders too).
+- Origin-strategy stamping: ALL 11 OPEN have `origin_strategy` stamped ✅ (10 `rebalance` + 1 `momentum_v1` UNH). Phase 73 holding even for the new strategy.
+- Position caps: **11/15 open** ✅. **2 new positions today** (VRT, UNH) — within `APIS_MAX_NEW_POSITIONS_PER_DAY=5`.
+- Data freshness:
+  - daily_market_bars MAX = **2026-05-06** (Wed close, ✅) — today's EOD ingest fires 17:00 ET = 21:00 UTC (~2h from this report).
+  - signal_runs MAX = **2026-05-07 10:30:00.306227 UTC** ✅ — Phase 78 fired correctly: `count=13 tickers=[...]` (HOLX upstream-filtered).
+  - ranking_runs MAX = **2026-05-07 10:45:00.149461 UTC** ✅.
+- Stale tickers: 14 securities `is_active=false` (HOLX + 13 stale delisted S&P 500). No new additions.
+- Kill-switch: `false` ✅. Operating mode: `paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). No drift.
+- Pytest smoke: **382 passed / 0 failed / 3670 deselected in 38.02s** ✅ (filter: `deep_dive or phase22 or phase57 or phase77_78 or phase79`, `--no-cov`, `APIS_PYTEST_SMOKE=1` inside `docker-api-1`). Same pass count as morning baseline. NEW failures: zero.
+- Git: tree DIRTY only on `apis/state/HEALTH_LOG.md` + `state/HEALTH_LOG.md` (this entry + morning + 15:13 entries — operator-deferred per yesterday's convention); HEAD `8a892db`, 0 unpushed; `outputs/` untracked (normal).
+- **GitHub Actions CI:** Run **#25459511595** on `8a892db` — `status=completed, conclusion=success` ✅ (https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25459511595). Same as morning + 15:13 — no new pushes today.
+
+### §4 Config + Gate Verification
+- All 11 critical APIS_* flags at expected values:
+  - `APIS_OPERATING_MODE=paper` ✅, `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅, `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅, `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_MAX_SECTOR_PCT=0.40` ✅, `APIS_MAX_SINGLE_NAME_PCT=0.20` ✅, `APIS_MAX_POSITION_AGE_DAYS=20` ✅
+  - `APIS_DAILY_LOSS_LIMIT_PCT=0.02` ✅, `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05` ✅
+- `APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED` not in env (uses default False from settings.py — readiness-gated). `APIS_INSIDER_FLOW_PROVIDER` not in env (uses default null per Phase 57 Part 2). `APIS_PHASE79_REBALANCE_IDEMPOTENCY_ENABLED` not in env (uses default True from settings.py).
+- Scheduler `job_count=36` per `apis_worker_started` log at 2026-05-06T20:33:07.721095Z (legitimate baseline).
+- Liveness heartbeat: `worker:scheduler_heartbeat=1778181187` ≈ 2026-05-07T19:13:07Z (~1 min before probe time). Fresh ✅.
+
+### Issues Found
+1. **Phase 80 NULL-quantity bug NOT FIXED for OPEN paths** (YELLOW carry-forward from 15:13 UTC). Same 3 orders rows. **NEW data point narrows root cause:** cycle 3's VRT TRIM SELL filled with proper qty=20 — the writer works on TRIM/CLOSE paths (3/3 SELLs today have correct qty). The hole is specifically OPEN-direction notional-only fills where the broker returns `fill_quantity=None`. The diagnostic guard `if qty_d is None and res.status == _ExecStatus.FILLED` doesn't fire — strongly suggests `res.status` value-equality check is broken (likely `res.status` is the string `"filled"` rather than the `_ExecStatus.FILLED` enum member, breaking the `==` check).
+2. **Orders writer count discrepancy with cycle metrics** (YELLOW carry-forward). Cycle 1 has 9 orders rows but `paper_trading_cycle_complete` reports `app=5 exec=5`. The 4 extras = 2 NULL-qty OPEN BUYs + 2 SELLs (SLB+CAT). The SELL writer also bypasses the cycle metric counters.
+3. **broker_health_position_drift** fired all 6 cycles today (YELLOW carry-forward). Phase 79's incidental drift reduction did NOT materialize — the rebalance engine never proposed OPEN against a ticker that was BOTH in state AND in broker (the symmetric condition). Phase 79 will fire only after broker-DB resync OR when state and broker align on an over-held ticker. The asymmetric Wed-cycle-7-VRT case (in broker, not in state) is still the unaddressed source of the 13:35 cycle-1 VRT BUY (the broker had VRT but DB didn't, so Phase 79 saw `held_in_state=False` and let the OPEN through, doubling-down to ~43 shares before the cycle-3 TRIM SELL trimmed back to 23).
+4. **Cycle 2 SELL rejection on already-closed positions** (informational). SLB+CAT SELL orders at 14:30 UTC `status=rejected` because positions closed in cycle 1; rows still consume idempotency_key slots and pollute the ledger. Pre-existing pattern.
+
+### Fixes Applied
+- (none — all YELLOW issues are operator-review-required. No autonomous-fix authority covers Phase 80 root cause without an audit of the orders writer enum-comparison logic; broker-DB resync is also operator-approval-required.)
+
+### Action Required from Aaron
+1. **PRIORITY: Phase 80 root-cause investigation** — strong hypothesis emerging from today's data: `res.status == _ExecStatus.FILLED` is value-comparing an enum member to a string, returning False, so the diagnostic warning never fires. **Recommended diagnostic patch:** add `logger.info("phase80_writer_entry", ticker=ticker, fill_qty=str(res.fill_quantity), target_qty=str(req.action.target_quantity), status_repr=repr(res.status), status_type=type(res.status).__name__)` at the top of `_persist_orders_and_fills` (before line 384 qty resolution). Will surface the actual `res.status` shape on next cycle. Likely fix: `str(res.status).lower() == "filled"` or `getattr(res.status, "value", res.status) == "filled"`.
+2. **Reconcile orders-writer vs `paper_trading_cycle_complete` metric** — investigate whether the OPEN+CLOSE writers each have their own paths that bypass the `app/exec` counters. Audit `_persist_orders_and_fills` call sites + any parallel writer.
+3. **Phase 79 asymmetric case** — the bigger win is broker-DB resync on API/worker restart (Phase 81 candidate). Today's drift confirms Phase 79's symmetric-only filter doesn't catch the "in broker, not in state" case that today's cycle 1 VRT 43-share double-down exposed.
+4. **Send the YELLOW Gmail draft** if visibility on these findings is desired (auto-created in §6).
+5. **Optional**: investigate why the orders writer persists FILLED orders for risk-blocked actions (UNH cycle 2 14:30 was risk_blocked but filled at the broker AND the position was created with qty=42). This is the orders-writer-bypass-of-risk pattern from morning — would need a re-read of the cycle's action-flow code.
+
+### §6 Email Alert
+- YELLOW status — Gmail draft to be created via `mcp__1e79622f-4ca5-4522-9882-5379c3859fb9__create_draft` to `aaron.wilson3142@gmail.com` with subject `[APIS YELLOW] Daily Health Check — 2026-05-07`. Manual send required.
+
+### §7+§8 State + Memory + Final Checklist
+- HEALTH_LOG.md updated in BOTH locations ✅.
+- No autonomous fixes applied → no DECISION_LOG/CHANGELOG/memory updates needed for this run.
+- Pytest smoke 382/0/3670 ✅ matches baseline.
+- CI run #25459511595 conclusion=success ✅.
+- YELLOW email draft created (manual send required).
+- Git tree dirty on HEALTH_LOG only (operator-deferred per yesterday's convention).
+
+---
+
+## Health Check — 2026-05-07 15:13 UTC (Thursday 10:13 AM CT, mid-morning market)
+
+**Overall Status:** YELLOW — clean infrastructure but **Phase 80 NULL-quantity fix is INCOMPLETE for OPEN paths** (3 of 12 today's orders persisted with `quantity=NULL` AND `status=filled`, AND the Phase 80 diagnostic warning `phase80_orders_writer_qty_unresolvable` did NOT fire — meaning the writer's fallback path is hit but the diagnostic check is also being bypassed somehow). 2 paper cycles fired today (13:35, 14:30 UTC) with `paper_trading_cycle_complete` showing prop=30 app=5 exec=5 (cycle 1) and prop=20 app=0 exec=0 (cycle 2) — yet 12 orders rows persisted across the two cycles, suggesting the orders writer is being called for a superset of approved_requests OR a separate writer path exists for SELL/CLOSE actions. 11 OPEN positions (SLB+CAT closed cleanly cycle 1, VRT+UNH opened cycle 1) — all `origin_strategy` stamped ✅. `broker_health_position_drift` fired 2 cycles today (12 tickers cycle 1, 11 cycles 2) — Phase 79's incidental drift reduction did NOT materialize. Phase 79 itself logged `rebalance_actions_merged count=15 phase79_skipped=0` on cycle 1 and `count=10 phase79_skipped=0` on cycle 2 — meaning the rebalance engine did NOT propose any OPEN action against an already-held ticker today (no Phase 79 testcase yet). Phase 78 fired CORRECTLY at 10:30 UTC: `signal_engine_inactive_or_unknown_tickers_dropped count=13 tickers=['ANSS','CTLT','DFS','HES','IPG','JNPR','K','MMC','MRO','PARA','PKI','PXD','WRK']` ✅ (HOLX filtered upstream). All other subsystems GREEN: 8/8 containers healthy 19h uptime RestartCount=0, /health 7/7 ok at 15:08:28Z mode=paper kill=ok, worker tail-5000 38 ERR / api tail-5000 34 ERR — **0 crash-triad** across all 5 patterns, Prometheus 2/2 up, Alertmanager firing=0, resources fine (worker 734.4 MiB, api 846.7 MiB), DB 195 MB (+8 MB since pre-market — expected from cycle 1 trades + EOD eval), pytest deep_dive+phase22+phase57+phase77_78+phase79 → **382 passed / 0 failed / 3670 deselected in 35.46s** ✅ (matches Phase 79+80 deploy baseline; 0 NEW failures), alembic `q7r8s9t0u1v2` single head ✅, git HEAD `8a892db` 0 unpushed (only HEALTH_LOG mod from morning carry-forward + outputs/ untracked normal), **GitHub Actions CI run #25459511595 on `8a892db` conclusion=success** ✅, all 11 critical APIS_* flags correct, scheduler job_count=36, liveness heartbeat fresh (`worker:scheduler_heartbeat=1778166922` ≈ 15:15:22Z). Cash positive at $21,918.88 (legit stream cycle 2 14:30 UTC), equity=$115,896.51. evaluation_runs=99 (≥80 floor ✅; unchanged from morning). Idempotency clean (0 order dupes, 0 position dupes per ticker). 14 securities `is_active=false` (HOLX + 13 stale, all expected). NO autonomous fixes applied — Phase 80 incomplete-fix is operator-review-required (root cause investigation needed across `_persist_orders_and_fills` writer + `proposed_actions` vs `approved_requests` flow). YELLOW Gmail email will be drafted. **Action required from Aaron:** (1) **PRIORITY — investigate Phase 80 incomplete fix**: `_persist_orders_and_fills` at `paper_trading.py:411` uses `qty = res.fill_quantity if res.fill_quantity else req.action.target_quantity` but for VRT and UNH BUYs both paths yield None AND the diagnostic at line 415-430 didn't fire (means either `qty_d is None` is False, or `res.status != _ExecStatus.FILLED` due to enum-import drift, or there's a SECOND order writer that bypasses this code). Recommend adding additional logging at the writer entry point + auditing the `approved_requests` list contents per cycle. (2) reconcile orders-writer vs paper_trading_cycle_complete count discrepancy: cycle 1 shows app=5 exec=5 yet orders table has 9 rows for cycle c26a4d03... (5 BUY filled qty + 2 NULL-qty BUYs + 2 SELL filled). (3) `broker_health_position_drift` continues firing on the carry-forward 11 rebalance positions — Phase 79's idempotency filter didn't fire because rebalance engine never proposed OPEN against an already-held ticker today; track over Fri+Mon for trigger. (4) carry-forward from morning: pre-existing 21-share VRT broker position from Wed cycle 7 may have been the driver of today's VRT cycle-1 BUY (broker had VRT but DB didn't — Phase 79's `held_in_state AND held_in_broker` test missed this asymmetric case).
+
+### §1 Infrastructure
+- Containers: 8/8 healthy. `docker-worker-1` `Up 19h` since 2026-05-06T20:33:07Z (Phase 79+80 deploy). `docker-api-1` `Up 43h`. `docker-postgres-1` / `docker-redis-1` / grafana / prometheus / alertmanager / apis-control-plane `Up 2 days` since 2026-05-05T03:31:12Z. RestartCount=0 across all 4 core services.
+- /health: all 7 components `ok` at 2026-05-07T15:08:28.052362Z. mode=paper, kill_switch=ok.
+- Worker log scan (5000 tail): **38 ERROR/CRITICAL** matches — yfinance stale-ticker carry-forward + 2 `broker_health_position_drift` warnings (cycles 1+2). **0 crash-triad regressions** across all 5 patterns (`_fire_ks` / `broker_adapter_missing_with_live_positions` / `EvaluationRun.idempotency_key` / `paper_cycle.*no_data` / `phantom_cash_guard_triggered` all 0/0 worker/api).
+- API log scan (5000 tail): **34 ERROR/CRITICAL** matches, 0 crash-triad.
+- Prometheus: 2/2 targets up (apis, prometheus), 0 dropped.
+- Alertmanager: 0 active alerts at 15:09 UTC. Phase 73 `for: 30m` debounce holding.
+- Resource usage: worker 734.4 MiB / 0.00% CPU, api 846.7 MiB / 0.13%, postgres 171.6 MiB, grafana 50.89 MiB, prometheus 43.13 MiB, alertmanager 14.73 MiB, redis 8.27 MiB, apis-control-plane 1.328 GiB / 17.01%. All under threshold.
+- DB size: **195 MB** (+8 MB since pre-market; expected from cycle 1 trades + Wed EOD eval row).
+
+### §2 Execution + Data Audit
+- Paper cycles fired today: **2 of expected 12 so far** (13:35 + 14:30 UTC). `paper_trading_cycle_complete` cycle 1: prop=30 app=5 exec=5; cycle 2: prop=20 app=0 exec=0. Next cycle 15:30 UTC (~17 min after this report).
+- `evaluation_runs` total: **99** (≥80 floor ✅; unchanged from morning baseline of 99).
+- Portfolio trend (legitimate stream, last 4 rows):
+  - 2026-05-07 14:30:02 — cash=$21,918.88 / equity=$115,896.51
+  - 2026-05-07 13:35:04 — cash=$22,999.56 / equity=$115,652.53
+  - 2026-05-06 19:30:02 — cash=$30,519.19 / equity=$116,774.09 (Wed final)
+  - Cash positive ✅. Cash deltas: $30,519 → $22,999 (-$7,519, cycle 1 settled some BUYs and SLB+CAT SELLs cleared) → $21,918 (-$1,081, cycle 2 small drift). Equity intraday: $115,652 → $115,896 (+0.21%, normal MTM).
+  - Dual-snapshot writer carry-forward continues ($67k/$99.9k secondary stream — pre-existing benign).
+- Broker<->DB reconciliation: DB shows **11 OPEN positions** (UNH 14:30 momentum_v1 qty=21, VRT 13:35 rebalance qty=43, WDC/BE/MU/INTC/NUE 05-01 rebalance, AMD/MRVL/EQIX/AMZN 04-29 rebalance) — SLB+CAT closed cleanly cycle 1. `broker_health_position_drift` fired 2 cycles today on the carry-forward rebalance set (12 tickers cycle 1 incl. VRT, 11 tickers cycle 2 — VRT now in DB so dropped).
+- **NEW finding 1: Phase 80 NULL-quantity bug NOT FIXED for OPEN paths**. 3 of today's 12 orders rows have `status=filled` AND `quantity=NULL`:
+  - VRT BUY 13:35 (cycle c26a4d03..., reason=`rebalance_open: drift=-6.67%`, broker_order_ref `c43078b0-...`)
+  - UNH BUY 13:35 (cycle c26a4d03..., reason=`rebalance_open: drift=-6.67%`, broker_order_ref `a81f7f37-...`)
+  - UNH BUY 14:30 (cycle ca1ebab5..., reason=`rebalance_open: drift=-6.67%`, broker_order_ref `880b3525-...`)
+  None have corresponding fill rows. `phase80_orders_writer_qty_unresolvable` diagnostic NEVER FIRED in worker logs — meaning either `qty_d is None and res.status == _ExecStatus.FILLED` evaluated false (enum import drift?), or these orders were written by a code path that bypasses `_persist_orders_and_fills` entirely.
+- **NEW finding 2: orders writer count discrepancy with cycle metrics**. `paper_trading_cycle_complete` reports cycle 1 app=5 exec=5, but cycle c26a4d03... has 9 orders persisted (5 proper-qty BUYs + 2 NULL-qty BUYs + 1 SLB SELL filled qty=129 + 1 CAT SELL filled qty=8). Either `approved_requests` includes more than `approved_count` reports, or there's a second persist path (e.g., a CLOSE-loop writer + a TRIM-rebalance writer + the OPEN-action writer all in different code blocks).
+- Today's order ledger by status: 9 filled (5 proper-qty BUYs, 2 NULL-qty BUYs, 1 NULL-qty UNH BUY cycle 2, 2 SELLs proper qty), 2 rejected (SLB+CAT SELL cycle 2 — already-closed positions; cycle 2's app=0 means risk engine correctly blocked them BUT they still got into the orders ledger — same bug as Phase 80).
+- Origin-strategy stamping: ALL 11 OPEN have `origin_strategy` stamped ✅ (10 `rebalance` + 1 `momentum_v1` UNH). Phase 73 holding even for new strategy origin.
+- Position caps: **11/15 open** ✅. **2 new positions today** (VRT, UNH) — within `APIS_MAX_NEW_POSITIONS_PER_DAY=5`.
+- Data freshness:
+  - daily_market_bars MAX = **2026-05-06** (Wed close, ✅) — today's EOD ingest fires 17:00 ET = 21:00 UTC.
+  - signal_runs MAX = **2026-05-07 10:30:00 UTC** ✅ — Phase 78 fired correctly: `signal_engine_inactive_or_unknown_tickers_dropped count=13` (HOLX upstream-filtered).
+  - ranking_runs MAX = **2026-05-07 10:45:00 UTC** ✅.
+- Stale tickers: 14 securities `is_active=false` (HOLX + 13 stale delisted S&P 500). No new additions.
+- Kill-switch: `false` ✅. Operating mode: `paper` ✅. `APIS_PHASE79_REBALANCE_IDEMPOTENCY_ENABLED` not in env (uses default True from settings.py).
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). No drift.
+- Pytest smoke: **382 passed / 0 failed / 3670 deselected in 35.46s** ✅ (filter: `deep_dive or phase22 or phase57 or phase77_78 or phase79`, `--no-cov`, `APIS_PYTEST_SMOKE=1` inside `docker-api-1`). Same pass count as morning baseline. NEW failures: zero.
+- Git: tree DIRTY only on `apis/state/HEALTH_LOG.md` + `state/HEALTH_LOG.md` (this entry + morning entry); HEAD `8a892db`, 0 unpushed.
+- **GitHub Actions CI:** Run **#25459511595** on `8a892db` — `status=completed, conclusion=success` ✅ (https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25459511595). Same as morning — no new pushes today.
+
+### §4 Config + Gate Verification
+- All 11 critical APIS_* flags at expected values:
+  - `APIS_OPERATING_MODE=paper` ✅, `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅, `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅, `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_MAX_SECTOR_PCT=0.40` ✅, `APIS_MAX_SINGLE_NAME_PCT=0.20` ✅, `APIS_MAX_POSITION_AGE_DAYS=20` ✅
+  - `APIS_DAILY_LOSS_LIMIT_PCT=0.02` ✅, `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05` ✅
+- Scheduler `job_count=36` per `apis_worker_started` log at 2026-05-06T20:33:07Z (legitimate baseline).
+- Liveness heartbeat: `worker:scheduler_heartbeat=1778166922` ≈ 2026-05-07T15:15:22Z (~2 min after probe time). Fresh ✅.
+
+### Issues Found
+1. **Phase 80 NULL-quantity bug NOT FIXED for OPEN paths** (YELLOW). 3 orders rows for VRT+UNH BUYs persisted with `status=filled` AND `quantity=NULL`. Phase 80 fix at `paper_trading.py:411-430` was supposed to handle this via `qty = res.fill_quantity if res.fill_quantity else req.action.target_quantity` + a diagnostic warning if both are None on a FILLED status. Neither the qty-resolution nor the diagnostic worked. Suspected causes: (a) ExecutionStatus enum import drift between persistence path and execution_engine; (b) second order writer path that bypasses `_persist_orders_and_fills`; (c) `res.fill_quantity` returning a falsy non-None value (e.g., `Decimal(0)`) that bypasses the truthy check at line 411 but doesn't trigger the `is None` check at line 416.
+2. **Orders writer count discrepancy** (YELLOW). `paper_trading_cycle_complete` reports cycle 1 app=5 exec=5, but cycle c26a4d03... has 9 orders persisted. Either `approved_requests` is over-populated, the orders writer is also getting called for non-approved actions, or there's a parallel CLOSE-loop / TRIM-rebalance writer that isn't accounted for in the metrics.
+3. **broker_health_position_drift carry-forward** (YELLOW). Fired 2 cycles today on the operator-restored rebalance positions. Phase 79's incidental drift reduction didn't materialize because the rebalance engine never proposed OPEN against an already-held ticker today (`phase79_skipped=0` both cycles). Phase 79's idempotency only fires on the symmetric case `held_in_state AND held_in_broker`; the asymmetric case (in broker but not state — Wed cycle 7 VRT) still gets re-OPENed.
+4. **Cycle 2 SELL rejection on already-closed positions** (informational). SLB+CAT SELLs at 14:30 got `status=rejected` because their positions closed in cycle 1. Expected behavior but the rejected orders still consume an idempotency_key slot and pollute the ledger.
+
+### Fixes Applied
+- (none — all YELLOW issues are operator-review-required; no autonomous-fix authority covers Phase 80 root cause without a careful audit of the orders writer code paths)
+
+### Action Required from Aaron
+1. **PRIORITY: Phase 80 root-cause investigation** — the fix at `apis/apps/worker/jobs/paper_trading.py:411-430` is incomplete. Suggested triage:
+   - Verify `from services.execution_engine.models import ExecutionStatus as _ExecStatus` returns the same enum the paper broker is using. Compare via `id(res.status) == id(_ExecStatus.FILLED)` at runtime.
+   - Add `logger.info("phase80_writer_entry", ticker=ticker, fill_qty=str(res.fill_quantity), target_qty=str(req.action.target_quantity), status=res.status.value)` at line 384 to surface what the writer is actually receiving for OPEN paths.
+   - Audit whether `_persist_orders_and_fills` is the SOLE writer or if there's a separate writer for SELL/CLOSE actions (the orders count discrepancy suggests yes).
+2. **Reconcile cycle metrics with persisted orders count** — `paper_trading_cycle_complete app=5 exec=5` should match the orders rows for that cycle, but cycle 1 has 9 orders. Either the metric is undercounting or a non-`approved_requests` writer exists.
+3. **Carry-forward**: `broker_health_position_drift` will fire each cycle until either (a) Phase 79's filter is broadened to handle the asymmetric "in broker, not state" case, OR (b) operator runs a one-shot broker→DB resync. Recommend Phase 81 for the broker→DB resync on API/worker restart (suggested in pre-market entry).
+4. **Send the YELLOW Gmail draft** if visibility on these findings is desired (auto-created in §6).
+5. **Optional**: investigate why VRT was in broker without DB row (Wed cycle 7 carry-forward) — Phase 80 NULL-qty pattern from Wed wrote the VRT BUY but no Position row, so today's Phase 79 didn't recognize VRT as already-held, leading to a 43-share double-down.
+
+---
+
+## Health Check — 2026-05-07 10:15 UTC (Thursday 5:15 AM CT, pre-market)
+
+**Overall Status:** GREEN — clean pre-market deep-dive. Phase 79 + 80 are now FULLY LANDED on `origin/main` at `8a892db` (the operator-pending commit + push from yesterday's 20:30 UTC ACTIVE_CONTEXT entry has been completed) — CI run #25459511595 conclusion=success ✅; worker restart at 20:33:07Z Wed picked up the new code; `grep` of `phase79_rebalance_open_already_open_skipped` + `phase80_orders_writer_qty_unresolvable` in `/app/apis/apps/worker/jobs/paper_trading.py` both return 1 ✅; runtime config knob `phase79_rebalance_idempotency_enabled = True` confirmed via `get_settings()` ✅. Phase 79+80's first weekday paper cycle exercise fires at 13:35 UTC today (~3.3h from this report). 8/8 containers healthy: worker `Up 14h` since 2026-05-06T20:33:07Z (Phase 79+80 recreate), api `Up 38h`, postgres/redis/grafana/prom/alertmanager/control-plane `Up 2 days` (since 2026-05-05T03:31:12Z). RestartCount across all 4 core services = 0. /health 7/7 ok at 10:08:15Z mode=paper kill_switch=ok. Worker tail-3000 = 19 ERROR (yfinance carry-forward on the 13 stale tickers + miscellaneous startup), API tail-3000 = 15 ERROR — **0 crash-triad regressions** across all 5 patterns (`_fire_ks` / `broker_adapter_missing_with_live_positions` / `EvaluationRun.idempotency_key` / `paper_cycle.*no_data` / `phantom_cash_guard_triggered` all 0/0 worker/api). Prometheus 2/2 up (apis, prometheus), 0 dropped. Alertmanager firing=0 (Phase 73 `for: 30m` debounce holding through the 14h since restart). Resources fine (worker 718.9 MiB / 0.00% CPU, api 841.4 MiB / 0.10%, postgres 171.1 MiB, all under threshold). DB 187 MB (unchanged from yesterday). Pytest `tests/unit/ -k "deep_dive or phase22 or phase57 or phase77_78 or phase79"` → **382 passed / 0 failed / 3670 deselected in 36.61s** ✅ (matches Phase 79+80 deploy baseline of 382 = 370 prior + 12 new). Alembic head `q7r8s9t0u1v2` single ✅ no drift. Git tree CLEAN at HEAD `8a892db`, 0 unpushed, only `outputs/` untracked (normal). **GitHub Actions CI run #25459511595 on `8a892db` conclusion=success** ✅ (also `ffd363e` and `9ac0ca7` both success — full Phase 75/76/77/78/79/80 push range CI-clean). All 11 critical APIS_* flags at expected values (paper / kill=false / max_pos=15 / max_new=5 / thematic=0.75 / min_score=0.30 / sector=0.40 / single_name=0.20 / age=20d / daily_loss=0.02 / weekly=0.05). Scheduler `job_count=36` per `apis_worker_started`; liveness heartbeat fresh (`worker:scheduler_heartbeat=1778148622` ≈ 10:10:22Z, ~5 min before report end). 0 paper cycles today (expected — first Thu cycle 13:35 UTC ~3.3h away). 11 OPEN positions (down 1 from Wed morning's 12) all `origin_strategy=rebalance` ✅ (10 opened 2026-04-29, 6 opened 2026-05-01 — wait, recount: 1 SLB + 1 CAT (05-01 15:30) + 5 (05-01 13:35: NUE/MU/WDC/BE/INTC) + 4 (04-29: AMD/MRVL/EQIX/AMZN) = 11). 0 NULLs (Phase 73 holding). 0 new positions today. evaluation_runs=99 (≥80 floor ✅; +1 from yesterday from Wed 21:00 UTC EOD eval). Idempotency clean (0 dupes). Latest legit snapshot Wed 19:30:02 UTC: cash=$30,519.19 / equity=$116,774.09 — cash positive ✅. Dual-snapshot writer carry-forward continues ($67k/$99.9k secondary stream — pre-existing benign; Prometheus reads legit stream). daily_market_bars MAX = 2026-05-06 (488 securities, Wed close ✅); signal_runs MAX = 2026-05-06 10:30:00 UTC; ranking_runs MAX = 2026-05-06 10:45:00 UTC — today's 10:30/10:45 UTC jobs fire ~22/37 min after this report and are the FIRST exercise of Phase 78's `signal_engine_inactive_or_unknown_tickers_dropped` log line with the EXPECTED count=14 (HOLX + 13 stale tickers, all confirmed `securities.is_active=false` in DB). **Stale-ticker carry-forward fix is live**: 14 inactive securities in DB matches yesterday's Phase 79+80 deploy `UPDATE 13` plus pre-existing HOLX. **broker_health_position_drift = 0** in tail-5000 (no cycles since 20:33 UTC restart; first chance to fire is today's 13:35 UTC cycle). NO autonomous fixes applied — clean run. Email silent per GREEN rule. **Action required from Aaron:** (1) confirm 13:35 UTC first cycle emits `phase79_rebalance_open_already_open_skipped` for any already-held ticker the rebalance engine proposes against (10 of the 11 OPEN positions are rebalance-engine candidates; Phase 79 should suppress redundant OPENs); (2) confirm new orders rows have non-NULL `quantity` on FILLED status post-13:35 UTC (Phase 80 verification — query `SELECT side, quantity, status FROM orders WHERE order_timestamp::date='2026-05-07' AND quantity IS NULL`); (3) confirm 10:30 UTC signal job emits `signal_engine_inactive_or_unknown_tickers_dropped count=14` (Phase 78 verification on the now-fully-armed 14-ticker inactive set); (4) if `broker_health_position_drift` continues firing on the 11 operator-restored rebalance positions across multiple Thu cycles, escalate to a Phase 81 broker-DB resync.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy. `docker-worker-1` `Up 14h` since `2026-05-06T20:33:07Z` (Phase 79+80 deploy recreate). `docker-api-1` `Up 38h`. `docker-postgres-1`/`docker-redis-1`/grafana/prometheus/alertmanager/apis-control-plane `Up 2 days` since `2026-05-05T03:31:12Z`. RestartCount=0 across all 4 core services.
+- /health: all 7 components `ok` at 2026-05-07T10:08:15.830152Z. mode=paper, kill_switch=ok.
+- Worker log scan (3000 tail): **19 ERROR/CRITICAL** matches — yfinance stale-ticker on the 14 inactive (HOLX + 13) plus startup misc. **0 crash-triad regressions** across all 5 patterns.
+- API log scan (3000 tail): **15 ERROR/CRITICAL** matches, 0 crash-triad.
+- Prometheus: 2/2 targets up (apis, prometheus), 0 dropped.
+- Alertmanager: 0 active alerts. Phase 73 `for: 30m` debounce holding through the 14h since restart.
+- Resource usage: worker 718.9 MiB / 0.00% CPU, api 841.4 MiB / 0.10%, postgres 171.1 MiB, grafana 51.13 MiB, prometheus 41.22 MiB, alertmanager 14.85 MiB, redis 8.12 MiB, apis-control-plane 1.293 GiB / 8.00%. All under threshold.
+- DB size: **187 MB** (unchanged from yesterday's evening).
+
+### §2 Execution + Data Audit
+- Paper cycles fired today: **0 of expected 12** (pre-market; first Thu cycle 13:35 UTC ~3.3h away). 0 failures (no cycles to fail).
+- `evaluation_runs` total: **99** (≥80 floor ✅; +1 since yesterday's morning baseline of 98 from Wed 21:00 UTC EOD eval row `0f0fe67d-...` mode=paper status=complete idempotency_key=`2026-05-06:paper:evaluation_run`).
+- Portfolio trend (latest snapshots, dual-snapshot pattern continuing — primary/secondary writer streams):
+  - 2026-05-06 19:30:02 — cash=$30,519.19 / equity=$116,774.09 (legitimate, post cycle 7)
+  - 2026-05-06 19:30:01 — cash=$67,247.61 / equity=$99,983.83 (secondary writer)
+  - 2026-05-06 18:30:02 — cash=$30,519.19 / equity=$116,197.38 (legitimate)
+  - 2026-05-06 18:30:00 — cash=$67,247.61 / equity=$99,983.83 (secondary writer)
+  - … (alternating pattern continues backwards)
+  - Cash positive ✅ on legitimate stream. Cash + holdings ≈ equity within rounding ✅. Dual-snapshot writer carry-forward unchanged (pre-existing benign — Prometheus reads legit stream).
+- Broker<->DB reconciliation: DB shows **11 OPEN positions** (SLB, CAT, NUE, MU, WDC, BE, INTC, AMD, MRVL, EQIX, AMZN). VRT cycle 7 (Wed 19:30 UTC) 21-share BUY ran PRE-Phase-80-deploy and produced a NULL-quantity orders row (status=filled) but no Position row was persisted; per ACTIVE_CONTEXT 2026-05-06 ~20:30 UTC entry the broker correctly held 21 shares of VRT at end of day — DB has no matching open position row. This is **pre-existing Phase 80 writer bug behaviour**; Phase 80 fix is now loaded and will validate on next OPEN today. /health broker=ok (`/api/v1/broker/positions` 404s in this build — falling back to /health=ok per `feedback_apis_deep_dive_probes.md`).
+- Origin-strategy stamping: **ALL 11 OPEN have `origin_strategy=rebalance` stamped ✅** (Phase 73 holding; 0 NULLs).
+- Position caps: **11/15 open** ✅. **0 new positions today** (CURRENT_DATE = 2026-05-07, expected pre-first-cycle).
+- Today's order ledger (last 24h, since 10:08 UTC Wed):
+  - 5 cycle-1 TRIM-rebalance BUYs at 13:35 UTC Wed (INTC qty=59, MU qty=10, AMZN qty=24, AMD qty=15, EQIX qty=6) — all with proper `quantity` AND fill rows (Phase 80 already works for TRIM-rebalance path).
+  - 4 VRT orders (BUY 14:30, SELL 16:00, SELL 17:30, BUY 19:30) — 2 BUYs have `quantity=NULL` (theme_alignment_v1 OPEN path); SELLs have qty=22 each (TRIM/CLOSE path). 0 fill rows for any VRT order.
+  - 1 STT SELL at 14:30 UTC (qty=48, status=rejected).
+- Data freshness:
+  - daily_market_bars MAX = **2026-05-06** (Wed close, 488 securities) ✅ — today's EOD ingest fires 17:00 ET = 21:00 UTC.
+  - signal_runs MAX = **2026-05-06 10:30:00 UTC** ✅ — today's 10:30 UTC signal job fires ~22 min after this report.
+  - ranking_runs MAX = **2026-05-06 10:45:00 UTC** ✅ — today's 10:45 UTC ranking job fires ~37 min after this report.
+- **Stale tickers**: 14 securities `is_active=false` (HOLX + JNPR + MMC + WRK + PARA + K + HES + PKI + IPG + DFS + MRO + CTLT + PXD + ANSS) — Phase 79+80 deploy's `UPDATE 13` + pre-existing HOLX = 14 confirmed in DB. Phase 78's `signal_engine_inactive_or_unknown_tickers_dropped` log line will fire today's 10:30 UTC signal job with EXPECTED count=14 (was count=0 yesterday morning, when only HOLX was inactive but the strategy already filtered it upstream → the +13 makes Phase 78's filter materially exercised for the first time).
+- Kill-switch: `false` ✅. Operating mode: `paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` (NULL keys excluded) ✅. 0 duplicate OPEN positions per ticker ✅.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅) — Phase 77 migration applied. No drift.
+- Pytest smoke: **382 passed / 0 failed / 3670 deselected in 36.61s** ✅ (filter: `deep_dive or phase22 or phase57 or phase77_78 or phase79`, `--no-cov`, `APIS_PYTEST_SMOKE=1` inside `docker-api-1`). Same pass count as yesterday's Phase 79+80 deploy baseline of 382 (370 prior + 12 new from `test_phase79_80_rebalance_idempotency_and_orders_qty.py`). NEW failures: zero. Pre-existing 2 phase22 failures deselected as before.
+- Git: tree CLEAN at HEAD `8a892db` ("Phase 79 + 80: rebalance idempotency on open positions + orders ledger NULL-quantity fix (DEC-079 / DEC-080)"); 0 unpushed; only `outputs/` untracked (normal); no stale `feat/*` branches.
+- **GitHub Actions CI:** Run **#25459511595** on `8a892db` — `status=completed, conclusion=success` ✅ (https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25459511595). Prior run `25401590762` on `ffd363e` and `25400306549` on `9ac0ca7` both also `conclusion=success`.
+
+### §4 Config + Gate Verification
+- All 11 critical APIS_* flags at expected values:
+  - `APIS_OPERATING_MODE=paper` ✅, `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅, `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅, `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_MAX_SECTOR_PCT=0.40` ✅, `APIS_MAX_SINGLE_NAME_PCT=0.20` ✅, `APIS_MAX_POSITION_AGE_DAYS=20` ✅
+  - `APIS_DAILY_LOSS_LIMIT_PCT=0.02` ✅, `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05` ✅
+- Phase 79 idempotency knob: `phase79_rebalance_idempotency_enabled = True` ✅ (verified via `get_settings()` inside worker container).
+- Scheduler `job_count=36` per `apis_worker_started` log at 2026-05-06T20:33:07Z (legitimate per yesterday's audit; baseline updated to 36 in `feedback_apis_deep_dive_probes.md`).
+- Liveness heartbeat: `worker:scheduler_heartbeat=1778148622` ≈ 2026-05-07T10:10:22Z (≈ 5 min before report end). Fresh, within 5-min window ✅.
+
+### Issues Found
+- (none — clean pre-market run)
+
+### Fixes Applied
+- (none — no autonomous fixes needed)
+
+### Action Required from Aaron
+1. **Phase 79 first-cycle exercise** (Thu 13:35 UTC) — watch worker logs for `phase79_rebalance_open_already_open_skipped` lines on cycle 2+ for tickers already held. Phase 79 may incidentally reduce `broker_health_position_drift` by stopping repeated `rebalance_open` BUY storms.
+2. **Phase 80 first non-rebalance OPEN exercise** — query `SELECT side, quantity, status FROM orders WHERE order_timestamp::date='2026-05-07' AND quantity IS NULL` after first cycle. Expect zero NULL-qty rows on FILLED orders. The diagnostic `phase80_orders_writer_qty_unresolvable` should be silent unless paper broker has a deeper contract violation.
+3. **Phase 78 first-real-exercise** (Thu 10:30 UTC) — confirm signal job emits `signal_engine_inactive_or_unknown_tickers_dropped count=14`. With the 13 stale tickers now `is_active=false`, the +13 makes Phase 78's filter materially exercised for the first time vs yesterday's 0 (HOLX-only, suppressed upstream).
+4. **`broker_health_position_drift`** — first chance to fire is today's 13:35 UTC cycle (0 since worker restart). If drift persists at >1 cycle/day across the 11 operator-restored rebalance positions, escalate to a Phase 81 broker-DB resync on API restart.
+5. **Carry-forward (low priority)**: VRT cycle 7 (Wed 19:30 UTC) 21-share BUY persisted at broker but no DB position row — pre-existing Phase 80 NULL-qty writer artifact from BEFORE the 20:30 UTC deploy. If a Phase 79 + 80 backfill of the missing VRT row is desired for audit-trail completeness, that's an operator decision (not autonomous).
+
+---
+
 ## Phase 79 + 80 Deploy — 2026-05-06 ~20:30 UTC (Wednesday 3:30 PM CT, post-market)
 
 **Trigger:** Operator-initiated remediation of the 2026-05-06 19:30 HEALTH_LOG YELLOW findings (5 issues). Investigation reframed Issue 1 (root cause is rebalance-engine staleness, not theme_alignment_v1 churn) and resolved Issue 3 (broker is correctly flat; HEALTH_LOG misread the cash math).
