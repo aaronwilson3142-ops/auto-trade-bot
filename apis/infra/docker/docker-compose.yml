@@ -108,6 +108,10 @@ services:
       context: ../../..
       dockerfile: apis/infra/docker/Dockerfile
       target: worker
+    # Phase 81-D (DEC-084) — `unless-stopped` does not auto-recover when the
+    # engine never starts, but it WILL bring the container back on engine
+    # restart. The host-side watchdog (apis/scripts/windows_docker_watchdog.ps1)
+    # handles the engine-down case the container healthcheck cannot reach.
     restart: unless-stopped
     depends_on:
       postgres:
@@ -129,17 +133,17 @@ services:
     volumes:
       - ../../../apis:/app/apis:ro   # read-only source mount for development
     healthcheck:
-      # Verifies APScheduler's dispatch thread is alive by checking the
-      # scheduler heartbeat key (epoch timestamp written every 5 min by an
-      # APScheduler-managed job).  If the key is missing or older than 10 min,
-      # the scheduler is stalled and Docker should restart the container.
-      # Falls back to the main-thread heartbeat (worker:heartbeat) if Redis
-      # has the old key but not the new one (rolling upgrade).
-      test: ["CMD-SHELL", "python -c \"import redis,sys,os,time; r=redis.Redis.from_url(os.environ.get('APIS_REDIS_URL','redis://redis:6379/0')); v=r.get('worker:scheduler_heartbeat'); sys.exit(0 if v and (time.time()-float(v))<600 else 1)\""]
+      # Phase 71 (2026-04-30): scheduler heartbeat-based liveness probe.
+      # Phase 81-D (2026-05-13, DEC-084): unhealthy if EITHER the scheduler
+      # heartbeat (>600s old) OR the main-thread heartbeat key is missing.
+      # The host-side watchdog (apis/scripts/windows_docker_watchdog.ps1)
+      # handles the engine-never-started case this in-container probe
+      # structurally cannot detect.
+      test: ["CMD-SHELL", "python -c \"import redis,sys,os,time; r=redis.Redis.from_url(os.environ.get('APIS_REDIS_URL','redis://redis:6379/0')); v=r.get('worker:scheduler_heartbeat'); h=r.get('worker:heartbeat'); sys.exit(0 if (v and (time.time()-float(v))<600) and (h is not None) else 1)\""]
       interval: 60s
       timeout: 10s
       retries: 3
-      start_period: 120s
+      start_period: 180s
     networks:
       - apis_net
 

@@ -350,6 +350,35 @@ class Settings(BaseSettings):
     # and emitted rebalance_open every cycle.
     phase79_rebalance_idempotency_enabled: bool = Field(default=True)
 
+    # -- Phase 81 Broker SOD Reseed-from-DB (DEC-081) --------------------
+    # When True, on lazy-initialization of a fresh PaperBrokerAdapter the
+    # worker reseeds cash + positions from `positions WHERE status='open'`
+    # and the most recent `portfolio_snapshots.equity_value` so the SOD
+    # equity capture on the next cycle reads the operator's real account
+    # state instead of the cold-start $100k. Mitigates the 2026-05-13 c7
+    # SOD reset incident where a 24h Docker Desktop outage led the broker
+    # to come back at $100k while DB held $75k cost basis at $117k Tue
+    # close equity, and 5 BUYs went out against the phantom baseline.
+    phase81_broker_sod_reseed_enabled: bool = Field(default=True)
+
+    # -- Phase 81-B OPEN Stacking Guard (DEC-082) ------------------------
+    # Extends Phase 79's rebalance-OPEN idempotency to ALL OPEN actions
+    # (ranked_buy_signal, momentum_v1, theme_alignment_v1, etc.) when the
+    # ticker is already held in portfolio_state.positions or broker. The
+    # rebalance path was the dominant symptom on 2026-05-06 but the same
+    # bug class can occur on any non-rebalance OPEN if portfolio_state
+    # falls stale relative to broker.
+    phase81b_open_stacking_guard_enabled: bool = Field(default=True)
+
+    # -- Phase 81-C realized_pnl fallback writer (DEC-083) ---------------
+    # When True, ``_persist_positions`` close-loop computes realized_pnl
+    # from (current_price - entry_price) * quantity when no ClosedTrade
+    # record exists for the ticker being closed (broker-sync close path).
+    # Without this fallback, positions closed via broker reconciliation
+    # write status=closed with realized_pnl=NULL — the 169 lifetime rows
+    # pattern called out in the 2026-05-13 HEALTH_LOG.
+    phase81c_realized_pnl_fallback_enabled: bool = Field(default=True)
+
     # -- Liquidity Filter (Phase 41) -------------------------------------
     min_liquidity_dollar_volume: float = Field(default=1_000_000.0, gt=0.0)
     max_position_as_pct_of_adv: float = Field(default=0.10, gt=0.0, le=1.0)

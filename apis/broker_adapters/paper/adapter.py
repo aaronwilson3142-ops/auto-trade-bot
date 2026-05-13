@@ -130,6 +130,64 @@ class PaperBrokerAdapter(BaseBrokerAdapter):
             if internal.quantity > Decimal("0")
         }
 
+    # ── Phase 81: state reseed from DB (post-restart recovery) ────────────────
+
+    def seed_from_db_positions(
+        self,
+        positions: list[tuple[str, Decimal, Decimal]],
+        last_known_equity: Decimal | None = None,
+    ) -> dict[str, Decimal]:
+        """Reseed in-memory broker state from DB positions on a fresh start.
+
+        Each tuple is ``(ticker, quantity, avg_entry_price)``.  Adjusts
+        ``self._cash`` down by the aggregate cost basis so equity continues
+        from where the prior process left off.  When ``last_known_equity``
+        is supplied (e.g. from the most recent ``portfolio_snapshots`` row)
+        cash is pinned to ``last_known_equity - cost_basis`` so the SOD
+        capture on the next cycle reads the operator's real equity rather
+        than the $100k cold-start default.
+
+        Returns a summary dict ``{prior_cash, new_cash, cost_basis, seeded}``
+        for telemetry.  Never raises.
+
+        Idempotent: safe to call on an already-seeded adapter; existing
+        positions are preserved and only missing tickers are added.
+        """
+        prior_cash = self._cash
+        seeded = Decimal("0")
+        total_cost = Decimal("0")
+        for ticker, qty, entry in positions:
+            if qty <= Decimal("0"):
+                continue
+            existing = self._positions.get(ticker)
+            if existing is not None and existing.quantity > Decimal("0"):
+                continue
+            internal = _InternalPosition()
+            internal.quantity = qty
+            internal.avg_entry_price = entry
+            self._positions[ticker] = internal
+            total_cost += (entry * qty).quantize(self._CENTS, ROUND_HALF_UP)
+            seeded += Decimal("1")
+
+        if last_known_equity is not None and last_known_equity > Decimal("0"):
+            self._cash = (last_known_equity - total_cost).quantize(
+                self._CENTS, ROUND_HALF_UP
+            )
+        else:
+            self._cash = (prior_cash - total_cost).quantize(
+                self._CENTS, ROUND_HALF_UP
+            )
+
+        if self._cash < Decimal("0"):
+            self._cash = Decimal("0")
+
+        return {
+            "prior_cash": prior_cash,
+            "new_cash": self._cash,
+            "cost_basis": total_cost,
+            "seeded": seeded,
+        }
+
     # ── Connection / lifecycle ─────────────────────────────────────────────────
 
     def connect(self) -> None:
