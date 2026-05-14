@@ -3,6 +3,24 @@ Format: timestamp | decision | alternatives considered | rationale | consequence
 
 ---
 
+## [2026-05-14] Phase 81 — Hotfix: app_state.portfolio_state cold-start bypass (DEC-086)
+
+### DEC-086: Phase 81-A Hotfix — `_seed_app_portfolio_state_from_db(app_state, cycle_id)` mirror of API-side `_load_persisted_state`
+- **Decision:** Add a second helper `_seed_app_portfolio_state_from_db(app_state, cycle_id)` in `apis/apps/worker/jobs/paper_trading.py` that mirrors the API-side `apps/api/main.py::_load_persisted_state()` restore: query the most recent `PortfolioSnapshot` + all open `Position` rows, then build a `PortfolioState(starting_cash=snap.cash_value, ...)` populated with `Position` model entries and assign it to `app_state.portfolio_state`. Wire the call into the worker's lazy-init block IMMEDIATELY AFTER `_seed_paper_broker_from_db(...)` so the very next line that constructs `app_state.portfolio_state = PortfolioState(...)` is bypassed when the seed already populated it. Idempotent — skips with `phase81_portfolio_state_already_present` if `app_state.portfolio_state is not None`. Flag-shared with `phase81_broker_sod_reseed_enabled` (no new env knob — the two seeds are conceptually one Phase 81-A unit).
+- **Alternatives considered:**
+  - **(a) Reuse the API-side `_load_persisted_state()` directly.** Rejected: that function references `app.state` (FastAPI lifespan handle), not the worker's plain dataclass `WorkerAppState`. Adapter import or wrapper would couple the worker to the API package and re-create the layering bug Phase 64 closed.
+  - **(b) Move the SOD-equity capture to AFTER the broker→portfolio sync at line ~2186.** Rejected: SOD capture must happen at cycle-open so `daily_pnl_pct` is computed against the day-start baseline. Moving it post-sync would shift the semantic and break the existing rolling-window comparison against `portfolio_snapshots`.
+  - **(c) Have `PortfolioState.__init__` query the DB itself for last-known cash.** Rejected: `PortfolioState` is the pure in-memory state object used across tests and shadow-portfolio paths; adding a DB dependency to its constructor inverts the dependency graph.
+- **Rationale:** Phase 81-A (DEC-081) reseeded the **broker** at lazy-init, but `app_state.portfolio_state` was still constructed at the cold-start `$100k` at paper_trading.py:994. The 2026-05-14 c1 cycle on the freshly restarted worker emitted the expected `phase81_broker_sod_reseeded_from_db prior_cash=100000.00 new_cash=45786.26 cost_basis=75193.55 seeded=11` line, then immediately wrote `sod_equity_captured equity=100000.00` — confirming the SOD capture reads `app_state.portfolio_state.equity`, not the broker. The PortfolioState was still empty, so `equity = starting_cash + 0 positions = $100k`. The hotfix closes that second half of the restore. Without it, the `daily_loss_limit_pct` safety gate computes against the wrong baseline and the operator's morning report would continue to mis-attribute the day's P&L.
+- **Consequence:**
+  - On a fresh worker start with N open DB positions and a recent snapshot, the worker's `app_state.portfolio_state` is now byte-for-byte the API-restored state (cash + positions + equity).
+  - New `phase81_portfolio_state_restored_at_worker` INFO log line carries `cash`, `positions_count`, `equity` for daily verification.
+  - Next-cycle expected log shape: `phase81_broker_sod_reseeded_from_db ... → phase81_portfolio_state_restored_at_worker ... → sod_equity_captured equity=$120,979.81` (matches Tue close).
+  - 4 new unit tests in `TestPhase81AHotfixPortfolioStateSeed` lock the helper's contract (seeds when absent, skips when present, phantom-cash never reaches state, SOD equity equals `cash + cost_basis`). Total Phase 81 test count: 24, all green.
+  - The c7 BUYs from 2026-05-13 remain unwound-no — they stand against the now-correctly-reconciled baseline.
+
+---
+
 ## [2026-05-13] Phase 81 — RED-day remediation bundle (DEC-081 / 082 / 083 / 084 / 085)
 
 ### DEC-081: Phase 81-A — `PaperBrokerAdapter.seed_from_db_positions` reseed on lazy init

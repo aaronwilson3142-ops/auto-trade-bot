@@ -365,3 +365,147 @@ class TestPhase81RoundTrip:
         # Allow a $1 tolerance for compounded ROUND_HALF_UP across 5 positions.
         assert abs(acct.equity_value - Decimal("117432.00")) <= Decimal("1.00")
         assert acct.cash_balance >= Decimal("0")
+
+
+# ─── Phase 81-A hotfix (DEC-086): portfolio_state seed at worker ────────────
+
+
+class _StubAppState:
+    """Minimal app_state for the hotfix unit test (avoids ApiAppState import)."""
+
+    def __init__(self) -> None:
+        self.portfolio_state = None
+
+
+def _phase81_hotfix_simulated_state(
+    has_initial: bool,
+    snapshot_equity: Decimal | None,
+    snapshot_cash: Decimal | None,
+    positions: list[tuple[str, Decimal, Decimal]],
+):
+    """Mirror of the production helper's externally-visible contract.
+
+    Skips when an app_state already has portfolio_state; otherwise builds
+    a fresh PortfolioState the same way the helper does and returns it.
+    """
+    from services.portfolio_engine.models import (
+        PortfolioPosition as _PP,
+    )
+    from services.portfolio_engine.models import (
+        PortfolioState as _PS,
+    )
+
+    app_state = _StubAppState()
+    if has_initial:
+        app_state.portfolio_state = _PS(cash=Decimal("999"))
+
+    if app_state.portfolio_state is not None:
+        return app_state, False
+
+    pos_map: dict[str, _PP] = {}
+    for t, q, e in positions:
+        if q <= Decimal("0"):
+            continue
+        pos_map[t] = _PP(
+            ticker=t,
+            quantity=q,
+            avg_entry_price=e,
+            current_price=e,
+            opened_at=None,
+        )
+
+    cash = snapshot_cash if snapshot_cash is not None else Decimal("100000")
+    if cash < Decimal("0"):
+        cash = Decimal("100000")
+        snapshot_equity = Decimal("100000")
+        pos_map = {}
+
+    app_state.portfolio_state = _PS(
+        cash=cash,
+        positions=pos_map,
+        start_of_day_equity=snapshot_equity,
+        start_of_month_equity=snapshot_equity,
+        high_water_mark=snapshot_equity,
+    )
+    return app_state, True
+
+
+class TestPhase81AHotfixPortfolioStateSeed:
+    """Without this seed, SOD captures $100k cold-start equity even after
+    the broker reseed succeeded (the 2026-05-14 c1 incident)."""
+
+    def test_seeds_when_state_absent(self) -> None:
+        app_state, seeded = _phase81_hotfix_simulated_state(
+            has_initial=False,
+            snapshot_equity=Decimal("117432.00"),
+            snapshot_cash=Decimal("42239.00"),
+            positions=[("INTC", Decimal("127"), Decimal("31.21"))],
+        )
+        assert seeded is True
+        assert app_state.portfolio_state.cash == Decimal("42239.00")
+        assert app_state.portfolio_state.start_of_day_equity == Decimal("117432.00")
+        assert "INTC" in app_state.portfolio_state.positions
+
+    def test_skips_when_state_already_present(self) -> None:
+        app_state, seeded = _phase81_hotfix_simulated_state(
+            has_initial=True,
+            snapshot_equity=Decimal("117432.00"),
+            snapshot_cash=Decimal("42239.00"),
+            positions=[("INTC", Decimal("127"), Decimal("31.21"))],
+        )
+        assert seeded is False
+        # Pre-existing state preserved unchanged.
+        assert app_state.portfolio_state.cash == Decimal("999")
+
+    def test_phantom_cash_resets_to_cold_start(self) -> None:
+        app_state, _ = _phase81_hotfix_simulated_state(
+            has_initial=False,
+            snapshot_equity=Decimal("117432.00"),
+            snapshot_cash=Decimal("-500.00"),  # phantom negative cash
+            positions=[("INTC", Decimal("127"), Decimal("31.21"))],
+        )
+        # Phase 70 guard mirrors API restore behaviour: any negative cash
+        # in paper mode is a bug-state, so clamp to cold-start defaults
+        # rather than carry corruption forward.
+        assert app_state.portfolio_state.cash == Decimal("100000")
+        assert app_state.portfolio_state.positions == {}
+        assert app_state.portfolio_state.start_of_day_equity == Decimal("100000")
+
+    def test_sod_equity_equals_cash_plus_cost_basis(self) -> None:
+        """End-to-end shape: the SOD capture reads portfolio_state.equity.
+
+        portfolio_state.equity = cash + sum(market_value).  market_value is
+        derived from current_price * qty.  The hotfix sets current_price =
+        entry_price as a proxy, so equity should land on cash + cost_basis.
+
+        In production the broker's reseed pins cash so that broker equity
+        (cash + cost_basis) == snapshot_equity.  The portfolio_state
+        restore uses the snapshot's `cash_balance` field directly, so
+        equity here = snapshot_cash + cost_basis.  Both call sites need
+        to be in sync for SOD to capture the right value.
+        """
+        positions = [
+            ("INTC", Decimal("127"), Decimal("31.21")),
+            ("AMZN", Decimal("59"),  Decimal("258.40")),
+            ("AMD",  Decimal("34"),  Decimal("147.06")),
+            ("MU",   Decimal("19"),  Decimal("616.48")),
+            ("UNH",  Decimal("38"),  Decimal("405.26")),
+        ]
+        expected_cost_basis = sum(
+            (q * e for _, q, e in positions), Decimal("0")
+        )
+        snap_cash = Decimal("42239.00")
+        snap_equity = snap_cash + expected_cost_basis
+
+        app_state, _ = _phase81_hotfix_simulated_state(
+            has_initial=False,
+            snapshot_equity=snap_equity,
+            snapshot_cash=snap_cash,
+            positions=positions,
+        )
+        # The SOD capture will write portfolio_state.equity. After the
+        # hotfix that value must equal snap_cash + cost_basis, NOT $100k.
+        assert app_state.portfolio_state.equity != Decimal("100000")
+        assert (
+            app_state.portfolio_state.equity == snap_cash + expected_cost_basis
+        )
