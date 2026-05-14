@@ -130,6 +130,136 @@ def _seed_paper_broker_from_db(
         return None
 
 
+def _seed_app_portfolio_state_from_db(
+    app_state: Any,
+    cycle_id: str | None = None,
+) -> bool:
+    """Phase 81-A hotfix (2026-05-14, DEC-086): seed ``app_state.portfolio_state``
+    from the DB on a fresh worker start.
+
+    The API container's ``_load_persisted_state()`` already restores
+    ``portfolio_state`` from ``positions WHERE status='open'`` + the most
+    recent ``portfolio_snapshots`` row, but the WORKER container is a
+    separate process with its own fresh ``app_state``.  On the first paper
+    cycle after a worker restart, ``app_state.portfolio_state`` is None,
+    so paper_trading.py:994 falls through to a cold-start
+    ``PortfolioState(cash=$100k, positions={})``.  The SOD capture two
+    lines later then writes ``start_of_day_equity = $100k`` — completely
+    ignoring the broker reseed that just happened in Phase 81-A.
+
+    This helper mirrors the API-side restore: it pulls open positions
+    + the latest snapshot equity/cash/hwm and builds a ``PortfolioState``
+    object so the next cycle's SOD capture writes the operator's real
+    prior-close equity.  Returns True when state was populated, False on
+    DB error or empty restore (cold-start preserved).
+
+    Idempotent: only writes when ``app_state.portfolio_state`` is None.
+    """
+    if getattr(app_state, "portfolio_state", None) is not None:
+        return False
+    try:
+        from decimal import Decimal as _Decimal
+
+        import sqlalchemy as _sa_seed_ps
+
+        from infra.db.models import Security as _SecSeedPS
+        from infra.db.models.portfolio import PortfolioSnapshot as _SnapSeedPS
+        from infra.db.models.portfolio import Position as _PosSeedPS
+        from infra.db.session import db_session as _db_session_seed_ps
+        from services.portfolio_engine.models import (
+            PortfolioPosition as _PP,
+        )
+        from services.portfolio_engine.models import (
+            PortfolioState as _PS,
+        )
+
+        with _db_session_seed_ps() as db:
+            snap = db.execute(
+                _sa_seed_ps.select(_SnapSeedPS)
+                .order_by(_SnapSeedPS.snapshot_timestamp.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+
+            rows = db.execute(
+                _sa_seed_ps.select(_PosSeedPS, _SecSeedPS.ticker)
+                .join(_SecSeedPS, _SecSeedPS.id == _PosSeedPS.security_id)
+                .where(_PosSeedPS.status == "open")
+                .order_by(_PosSeedPS.opened_at)
+            ).all()
+
+            if snap is None and not rows:
+                return False
+
+            positions: dict[str, _PP] = {}
+            for pos, ticker in rows:
+                if ticker is None or not pos.quantity or not pos.entry_price:
+                    continue
+                qty_d = _Decimal(str(pos.quantity))
+                entry_d = _Decimal(str(pos.entry_price))
+                if pos.market_value and qty_d > _Decimal("0"):
+                    cur_d = (
+                        _Decimal(str(pos.market_value)) / qty_d
+                    ).quantize(_Decimal("0.000001"))
+                else:
+                    cur_d = entry_d
+                positions[ticker] = _PP(
+                    ticker=ticker,
+                    quantity=qty_d,
+                    avg_entry_price=entry_d,
+                    current_price=cur_d,
+                    opened_at=pos.opened_at,
+                    strategy_key="",
+                    security_id=pos.security_id,
+                    origin_strategy=getattr(pos, "origin_strategy", None) or "",
+                )
+
+            cash = (
+                _Decimal(str(snap.cash_balance))
+                if snap and snap.cash_balance
+                else _Decimal("100000")
+            )
+            equity_val = (
+                _Decimal(str(snap.equity_value))
+                if snap and snap.equity_value
+                else None
+            )
+
+            # Phase 70 guard: never restore negative cash in paper mode.
+            if cash < _Decimal("0"):
+                logger.warning(
+                    "phase81_phantom_cash_reset_at_worker_restore",
+                    snapshot_cash=str(cash),
+                    cycle_id=cycle_id,
+                )
+                cash = _Decimal("100000")
+                equity_val = _Decimal("100000")
+                positions = {}
+
+            app_state.portfolio_state = _PS(
+                cash=cash,
+                positions=positions,
+                start_of_day_equity=equity_val,
+                start_of_month_equity=equity_val,
+                high_water_mark=equity_val,
+                daily_opens_count=0,
+            )
+            logger.info(
+                "phase81_portfolio_state_restored_at_worker",
+                cycle_id=cycle_id,
+                positions=len(positions),
+                cash=str(cash),
+                equity=str(equity_val) if equity_val is not None else "none",
+            )
+            return True
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "phase81_portfolio_state_restore_failed",
+            error=str(exc),
+            cycle_id=cycle_id,
+        )
+        return False
+
+
 def _persist_paper_cycle_count(count: int) -> None:
     """Fire-and-forget: upsert paper_cycle_count to system_state table.
 
@@ -957,6 +1087,15 @@ def run_paper_trading_cycle(
                             for k, v in _reseed_summary.items()
                         },
                     )
+                # Phase 81-A hotfix (2026-05-14, DEC-086): also seed
+                # `app_state.portfolio_state` from DB so the SOD capture
+                # below reads the operator's real equity instead of the
+                # cold-start $100k.  The worker process never runs the
+                # API's `_load_persisted_state()` (separate container),
+                # so portfolio_state stays None until this call.
+                _seed_app_portfolio_state_from_db(
+                    app_state, cycle_id=cycle_id,
+                )
         except Exception as _bi_exc:  # noqa: BLE001
             logger.warning(
                 "broker_adapter_lazy_init_failed",
