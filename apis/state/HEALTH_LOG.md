@@ -2,6 +2,81 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-05-14 10:08 UTC (Thursday 05:08 AM CT, pre-market, post-Phase-81-deploy first probe)
+
+**Overall Status:** GREEN — Phase 81 bundle live (worker/api recreated 2026-05-13T20:25:31Z); watchdog Scheduled Task registered + running ✅; all carry-forward items unchanged pending today's first-cycle Phase 81-A reseed verification at 13:35 UTC. Probe ran ~3.5h before first weekday cycle, so the `phase81_broker_sod_reseeded_from_db` log line and corrected `sod_equity_captured` value (expected ≈ $120,979.81 not $100k) cannot yet be confirmed — forward verification deferred to next probe.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy. worker/api `Up 14 hours` since 2026-05-13T20:25:31Z (Phase 81 recreate). postgres/redis/grafana/prometheus/alertmanager/control-plane `Up 15 hours`. RestartCount=0 across the board.
+- /health: all 7 components `ok` at 2026-05-14T10:08:25.292868+00:00. mode=paper. db/broker/scheduler/paper_cycle/broker_auth/system_state_pollution/kill_switch all `ok` ✅ (note: `paper_cycle=ok` even pre-market — Wed c7 19:30 UTC still within freshness window).
+- Worker log scan (`--since 24h`, 126.2 KB): **0 ERROR/CRITICAL/Traceback/TypeError** ✅. **0 crash-triad** on all 5 patterns. Log starts at 2026-05-13T20:25:29Z (deep_dive_step1_settings) → `apis_worker_started job_count=36` at 20:25:31Z. Steady scheduler-liveness heartbeats every 5 min; 06:00 ET / 10:00 UTC ingestion (alternative_data 502 records ✅) executed cleanly.
+- API log scan (`--since 24h`, 426.6 KB): **1 ERROR** = yfinance 404 carry-forward on stale tickers `['PKI', 'MRO']` at 10:00:12Z (expected — these are in the 13 stale-delisted list pending operator decision). 0 Tracebacks. 0 crash-triad on all 5 patterns.
+- Prometheus: 2/2 active targets up (apis @ api:8000 health=up err=empty; prometheus @ localhost:9090 health=up err=empty). 0 dropped.
+- Alertmanager: **0 active alerts** at `/api/v2/alerts` → `[]` ✅.
+- Resource usage: worker 718.3 MiB / 0.00% CPU, api 812.3 MiB / 0.11%, postgres 153.2 MiB / 2.67%, redis 8.78 MiB / 2.55%, prometheus 40.78 MiB / 0.00%, grafana 51.12 MiB / 0.07%, alertmanager 15.03 MiB / 0.07%, apis-control-plane 1.004 GiB / 13.38% CPU. All well under 80% mem / 90% CPU thresholds.
+- DB size: **215 MB** unchanged (no Thu activity yet pre-market).
+- **Windows Docker Watchdog (Phase 81-D):** Scheduled Task `APIS Docker Watchdog` registered ✅. Status=`Ready`, Next Run Time=2026-05-14 05:15:00 AM (interval[5min]). Watchdog log `C:\ProgramData\APIS\watchdog.log` exists (85638 bytes). Latest one-shot at 05:10:02 CT reported `scheduler_heartbeat_fresh age_seconds=272 tick_complete watchdog_one_shot_complete` — operator completed the one-time registration step from Wed's NEXT_STEPS pending list ✅.
+
+### §2 Execution + Data Audit
+- **Paper cycles since last probe: 1** (Wed c7 at 2026-05-13T19:30 UTC — the only cycle on Wed; today's first cycle scheduled 13:35 UTC, ~3.5h after this probe).
+- evaluation_runs total: **104** (+1 vs Tue baseline; Wed EOD eval at 2026-05-13 21:00:00.05 UTC `complete mode=paper idempotency_key=2026-05-13:paper:evaluation_run`). Floor ≥80 ✅. Phase 63 restore intact.
+- Latest portfolio snapshots (top 2 = Wed c7 dual-invocation pair retained):
+  - **2026-05-13 19:30:04.752847 FRESH** cash=$32,992.50 / equity=$120,979.81 / gross_exposure=$87,987.31 ← Wed close
+  - **2026-05-13 19:30:04.311797 STALE** cash=$22,908.56 / equity=$99,961.26 / gross_exposure=$77,052.70
+- Broker↔DB reconciliation: DB **11 OPEN / 187 closed** unchanged from Wed. `/api/v1/broker/positions` 404 fallback to `/health broker=ok` per `feedback_apis_deep_dive_probes.md`. **No new positions opened since 2026-05-08**: 11 OPEN tickers = [BE, GOOG, GOOGL, UNH, WDC, MU, INTC, AMZN, AMD, MRVL, EQIX] all stamped `origin_strategy` (10 × `rebalance` + 1 × `ranking_buy_signal` UNH). Wed c7's 5 BUYs (INTC/AMZN/AMD/MU/UNH, all in orders ledger) and 2 SELLs (GOOG/GOOGL) did NOT modify the `positions` table — broker↔DB drift from Wed RED-2 still pending Phase 81-A reseed correction (forward verification at Thu c1 13:35 UTC).
+- Origin-strategy stamping: ALL 11 OPEN positions stamped ✅ — 0 NULLs on rows opened ≥2026-04-18.
+- Position caps: 11/15 OPEN ✅. 0 new positions today (pre-market).
+- Orders last 30h (7 rows from Wed c7): all FILLED with `quantity` populated ✅. Phase 80 holds. Dual-invocation idempotency_key pattern retained — 5 BUYs under stale cycle_id `17f5269cc8`, 2 SELLs under fresh `74a81977322` (per Wed RED-1 hypothesis revision).
+- **NULL-quantity FILLED orders lifetime: 27** unchanged ✅.
+- **NULL `realized_pnl` closed positions lifetime: 169** unchanged. Phase 81-C fallback will fire on next close (Wed c7 GOOG/GOOGL SELLs were captured in orders but never persisted as `positions.status=closed` — same writer gap that left 169 lifetime rows; Phase 81-C addresses going forward).
+- **broker_health_position_drift in worker `--since 24h`: 0** ✅ (no cycles since worker restart — clean log).
+- Data freshness:
+  - latest `daily_market_bars trade_date=2026-05-13` covering 487 securities ✅ (Wed EOD bars ingested fresh)
+  - latest `signal_runs run_timestamp=2026-05-12 10:30:00` ❌ STALE (Wed AM signal job didn't fire during the ~24h outage; Thu AM signal job scheduled 06:30 ET / 10:30 UTC fires ~22 min after this probe — will self-recover)
+  - latest `ranking_runs run_timestamp=2026-05-12 10:45:00` ❌ STALE (same reason; Thu AM ranking job scheduled 06:45 ET / 10:45 UTC — will self-recover)
+- Stale tickers: 14 securities `is_active=false` unchanged. Wed's 1 yfinance ERROR on `['PKI', 'MRO']` is the expected carry-forward.
+- Kill-switch: `APIS_KILL_SWITCH=false` ✅. Operating mode: `APIS_OPERATING_MODE=paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). `alembic current` and `alembic heads` agree.
+- `alembic check` reports drift between ORM and DB schema (mostly `TIMESTAMP(timezone=True) → DateTime()` cosmetic mismatches + `remove_table(universe_overrides)` autogenerate noise + 2 unique-constraint metadata differences). **Pre-existing**: this drift existed before today's probe but was not previously surfaced because prior runs only ran `alembic current` + `heads`. Runtime is healthy (db=ok, snapshots writing, evaluation_runs writing, no migration errors in app logs). Filed as observation, not actionable.
+- Pytest smoke: **402 passed / 0 failed / 3670 deselected in 27.06s** under `APIS_PYTEST_SMOKE=1` inside `docker-api-1` with `--no-cov` (filter: `deep_dive or phase22 or phase57 or phase77_78 or phase79 or phase81`). **NEW BASELINE 402p** (382 prior + 20 Phase 81 tests across `TestPhase81ABrokerReseed`/`TestPhase81BOpenStackingGuard`/`TestPhase81CRealizedPnlFallback`/`TestPhase81RoundTrip`). 4 cache-write warnings (RO `.coverage` layer — expected per `feedback_apis_deep_dive_probes.md`).
+- Git: tree CLEAN — only `outputs/` and `.claude/worktrees/` untracked (expected). HEAD `95e0e83` ("Merge Phase 81 bundle (claude/elated-austin-ecf51f) into main"). 0 unpushed commits. 0 feature branches.
+- Recent commits: `95e0e83` (merge Phase 81 bundle) ← `09faeb6` (Phase 81-A diagnostic + 2026-05-13 RED state-docs) ← `00a91c3` (Phase 81 bundle DEC-081/082/083/084/085) ← `8a892db` (Phase 79+80) ← `ffd363e` (Phase 77+78).
+- **GitHub Actions CI:** Run **#25824321394** on `95e0e83` (HEAD) — `status=completed, conclusion=success` ✅ (https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25824321394). NEW SHA since Wed probe (which was on `8a892db`).
+
+### §4 Config + Gate Verification
+- All 8 env-exposed APIS_* flags at expected values (via `docker exec docker-worker-1 env | grep APIS_`):
+  - `APIS_OPERATING_MODE=paper` ✅, `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅, `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅, `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_DAILY_LOSS_LIMIT_PCT=0.02` ✅, `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05` ✅
+  - `APIS_MAX_SECTOR_PCT=0.40` ✅, `APIS_MAX_SINGLE_NAME_PCT=0.20` ✅, `APIS_MAX_POSITION_AGE_DAYS=20` ✅
+- Phase 81 flags governed by `settings.py` defaults (all True): `phase81_broker_sod_reseed_enabled`, `phase81b_open_stacking_guard_enabled`, `phase81c_realized_pnl_fallback_enabled` ✅. Not exposed as env (by design — defaults are operational; flip via settings if needed).
+- 3 default-OFF flags governed by `settings.py` (self-improvement auto-execute, insider-flow provider, Deep-Dive Step 6/7/8) ✅.
+- Scheduler: `apis_worker_started job_count=36` at 2026-05-13T20:25:31.538879Z ✅.
+- Liveness heartbeat: `worker:scheduler_heartbeat=1778753431` → 2026-05-14T10:10:31Z UTC, age ~0s at probe time ✅ (< 10 min threshold).
+
+### Issues Found
+- None new today. **Carry-forward known-issues list** (per Wed RED entry, all unchanged pending Thu-cycle verification):
+  - Wed broker↔DB drift: 5 BUYs + 2 SELLs in orders ledger never updated positions table. Phase 81-A reseed (deployed) addresses going forward; Wed's drift remains as historical record.
+  - 27 NULL-qty FILLED orders lifetime (pre-Phase-80 backfill not run).
+  - 169 NULL `realized_pnl` closed positions lifetime (Phase 81-C fallback covers new closes; 169-row historical backfill filed as accepted-risk follow-up).
+  - Dual-invocation pattern (14-of-14 weekday cycles cumulative) — Phase 81-E refuted the "phase-split" hypothesis by code inspection; the dual-cycle_id observation itself remains an open question for the next recurrence (now diagnostic-instrumented).
+  - `alembic check` ORM↔DB drift: pre-existing cosmetic mismatches; runtime healthy. New observation surfaced by this probe.
+
+### Fixes Applied
+- None this run. Probe is pre-market; Phase 81 forward verification depends on Thu c1 firing at 13:35 UTC.
+
+### Action Required from Aaron
+- None. Operator's Wed action items 1 + 2 both completed:
+  - Action 1 (`docker compose up -d --force-recreate worker api`) — confirmed by worker `Up 14 hours` since 2026-05-13T20:25:31Z + git HEAD `95e0e83` deployed.
+  - Action 2 (`apis/scripts/register_watchdog_task.bat`) — confirmed by Scheduled Task `APIS Docker Watchdog` Ready + watchdog.log populated.
+- Forward verification (Thu c1 13:35 UTC, ~3.5h after this probe): operator may glance at next deep-dive output for `phase81_broker_sod_reseeded_from_db` + `sod_equity_captured equity=$120,9xx.xx` (NOT $100k). The 10 AM CT scheduled probe at 14:00 UTC will capture c1's behaviour.
+
+---
+
 ## Phase 81 Bundle Deploy — 2026-05-13 (Wednesday post-recovery)
 
 **Trigger:** 2026-05-13 RED HEALTH_LOG entry below — two trading-impact regressions and one YELLOW carry-forward:

@@ -2,6 +2,55 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-05-14 10:08 UTC (Thursday 05:08 AM CT, pre-market, post-Phase-81-deploy first probe)
+
+**Overall Status:** GREEN — Phase 81 bundle live (worker/api recreated 2026-05-13T20:25:31Z); watchdog Scheduled Task registered + running ✅; all carry-forward items unchanged pending today's first-cycle Phase 81-A reseed verification at 13:35 UTC. Probe ran ~3.5h before first weekday cycle, so the `phase81_broker_sod_reseeded_from_db` log line and corrected `sod_equity_captured` value (expected ≈ $120,979.81 not $100k) cannot yet be confirmed — forward verification deferred to next probe.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy. worker/api `Up 14 hours` since 2026-05-13T20:25:31Z (Phase 81 recreate). postgres/redis/grafana/prometheus/alertmanager/control-plane `Up 15 hours`. RestartCount=0 across the board.
+- /health: 7/7 ok at 2026-05-14T10:08:25Z mode=paper.
+- Worker log: 0 ERR / 0 Tracebacks / 0 crash-triad in 24h (126.2 KB). API log: 1 ERR = yfinance `['PKI', 'MRO']` carry-forward.
+- Prom 2/2 up. Alertmanager 0 active.
+- Resources well under threshold (worker 718 MiB / 0%, api 812 MiB / 0.11%, postgres 153 MiB / 2.67%, control-plane 1.004 GiB / 13.38% CPU).
+- DB 215 MB unchanged.
+- **Windows Docker Watchdog (Phase 81-D)** `APIS Docker Watchdog` Scheduled Task Ready ✅; watchdog log 85638 bytes; latest one-shot 05:10:02 CT `scheduler_heartbeat_fresh age=272s tick_complete` — operator one-time registration done ✅.
+
+### §2 Execution + Data Audit
+- Paper cycles since last probe: 1 (Wed c7 19:30 UTC, the only Wed cycle). Thu c1 scheduled 13:35 UTC (~3.5h from this probe).
+- evaluation_runs total: 104 (+1, Wed EOD eval at 21:00:00.05 UTC `complete mode=paper` ✅). Floor ≥80 ✅.
+- Portfolio snapshots: 2 Wed c7 rows retained (fresh $32,992.50/$120,979.81; stale $22,908.56/$99,961.26).
+- Broker↔DB: DB 11 OPEN / 187 closed unchanged (Wed c7 5 BUYs + 2 SELLs in orders ledger never updated positions — Phase 81-A reseed addresses going forward).
+- 11 OPEN all origin_strategy stamped (10 rebalance + 1 ranking_buy_signal UNH).
+- Position caps: 11/15 OPEN ✅. 0 new today (pre-market).
+- Orders last 30h: 7 Wed c7 FILLED, all with quantity ✅ (Phase 80 holds). Dual-invocation idempotency_key split retained (5 BUYs stale `17f5269cc8`, 2 SELLs fresh `74a81977322`).
+- NULL-qty FILLED lifetime: 27 unchanged ✅. NULL realized_pnl closed lifetime: 169 unchanged.
+- broker_health_position_drift `--since 24h`: 0 (no post-restart cycles).
+- Data freshness: latest `daily_market_bars` 2026-05-13 (Wed EOD) ✅. latest `signal_runs` 2026-05-12 10:30 ❌ (Wed AM didn't run during outage; Thu AM at 10:30 UTC will self-recover ~22min after this probe). latest `ranking_runs` 2026-05-12 10:45 ❌ (same; Thu at 10:45 UTC).
+- 14 stale tickers `is_active=false` unchanged.
+- Kill-switch=false, mode=paper ✅. Idempotency clean (0 dupe keys, 0 dupe open tickers).
+
+### §3 Code + Schema
+- Alembic head `q7r8s9t0u1v2` single ✅. `alembic check` reports ORM↔DB cosmetic drift (TIMESTAMP→DateTime + universe_overrides autogenerate noise) — pre-existing, runtime healthy.
+- Pytest smoke: **402 passed / 0 failed / 3670 deselected in 27.06s** ✅ NEW BASELINE (382 prior + 20 Phase 81 tests).
+- Git tree CLEAN (only `outputs/` + `.claude/worktrees/` untracked). HEAD `95e0e83` Merge Phase 81 bundle. 0 unpushed. 0 feature branches.
+- **GitHub Actions CI #25824321394 on `95e0e83` conclusion=success ✅** — new SHA since Wed (was on `8a892db`).
+
+### §4 Config + Gate Verification
+- All 8 env-exposed APIS_* flags correct ✅. Phase 81 flags governed by `settings.py` defaults (all True): `phase81_broker_sod_reseed_enabled`, `phase81b_open_stacking_guard_enabled`, `phase81c_realized_pnl_fallback_enabled`. 3 default-OFF flags correct.
+- Scheduler `job_count=36` per Wed `apis_worker_started` 20:25:31Z ✅. Liveness heartbeat `worker:scheduler_heartbeat=1778753431` → 10:10:31Z, age 0s ✅.
+
+### Issues Found
+- None new. Carry-forward only: Wed broker↔DB drift (Phase 81-A reseed pending Thu c1 verification), 27 NULL-qty FILLED, 169 NULL realized_pnl (Phase 81-C covers new closes), 14-of-14 dual-invocation pattern (phase-split hypothesis refuted by Phase 81-E; observation itself open), `alembic check` cosmetic drift (new observation, not actionable).
+
+### Fixes Applied
+- None this run (probe is pre-market; Phase 81 forward verification depends on Thu c1 13:35 UTC).
+
+### Action Required from Aaron
+- None. Operator's Wed action items 1 + 2 both done (worker recreate ✅, watchdog task registered ✅).
+- Next probe (10 AM CT / 14:00 UTC) will capture Thu c1 behaviour including `phase81_broker_sod_reseeded_from_db` log line + corrected `sod_equity_captured` (expected ~$120,9xx not $100k).
+
+---
+
 ## Phase 81 Bundle Deploy — 2026-05-13 (Wednesday post-recovery)
 
 Mirror entry — full detail in `apis/state/HEALTH_LOG.md`. Summary:
