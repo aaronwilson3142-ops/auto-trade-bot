@@ -2,6 +2,528 @@
 
 Auto-generated daily health check results.
 
+## Phase 82 Remediation — 2026-05-19 23:05 UTC (Tuesday 6:05 PM CT)
+
+**Overall Status:** GREEN. All 5 RED findings from the 15:08 UTC probe FIXED in `1dc3b34` on `main` (pushed to origin). DB cleanup of 4 phantom/stale OPEN rows executed and verified.
+
+**Root cause located (concrete code path, not a hypothesis):**
+- `apps/api/main.py::lifespan` at lines 741-754 imports `build_scheduler()` from `apps.worker.main` and calls `scheduler.start()` from inside the FastAPI process — comment says it was added "so that the scheduler and the API share a single ApiAppState instance".
+- `apps/worker/main.py::main()` (line 908) ALSO calls `build_scheduler()` and `scheduler.start()` from inside the worker process.
+- Result: BOTH `docker-worker-1` AND `docker-api-1` run identical APScheduler instances with identical cron jobs. Each container fires `_job_paper_trading_cycle` at every cron slot, ~100μs apart.
+- Phase 70 `_paper_cycle_lock = threading.Lock()` is per-process so it does NOT prevent the cross-process race. Confirmed in production: `b449bfd...` cycle_id appears in `docker-api-1` logs at 13:35:00.000627 as `paper_trading_cycle_starting`; `c5b129...` appears in `docker-worker-1` logs at 13:35:00.000720 as `paper_trading_cycle_starting`. Same job, two processes.
+
+**Fix shipped (commit `1dc3b34`, pushed to `origin/main` at 23:05 UTC):**
+1. `apps/worker/main.py` — added Redis-backed cross-process lock helpers `_phase82_acquire / _phase82_release / _phase82_minute_slot` using `SET key value NX EX 180` (atomic compare-and-set with TTL). Wrapped `_job_paper_trading_cycle` and `_job_daily_evaluation` (Y1 UniqueViolation root cause). Losing process logs `phase82_paper_cycle_skipped_other_process` and returns. Phase 70 in-process lock retained as defense-in-depth.
+2. `apps/worker/jobs/paper_trading.py` — new helper `_select_canonical_snapshot()` picks the first-writer-per-cycle snapshot deterministically (`GROUP BY split_part(idempotency_key, ':', 1)` → `MIN(snapshot_timestamp)` → `ORDER BY ts DESC LIMIT 1`). Wired into `_seed_paper_broker_from_db` and `_seed_app_portfolio_state_from_db`. Emits `phase81a_canonical_snapshot_selected` telemetry on each reseed.
+3. `apps/worker/jobs/paper_trading.py` — added `phase81b_guard_entered` log at the top of the OPEN-stacking guard so future probes can confirm the guard ran even on cycles where nothing was skipped.
+4. New unit test file `tests/unit/test_phase82_canonical_snapshot_selection.py` — 10 new tests over canonical-snapshot selection, Redis SET NX EX semantics, and import smoke. Smoke filter now 416 passed / 0 failed / 3670 deselected in 28.58s (was 406; +10).
+
+**DB cleanup (SQL operator-approved at 13:09 CT, executed at 18:00 CT — Aaron-approved):**
+- Closed GOOG `qty=19 opened_at=2026-05-19 14:30` (Tue c2 phantom from API-process writer).
+- Closed GOOGL `qty=19 opened_at=2026-05-19 14:30` (Tue c2 phantom from API-process writer).
+- Closed VRT `qty=23 opened_at=2026-05-19 14:30` (Tue c2 phantom; no matching orders ledger row).
+- Closed GOOGL `qty=20 opened_at=2026-05-18 14:30` (Mon close-loop gap — c3 SELL filled in orders but position not closed).
+- SQL saved to `apis/state/sql_phase82_cleanup_2026-05-19.sql` for audit.
+- Verification post-cleanup: 11 OPEN rows (down from 15), one row per ticker, no duplicates. GOOG=21 (Mon legitimate), VRT=23 (Tue c1 c5b1-canonical), GOOGL=0 (both rows correctly closed). AAPL/MRVL Tue 18:30 c5 rows left untouched (broker state unverifiable without dual-write present).
+
+**Hygiene:**
+- Merged `claude/elated-austin-ecf51f` branch deleted locally + remotely. Local worktree at `.claude/worktrees/elated-austin-ecf51f` removed via `git worktree remove --force`. Origin remote also reports `[deleted] claude/elated-austin-ecf51f`.
+
+**Containers post-fix:** docker compose restart of worker + api at 23:01 UTC. Both came up healthy: worker `apis_worker_started job_count=36` at 23:01:13Z; api `apis_scheduler_started_in_api_process job_count=36` at 23:02:11Z (after startup_catchup_complete with jobs_ran=8). API still runs its in-process scheduler — the Redis lock dedups at job-execution time, not at scheduler-startup. Dashboard reads from shared in-process app_state preserved.
+
+**Validation plan (next paper cycle window):** Wed 2026-05-20 c1 13:35 UTC. Expected log signatures:
+- ONE of the two processes emits `paper_trading_cycle_starting` + a full set of orders.
+- The OTHER process emits `phase82_paper_cycle_skipped_other_process` with `lock_key=apis:scheduler:lock:paper_trading_cycle:202605201335`.
+- Single cycle_id in `orders` for that minute, single row in `portfolio_snapshots` for that cycle_id.
+- `broker_health_position_drift` count drops toward 0 over Wed cycles.
+- Mon EOD eval pattern: 2026-05-19 21:00 UTC eval (which would have fired before this fix landed since 21:00 ET = 01:00 UTC Wed, but the next eval at Wed 21:00 ET) should produce ZERO UniqueViolation logs.
+
+If Wed c1 still produces dual cycle_ids in `orders`, the lock didn't take and we have a Redis URL / connectivity problem in one of the containers — operator probe: `docker exec docker-api-1 env | grep REDIS_URL` + `docker exec docker-api-1 python -c "import redis; r=redis.Redis.from_url('redis://redis:6379'); print(r.ping())"`.
+
+### Carry-forwards
+- AAPL Tue 18:30 (qty=25) and MRVL Tue 18:30 (qty=42) opened via the API-process second writer at c5; left in DB because the broker may legitimately hold these shares. If `broker_health_position_drift` continues listing AAPL/MRVL after Wed cycles, run targeted cleanup then.
+
+---
+
+## Health Check — 2026-05-19 15:08 UTC (Tuesday 10:08 AM CT, ~38 min after c2 14:30 UTC)
+
+**Overall Status:** RED — Tue c1 dual-invocation produced **3 duplicate OPEN tickers in positions table** (GOOG×2, GOOGL×2, VRT×2) + **3 new NULL-qty rebalance BUYs in orders ledger** + **Phase 81-A SOD reseed picked stale-cash $95,809.41** instead of canonical Mon close $114,177.34 + **Phase 81-B OPEN stacking guard never fired** (0 `phase81b_open_stacking_skipped` log lines despite stacking) + **broker_health_position_drift fired at c2 listing 8 tickers** (CSCO/VRT/INTC/MRVL/GOOGL/EQIX/GOOG/STX). Mon Y2 GOOGL close-loop gap carry-forward unchanged. This is a concrete trading-data-integrity regression: phantom OPEN rows now persist in production DB without corresponding broker shares (for the dup-side of each pair); Phase 79 + Phase 80 + Phase 81-A + Phase 81-B together failed to prevent the recurrence. Stack runtime is still healthy: 8/8 containers `Up 2 days` since 2026-05-16T23:48:57Z (RestartCount=0 core); /health 7/7 ok 15:08:43Z mode=paper; 0 crash-triad; Prom 2/2 up; Alertmanager 0 active; resources fine. Worker 51 ERR / API 48 ERR (yfinance stale-ticker carry-forward + 5 Alpaca DNS still in 24h window from Mon c3, will age out ~15:30 UTC + 1 Mon EOD UniqueViolation will age out ~21:00 UTC). DB 236 MB (+7 vs morning). Pytest **406p / 0f / 3670d in 26.15s** ✅. CI **#25864627182** on `cc40c6f` conclusion=success ✅ unchanged. Alembic `q7r8s9t0u1v2` single head ✅. All 11 env-exposed APIS_* flags correct. Scheduler heartbeat age 62s ✅. Bars freshness: 2026-05-18 (Mon close ✅, +1 vs morning). Signal+ranking pipeline ran today: signal_runs at 2026-05-19 10:30 UTC ✅; ranking_runs at 2026-05-19 10:45 UTC ✅. Kill-switch=false, mode=paper ✅. Idempotency-keys clean: 0 dupe order keys. NULL-qty FILLED orders lifetime: **30 (+3 NEW from Tue c1 second-writer)**. NULL realized_pnl closed lifetime: 169 unchanged. 15/15 OPEN (AT cap); 4 new positions today (3 of them stacked onto already-held tickers — policy violation). **Action required from Aaron**: (1) **HIGH RED Phase 82** — find the second-writer call site for orders + positions (the b449... cycle_id firing 100μs before paper_trading_cycle_starting); (2) **HIGH RED DB cleanup** — close the 3 phantom OPEN rows for VRT/GOOG/GOOGL opened 2026-05-19 (the dup-side of each pair) AND close the Mon GOOGL `qty=20 opened_at=2026-05-18` row; (3) **MEDIUM** — investigate why Phase 81-A reseed picked stale $95,809.41 SOD equity (Mon second-writer value) instead of canonical $114,177.34 (Mon first-writer value); (4) **MEDIUM** — investigate why Phase 81-B `phase81b_open_stacking_skipped` did not fire on the GOOG/GOOGL re-OPEN at Tue c1 (broker probably reported 0 shares because Phase 81-A reseed didn't restore them, so guard saw no held stake); (5) carry-forward — delete merged `claude/elated-austin-ecf51f` (low priority).
+
+### §1 Infrastructure
+- Containers: 8/8 healthy `Up 2 days` since 2026-05-16T23:48:57Z. RestartCount=0 core.
+- /health: all 7 components `ok` at 2026-05-19T15:08:43Z. mode=paper. db/broker/scheduler/paper_cycle/broker_auth/system_state_pollution/kill_switch all ok ✅.
+- Worker log scan (`--since 24h`, 1143 lines / 283 KB): **51 ERROR lines** = stale-ticker yfinance carry-forward (Mon AM aged out, Tue AM 10:00 UTC added today's batch including the OPEN tickers GOOGL/CSCO/AMZN/MRVL/AMD/INTC/WDC/MU/EQIX hit by yfinance failures around the Mon c3 15:30:04Z DNS cluster — still in rolling 24h) + 1 carry-forward Mon EOD UniqueViolation at 2026-05-18T21:00:00Z + 1 info-FP. **0 Tracebacks / 0 crash-triad** on all 5 patterns ✅.
+- API log scan (`--since 24h`, 9812 lines / 816 KB): **48 ERROR lines** = stale-ticker yfinance + 5 Alpaca DNS NameResolution all timestamped 2026-05-18T15:30:04Z (still in 24h, will age out ~15:30 UTC today) + 1 info-FP. **0 Tracebacks / 0 crash-triad** ✅.
+- Prometheus: 2/2 active targets up (apis, prometheus). 0 dropped.
+- Alertmanager: 0 active alerts ✅.
+- Resource usage: worker 857 MiB / 0%, api 894 MiB / 0.31%, postgres 172 MiB / 0.36%, redis 8.6 MiB / 0.38%, prometheus 41 MiB / 0.25%, grafana 51 MiB / 0.13%, alertmanager 14.6 MiB / 0.09%, apis-control-plane 1.36 GiB / 10.97% CPU. All well under thresholds.
+- DB size: **236 MB** (+7 vs morning 229 MB; consistent with Tue c1/c2 writes).
+
+### §2 Execution + Data Audit
+- **Paper cycles since morning probe: 2** (Tue c1 13:35 UTC, Tue c2 14:30 UTC). Both fired. Mon EOD eval (21:00 UTC) row inserted ✅ (`8af61aa8-...` status=complete).
+- evaluation_runs total: **106** unchanged from morning ✅ (≥80 Phase 63 floor).
+- Latest portfolio snapshots (8 rows shown; **dual-invocation pair on BOTH Tue cycles**):
+  - 2026-05-19 14:30:02.39233  cash=$27,405.50 / equity=$102,576.74 ← Tue c2 second writer (FROZEN-STALE to Tue c1 first-writer value)
+  - 2026-05-19 14:30:02.236497 cash=$36,346.12 / equity=$112,845.07 ← Tue c2 first writer
+  - 2026-05-19 13:35:03.940727 cash=$43,801.23 / equity=$114,837.91 ← Tue c1 first writer (matches Mon c7 first-writer cash carry-forward)
+  - 2026-05-19 13:35:02.792671 cash=$27,405.50 / equity=$102,576.74 ← Tue c1 second writer
+- **Dual-invocation snapshot writer pair: 2-of-2 Tue = 30-of-30 weekday cumulative** (carry-forward Y3, unchanged class).
+- **NEW RED finding: Tue c1 orders ledger shows TWO cycle_ids 100μs apart** — `b449bfd576524a27b5b0c9dc77ceb469` at `2026-05-19 13:35:00.000627` (5 orders: VRT/GOOGL/GOOG buys with NULL-qty + EQIX/MRVL sells with qty) + `c5b129339a2645ecbca63561207ffa69` at `2026-05-19 13:35:00.000720` (6 orders: MRVL/EQIX/STX/INTC/CSCO sells + VRT buy, all with qty). The c5b1 cycle matches the single `paper_trading_cycle_starting` log line for Tue c1 (n_approved=6). The b449 cycle has no matching `paper_trading_cycle_starting` event — it is the **dual-invocation second writer** firing from a different code path 100μs BEFORE the canonical cycle. Phase 81-E "single cycle_id per invocation" claim is REFUTED again.
+- **NEW RED finding: Phase 80 NULL-qty regression returns** — the b449 cycle wrote 3 NULL-quantity FILLED rebalance BUY orders for VRT, GOOGL, GOOG. NULL-qty FILLED orders lifetime: **30 (+3 from Tue c1 second writer)**. Phase 80 fix only covered the canonical cycle path; the second-writer site does not include the broker-authoritative fallback.
+- **NEW RED finding: 3 duplicate OPEN tickers in positions table** (after Tue c1):
+  - **GOOG**: Mon momentum_v1 qty=21 (opened 2026-05-18) + Tue momentum_v1 qty=19 (opened 2026-05-19) = 2 rows for same ticker
+  - **GOOGL**: Mon momentum_v1 qty=20 (opened 2026-05-18, also = Y2 close-loop gap) + Tue momentum_v1 qty=19 (opened 2026-05-19) = 2 rows for same ticker
+  - **VRT**: Tue rebalance qty=23 (opened 2026-05-19) + Tue rebalance qty=23 (opened 2026-05-19) = 2 rows for same ticker, same day. UNIQUE constraint `uq_positions_security_id_opened_at` lets both rows exist if `opened_at` differs by even one microsecond.
+- **NEW RED finding: Phase 81-A SOD reseed picked stale value** — `sod_equity_captured equity=$95,809.41` at 2026-05-19T13:35:00.013758Z. Canonical Mon close was $114,177.34 (Mon c7 first writer); $95,809.41 is the Mon c7 SECOND writer value (frozen-stale). Phase 81-A reseed appears to be choosing the most-recent-by-timestamp snapshot rather than the canonical first-writer snapshot per cycle. No `phase81_broker_sod_reseeded_from_db` log line found for Tue c1 — only `sod_equity_captured`.
+- **NEW RED finding: Phase 81-B OPEN stacking guard never fired** — 0 `phase81b_open_stacking_skipped` log lines in worker 24h. Despite VRT, GOOG, GOOGL being re-OPENed onto already-held tickers, the guard did not suppress. Likely root cause: broker shares = 0 (because Phase 81-A reseed didn't actually restore positions to broker after the SOD cycle started with $95,809.41 stale equity), so the guard's broker-side check returns "not held" and the guard does not fire.
+- Mon Y2 carry-forward (escalating): GOOGL `qty=20 opened_at=2026-05-18` row still `status='open'` — Mon c3 SELL filled in orders but DB row not closed. Plus Tue c1 added a SECOND GOOGL OPEN row (qty=19, momentum_v1, opened 2026-05-19) — close-loop regression compounded.
+- Broker↔DB reconciliation: **broker_health_position_drift WARN fired at 2026-05-19T14:30:00.012986Z** listing 8 tickers: CSCO, VRT, INTC, MRVL, GOOGL, EQIX, GOOG, STX. 24h drift count = 3 (Mon c4, Mon c5, Tue c2). `/api/v1/broker/positions` endpoint not exposed; rely on /health broker=ok fallback + drift WARN as the reconciliation signal.
+- 15 OPEN tickers post-c2: GOOG×2 / GOOGL×2 / VRT×2 / CSCO / STX (8 rows for 5 distinct tickers Mon-Tue momentum_v1) + BE / UNH / INTC / MU / WDC / AMD / AMZN (7 rebalance/ranking carry-forward). All 15 rows have `origin_strategy` stamped ✅. EQIX and MRVL CLOSED today (full sells at c1).
+- Position caps: **15/15 OPEN ✅ (AT cap, not over)**. 4 new positions today (VRT×2, GOOG, GOOGL) ≤ 5 max_new_per_day ✅. But 3 of the 4 are stacked onto already-held tickers — policy violation.
+- Origin-strategy stamping: ALL 15 OPEN positions stamped ✅.
+- Data freshness: bars 2026-05-18 ✅ (+1 vs morning); signal_runs 2026-05-19 10:30 UTC ✅; ranking_runs 2026-05-19 10:45 UTC ✅ (today's AM jobs ran).
+- Stale-ticker audit: 13 known tickers + 8 OPEN tickers showed yfinance "possibly delisted" errors in the rolling 24h. The 8 OPEN-ticker errors clustered around Mon c3 15:30:04Z DNS-induced yfinance fallback failures (carry-forward from yesterday's Y3); will age out next probe.
+- Kill-switch=false ✅, mode=paper ✅.
+- evaluation_runs total: **106** unchanged ✅.
+- Idempotency check: **0 dupe order keys**, but **3 dupe OPEN tickers** (GOOG, GOOGL, VRT) — positions-level idempotency BROKEN.
+- **NULL-quantity FILLED orders lifetime: 30 (+3 NEW today)** — Phase 80 regression at second-writer site.
+- **NULL realized_pnl closed lifetime: 169** unchanged.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` single ✅. No drift.
+- Pytest smoke: **406 passed / 0 failed / 3670 deselected in 26.15s** ✅ — baseline holds.
+- Git: tree near-CLEAN (3 carry-forward state-file edits-in-flight from morning probe + `outputs/` + `.claude/worktrees/` untracked). HEAD `cc40c6f`, 0 unpushed. Merged feature branch `claude/elated-austin-ecf51f` still lingering (low-priority hygiene).
+- **GitHub Actions CI:** run id `25864627182` on `cc40c6f` conclusion=success ✅ unchanged.
+
+### §4 Config + Gate Verification
+- All 11 env-exposed APIS_* flags at expected values: mode=paper, kill_switch=false, max_positions=15, max_new_per_day=5, max_thematic_pct=0.75, ranking_min_composite_score=0.30, daily_loss=0.02, weekly_drawdown=0.05, max_sector=0.40, max_single_name=0.20, max_position_age=20. Phase 81 + default-OFF flags governed by `settings.py` defaults.
+- Scheduler heartbeat age: 62s ✅.
+
+### Issues Found
+- **RED-1** Tue c1 dual-invocation produced 3 phantom OPEN rows in `positions` (GOOG/GOOGL/VRT duplicates) + 3 NULL-qty FILLED rebalance BUYs in `orders` (b449 cycle_id firing 100μs before paper_trading_cycle_starting at 13:35:00.000627).
+- **RED-2** Phase 81-A SOD reseed picked stale Mon c7 second-writer cash $95,809.41 instead of canonical first-writer $114,177.34 — the reseed's snapshot-selection logic is choosing the wrong row when dual-invocation produces two snapshots per cycle.
+- **RED-3** Phase 81-B OPEN stacking guard never fired (0 log lines) — likely because broker-side stake = 0 due to RED-2 (no shares ever reseeded to broker). The dual-invocation second writer therefore happily OPENed already-held GOOG/GOOGL/VRT.
+- **RED-4** Phase 80 NULL-qty fix bypassed by the second-writer code path — same root cause as orders ledger NULL-quantity writer (`project_orders_null_quantity_writer.md`).
+- **RED-5** broker_health_position_drift fired at Tue c2 listing 8 tickers — wide-spread broker↔DB divergence post-Tue-c1.
+- **YELLOW carry-forward (Y2)** Mon GOOGL close-loop gap unchanged — `positions WHERE ticker='GOOGL' AND opened_at::date='2026-05-18'` still `status='open' quantity=20` despite Mon c3 SELL filling.
+- **YELLOW carry-forward (Y1)** Mon EOD `persist_evaluation_run_failed` UniqueViolation at 2026-05-18T21:00:00Z still in 24h window (will age out ~21:00 UTC tonight); constraint preserved data integrity, evaluation_runs row 8af61aa8 inserted cleanly.
+- **YELLOW carry-forward (Y3)** Dual-invocation snapshot writer pair persists 2-of-2 Tue, 30-of-30 weekday cumulative.
+
+### Fixes Applied
+- NONE. The 5 RED findings all require code-level investigation (Phase 82 scope). Autonomous fix would risk masking the second-writer call site. Aaron approval required before any DB cleanup of the 3 phantom OPEN rows.
+
+### Action Required from Aaron
+1. **HIGH RED — Phase 82 second-writer hunt (CRITICAL).** The b449... cycle_id at 13:35:00.000627 fires 100μs BEFORE the canonical paper_trading_cycle_starting (c5b1...) at 13:35:00.000720. Both write to `orders` AND to `positions` AND to `portfolio_snapshots`. Hunt this call site in `apps/worker/jobs/` — candidates include: a separate ranked_buy_signal worker, a `_persist_positions` extra invocation, or a leftover Phase 75/77 idempotency-shim. The orders-ledger rows are the clearest fingerprint (5 orders all `idempotency_key='b449bfd...'`).
+2. **HIGH RED — DB cleanup.** Suggested SQL (operator-approved before run):
+   ```sql
+   -- Close 3 phantom OPEN rows from Tue c1 dual-write
+   UPDATE positions SET status='closed', closed_at='2026-05-19 13:35:00.000627', exit_price=entry_price, realized_pnl=0, quantity=0
+   WHERE status='open' AND opened_at::date='2026-05-19' AND security_id IN (
+     SELECT id FROM securities WHERE ticker IN ('GOOG','GOOGL','VRT')
+   ) AND quantity NOT IN (23);  -- keep the qty=23 VRT real-trade row; close the dup-side
+   -- Close stale Mon GOOGL close-loop gap (Y2)
+   UPDATE positions SET status='closed', closed_at='2026-05-18 15:30:00.000721', exit_price=entry_price, realized_pnl=0
+   WHERE status='open' AND security_id=(SELECT id FROM securities WHERE ticker='GOOGL') AND opened_at::date='2026-05-18';
+   ```
+3. **MEDIUM — Phase 81-A reseed snapshot-selection bug.** Investigate `_seed_app_portfolio_state_from_db` / `_seed_paper_broker_from_db` — both should pick the FIRST-writer snapshot (lowest sub-second timestamp per cycle) as canonical, not the latest. Add a unit test that simulates dual-invocation snapshots and asserts SOD = first-writer equity.
+4. **MEDIUM — Phase 81-B guard activation check.** Add an explicit log line at the guard entry point (`phase81b_guard_entered cycle_id=... open_actions=N`) so we can confirm it's running even when it doesn't fire. Then verify whether the b449 second-writer code path bypasses the guard entirely (likely yes — it's a different writer site).
+5. **LOW carry-forward** — clean up merged `claude/elated-austin-ecf51f` feature branch (low priority).
+
+
+
+**Overall Status:** YELLOW — Tue pre-market probe captures one NEW signal plus 2 carry-forward YELLOWs from Mon evening. **(Y1 NEW)** `persist_evaluation_run_failed` UniqueViolation at 2026-05-18T21:00:00.016740Z on Mon EOD eval (`Key (idempotency_key)=(2026-05-18:paper:evaluation_run) already exists`) — DB writer attempted a SECOND insert for Mon EOD eval; `uq_evaluation_run_idempotency_key` did its job (data integrity preserved, evaluation_runs row 8af61aa8 present and status='complete'). This is the dual-invocation pattern propagating from `_persist_portfolio_snapshot` to a SECOND writer site (`evaluation_runs`) — same Phase 82 root cause class. evaluation_runs total **106** (+1 from Mon 105 ✅ — Mon EOD eval inserted cleanly despite the dup attempt). **(Y2 carry-forward)** GOOGL close-loop gap unchanged from Mon evening — still status='open' qty=20 in `positions`; c3 SELL still in orders ledger only. **(Y3 carry-forward)** Dual-invocation snapshot writer pair confirmed on Mon c7 19:30 UTC too (now 7-of-7 Mon = 28-of-28 weekday cumulative; both rows at $43,801.23/$114,177.34 + $14,618.27/$95,809.41). Mon EOD bars ingestion job RAN ✅ — `daily_market_bars.trade_date` now 2026-05-18 (Mon close, +1 day fresher than Mon evening). Tue AM signal+ranking pipeline NOT yet fired at probe time (10:08 UTC vs 10:30/10:45 UTC slots — will self-recover ~22-37 min after probe). Stack: 8/8 containers `Up 2 days` since Sat 2026-05-16T23:48:57Z (RestartCount=0 core); /health 7/7 ok 10:08:17Z mode=paper. Worker 50 ERR / API 48 ERR = 48 stale-ticker yfinance (worker) + 42 stale-ticker yfinance + 5 Alpaca DNS NameResolutionError (api, still in rolling 24h from Mon c3 15:30:04Z, will age out next probe) + 1 NEW UniqueViolation (worker, Y1) + 2 info-FPs. **0 crash-triad** on all 5 patterns ✅. 0 Tracebacks. Prom 2/2 up. Alertmanager 0 active. Resources well under threshold (worker 856 MiB / 0%, api 885 MiB / 0.10%, postgres 171 MiB / 0%, control-plane 1.33 GiB / 11.02% CPU). DB 229 MB unchanged from Mon evening. Watchdog Ready ✅; watchdog.log 560 KB (+94 KB vs Mon 467 KB — host stayed online overnight); latest tick 05:10:03 CT `scheduler_heartbeat_fresh age=54s tick_complete`. Pytest **406p / 0f / 3670d in 26.25s** matches baseline ✅. CI **#25864627182** on `cc40c6f` conclusion=success ✅ unchanged. Alembic `q7r8s9t0u1v2` single head ✅. All 11 env-exposed APIS_* flags correct (mode=paper, kill_switch=false, max_positions=15, max_new_per_day=5, max_thematic_pct=0.75, ranking_min_composite_score=0.30, daily_loss=0.02, weekly_drawdown=0.05, max_sector=0.40, max_single_name=0.20, max_position_age=20). Scheduler heartbeat age 105s ✅ (boot >24h ago so `apis_worker_started` outside 24h window — heartbeat-only fallback). DB: 13 OPEN / 194 closed unchanged from Mon evening (4 momentum_v1 from c2: CSCO/GOOG/STX/GOOGL + 9 prior). All 13 origin_strategy stamped ✅. 27 NULL-qty FILLED unchanged ✅. 169 NULL realized_pnl closed unchanged. broker_health_position_drift `--since 24h`=2 (carry-forward from Mon c4/c5 GOOGL/CSCO/GOOG/STX). Idempotency clean: 0 dupe keys, 0 dupe OPEN tickers ✅. Kill-switch=false, mode=paper ✅. **Action required from Aaron**: (1) **MEDIUM carry-forward (Y2)** — GOOGL close-loop gap still open; recommend the manual SQL UPDATE from Mon evening OR Phase 82 investigation of momentum_v1 close-path in `_persist_positions`. (2) **LOW NEW (Y1)** — extend Phase 82 secondary-writer hunt to include `evaluation_runs` writer path (`_persist_evaluation_run` or whichever job emits at 21:00 UTC EOD). The UniqueViolation is BENIGN (constraint preserved data integrity) but the dual-write itself is the same pattern. (3) **LOW carry-forward** — Phase 82 secondary snapshot writer hunt (Mon Y1 unchanged). (4) **carry-forward** — clean up merged `claude/elated-austin-ecf51f` feature branch (low priority).
+
+### §1 Infrastructure
+- Containers: 8/8 healthy `Up 2 days` since 2026-05-16T23:48:57Z. RestartCount=0 across worker/api/postgres/redis. worker/api/postgres/redis `(healthy)`; grafana/prometheus/alertmanager/control-plane `Up` (no in-container healthcheck, expected).
+- /health: all 7 components `ok` at 2026-05-19T10:08:17Z. mode=paper. db/broker/scheduler/paper_cycle/broker_auth/system_state_pollution/kill_switch all ok ✅.
+- Worker log scan (`--since 24h`, 1136 lines / 274 KB): **50 ERROR lines** = 48 stale-ticker yfinance (from Mon 10:00 UTC AM ingestion still in 24h window) + **1 NEW UniqueViolation** at 2026-05-18T21:00:00Z (`persist_evaluation_run_failed (psycopg.errors.UniqueViolation) duplicate key value violates unique constraint "uq_evaluation_run_idempotency_key" Key (idempotency_key)=(2026-05-18:paper:evaluation_run) already exists`) + 1 info-FP (`feature_refresh_job_complete` mislabeled). **0 Tracebacks / 0 TypeErrors / 0 crash-triad** on all 5 patterns ✅.
+- API log scan (`--since 24h`, 9768 lines / 784 KB): **48 ERROR lines** = 42 stale-ticker yfinance + 5 Alpaca DNS NameResolution (all timestamped 2026-05-18T15:30:04.0Z-15:30:04.1Z carry-forward from Mon c3 — still in rolling 24h window; will age out around 15:30 UTC today) + 1 info-FP. **0 Tracebacks / 0 crash-triad** ✅. The Sat 23:49Z API startup `regime_result_restore_failed` + `readiness_report_restore_failed` WARNINGs remain **outside 24h window** ✅.
+- Prometheus: 2/2 active targets up (apis health=up err=empty; prometheus health=up err=empty). 0 dropped.
+- Alertmanager: **0 active alerts** at `/api/v2/alerts` → `[]` ✅.
+- Resource usage: worker 856.7 MiB / 0.00% CPU, api 885.1 MiB / 0.10%, postgres 171.5 MiB / 0%, redis 8.6 MiB / 0.38%, prometheus 40.5 MiB / 0%, grafana 51.1 MiB / 0.04%, alertmanager 14.8 MiB / 0.09%, apis-control-plane 1.33 GiB / 11.02% CPU. All well under 80% mem / 90% CPU thresholds on 31.19 GiB host.
+- DB size: **229 MB** unchanged from Mon evening.
+- **Windows Docker Watchdog (Phase 81-D):** Scheduled Task `APIS Docker Watchdog` Ready ✅; Next Run 2026-05-19 05:15 CT. watchdog.log 560 KB (+94 KB vs Mon evening 467 KB — overnight ticks fired every 5 min). Latest tick 05:10:03 CT `scheduler_heartbeat_fresh age_seconds=54` → `tick_complete` → `watchdog_one_shot_complete`.
+
+### §2 Execution + Data Audit
+- **Paper cycles since last probe: 1** (Mon c7 19:30 UTC). Dual-invocation pair confirmed (cash_balance=$43,801.23 / $14,618.27; equity_value=$114,177.34 / $95,809.41) → 7-of-7 Mon cycles = 28-of-28 weekday cumulative.
+- **Mon EOD eval (21:00 UTC) ROW INSERTED ✅** but with a **NEW DIAGNOSTIC YELLOW (Y1)**: `persist_evaluation_run_failed` UniqueViolation logged in worker at 2026-05-18T21:00:00.016740Z. The constraint `uq_evaluation_run_idempotency_key` blocked a duplicate insert for idempotency_key=`2026-05-18:paper:evaluation_run`. The canonical row exists: `id=8af61aa8-f831-4310-a7e0-0208a05fea1e mode=paper status=complete run_timestamp=2026-05-18 21:00:00.006224`. Data integrity preserved — but this is the dual-invocation pattern striking a SECOND writer site (extends Mon Y1 from snapshot writer to eval writer). Phase 82 candidate scope expansion.
+- evaluation_runs total: **106** (+1 vs Mon 105 ✅; Phase 63 ≥80 floor satisfied).
+- Latest portfolio snapshots (top 10 = Mon c2-c7 dual-invocation pairs):
+  - 2026-05-18 19:30:02.560510 cash=$14,618.27 / equity=$95,809.41 ← Mon c7 second writer
+  - 2026-05-18 19:30:02.231480 cash=$43,801.23 / equity=$114,177.34 ← Mon c7 first writer
+  - 2026-05-18 18:30:02.556602 cash=$14,618.27 / equity=$95,809.41
+  - 2026-05-18 18:30:01.964760 cash=$43,801.23 / equity=$113,870.55
+  - 2026-05-18 17:30:02.386515 cash=$14,618.27 / equity=$95,809.41
+  - 2026-05-18 17:30:02.220094 cash=$43,801.23 / equity=$114,519.46
+  - 2026-05-18 16:00:02.260455 cash=$43,801.23 / equity=$115,154.59
+  - 2026-05-18 16:00:02.240607 cash=$14,618.27 / equity=$95,809.41
+  - 2026-05-18 15:30:04.110107 cash=$14,618.27 / equity=$95,809.41
+  - 2026-05-18 15:30:04.105804 cash=$43,801.23 / equity=$115,430.57
+- Broker↔DB reconciliation: DB **13 OPEN / 194 closed** unchanged from Mon evening. `/api/v1/broker/positions` endpoint not exposed; rely on `/health broker=ok` fallback.
+- 13 OPEN tickers: CSCO/GOOG/STX/GOOGL (4× momentum_v1, opened 2026-05-18 14:30) + BE/UNH/INTC/WDC/MU/AMZN/MRVL/AMD/EQIX (9 carry-forward).
+- **Y2 carry-forward (unchanged from Mon evening): GOOGL close-loop gap** — `positions WHERE ticker='GOOGL'` still shows `status='open' quantity=20` despite c3 15:30 SELL filling in orders ledger. CSCO trim correctly reduced qty 72→44. Phase 75-style momentum_v1 close-path regression remains open.
+- Origin-strategy stamping: ALL 13 OPEN positions stamped ✅ (4× momentum_v1 + 8× rebalance + 1× ranking_buy_signal UNH).
+- Position caps: **13/15 OPEN** ✅. 0 new positions today (pre-market).
+- **NULL-quantity FILLED orders lifetime: 27** unchanged ✅.
+- **NULL `realized_pnl` closed positions lifetime: 169** unchanged.
+- **broker_health_position_drift in worker `--since 24h`: 2** (carry-forward Mon c4 + c5 listing CSCO/GOOGL/GOOG/STX).
+- Data freshness:
+  - latest `daily_market_bars trade_date=2026-05-18` ✅ (Mon EOD bars job at 17:00 ET / 22:00 UTC fired — +1 day fresher than Mon evening probe).
+  - latest `signal_runs run_timestamp=2026-05-18 10:30:00` (Mon AM — Tue 10:30 UTC slot ~22 min from probe).
+  - latest `ranking_runs run_timestamp=2026-05-18 10:45:00` (Mon AM — Tue 10:45 UTC slot ~37 min from probe).
+- Stale tickers: 14 securities `is_active=false` unchanged.
+- Kill-switch: `APIS_KILL_SWITCH=false` ✅. Operating mode: `APIS_OPERATING_MODE=paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). `alembic current` and `alembic heads` agree.
+- Pytest smoke: **406 passed / 0 failed / 3670 deselected in 26.25s** under `APIS_PYTEST_SMOKE=1` inside `docker-api-1` with `--no-cov` (filter: `deep_dive or phase22 or phase57 or phase77_78 or phase79 or phase81`). Matches baseline ✅. 4 cache-write warnings (RO `.coverage` layer — expected per `feedback_apis_deep_dive_probes.md`).
+- Git: tree near-CLEAN — only `apis/state/ACTIVE_CONTEXT.md`, `apis/state/HEALTH_LOG.md`, `state/HEALTH_LOG.md` modified (this run's in-flight edits) + `outputs/` and `.claude/worktrees/` untracked (expected). HEAD `cc40c6f`. **0 unpushed commits.** 1 lingering remote branch `claude/elated-austin-ecf51f` (merged via `0f80ddb`; safe to delete; low-priority hygiene unchanged).
+- **GitHub Actions CI:** Run **#25864627182** on `cc40c6f` (HEAD) — `status=completed, conclusion=success` ✅ (https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25864627182). Unchanged from Mon.
+
+### §4 Config + Gate Verification
+- All 11 env-exposed APIS_* flags at expected values (via `docker exec docker-worker-1 env`):
+  - `APIS_OPERATING_MODE=paper` ✅, `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅, `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅, `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_DAILY_LOSS_LIMIT_PCT=0.02` ✅, `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05` ✅
+  - `APIS_MAX_SECTOR_PCT=0.40` ✅, `APIS_MAX_SINGLE_NAME_PCT=0.20` ✅, `APIS_MAX_POSITION_AGE_DAYS=20` ✅
+- Phase 81 flags governed by `settings.py` defaults (all True): `phase81_broker_sod_reseed_enabled`, `phase81b_open_stacking_guard_enabled`, `phase81c_realized_pnl_fallback_enabled` ✅. DEC-086 hotfix flag-less.
+- 3 default-OFF flags (`APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED`, `APIS_INSIDER_FLOW_PROVIDER`, Step 6/7/8) governed by `settings.py` ✅ (env-absent is correct).
+- Scheduler: liveness heartbeat `worker:scheduler_heartbeat=1779185349` → 2026-05-19T10:09:09Z UTC, age 105s ✅ (< 600s threshold). Last `apis_worker_started` outside 24h window (Sat 23:48 boot, 58h ago) — heartbeat-only fallback used per the feedback memory pattern.
+
+### Issues Found
+- **Y1 NEW** — `persist_evaluation_run_failed` UniqueViolation at 2026-05-18T21:00:00Z. Mon EOD eval writer attempted a duplicate insert for idempotency_key `2026-05-18:paper:evaluation_run`. `uq_evaluation_run_idempotency_key` rejected the dup → canonical row (id=8af61aa8) is intact and status='complete'. Data integrity preserved. This is the **dual-invocation pattern propagating to a second writer site** (`evaluation_runs` in addition to `_persist_portfolio_snapshot`). Phase 82 candidate scope expansion. Severity LOW (no trading impact, constraint working as designed).
+- **Y2 carry-forward** — GOOGL close-loop gap unchanged from Mon evening probe.
+- **Y3 carry-forward** — Dual-invocation snapshot writer persists 7-of-7 Mon = 28-of-28 weekday cumulative (Mon c7 19:30 UTC confirmed).
+- **Carry-forward unchanged:** 27 lifetime NULL-qty FILLED orders; 169 lifetime NULL `realized_pnl` closed positions; 14 inactive tickers (13 stale + HOLX); 1 merged feature branch `claude/elated-austin-ecf51f`; 5 Mon Alpaca DNS errors still in 24h window (will age out ~15:30 UTC today).
+
+### Fixes Applied
+- None this run. Y1 is benign at the data layer (constraint preserved integrity); Y2 + Y3 carry-forward require Phase 82 code investigation (not autonomous-fix-eligible per Mon evening's call).
+
+### Action Required from Aaron
+- **MEDIUM (Y2 carry-forward)** — GOOGL close-loop gap unchanged. Recommended: Phase 82 momentum_v1 close-path investigation in `_persist_positions` OR manual SQL `UPDATE positions SET status='closed', closed_at='2026-05-18 15:30:00.000721+00', realized_pnl=(market_value - entry_price * quantity) WHERE security_id=(SELECT id FROM securities WHERE ticker='GOOGL') AND status='open' AND opened_at='2026-05-18 14:30:00.000841+00'`.
+- **LOW (Y1 NEW)** — Phase 82 scope expansion: add `_persist_evaluation_run` writer path to the secondary-writer hunt. The same dual-invocation pattern that emits two portfolio_snapshots per cycle now also fires an extra `evaluation_runs` INSERT at EOD; only the constraint stops it. Fix at the writer call-site eliminates both pathologies.
+- **LOW (Y3 carry-forward)** — Phase 82 primary `_persist_portfolio_snapshot` secondary-writer hunt (unchanged from Mon evening).
+- **carry-forward** — delete merged `claude/elated-austin-ecf51f` branch (low-priority hygiene).
+- **Email**: YELLOW Gmail draft created — manual send recommended.
+
+---
+
+## Health Check — 2026-05-18 19:08 UTC (Monday 02:08 PM CT, post-c6 mid-afternoon — DEC-086 hotfix forward-verification)
+
+**Overall Status:** YELLOW — DEC-086 hotfix FIRED and partially-verified on Mon c1 13:35 UTC (`phase81_portfolio_state_restored_at_worker positions=9 cash=43801.23 equity=120374.68` + `phase81_broker_sod_reseeded_from_db prior_cash=$100k new_cash=$55,859.87 cost_basis=$64,514.81 seeded=9` both emit at 13:35:00.228Z / 13:35:00.xxxZ ✅) AND `sod_equity_captured equity=$120,374.68` correctly matches Thu c7 final snapshot (NOT $100k phantom) ✅. **However**: (YELLOW-1 NEW) **dual-invocation snapshot pair persists 6-of-6 Mon weekday cycles** (cumulative 27-of-27 weekday cycles since 2026-05-11) — DEC-086 narrowed the divergence but the second writer still reads the prior cycle's second-snapshot cash, so each cycle still produces two snapshot rows with different equity (c1 13:35: $55,859.87/$120,374.68 + $43,801.23/$117,659.50; c2 14:30: $43,801.23/$115,430.57 + $14,570.27/$120,354.13 etc.). (YELLOW-2 NEW) **GOOGL position close-loop gap** — c3 15:30 UTC SELL of GOOGL qty=20 filled in orders ledger but the OPEN positions row was NOT closed (still status='open' qty=20); CSCO partial trim (BUY 72 then SELL 28) DID propagate correctly to qty=44. Phase 75-style close-loop appears to be momentum_v1-only regression — only the c3 GOOGL close didn't apply. Confirmed by `broker_health_position_drift` WARNINGs at 16:00 and 17:30 UTC naming CSCO/GOOGL/GOOG/STX (the 4 momentum_v1 opens at c2). (YELLOW-3 NEW) **5 transient Alpaca DNS resolution failures** all clustered at 2026-05-18T15:30:04Z during c3 (`Failed to resolve 'paper-api.alpaca.markets'`) — APIS paper-broker mode but audit/health calls to Alpaca briefly DNS-failed. c3 still completed approved=2/executed=2; no cycle failure. Aged out by next cycle (c4 16:00). 6 Mon weekday cycles fired (c1-c6 13:35/14:30/15:30/16:00/17:30/18:30 UTC, **all single cycle_id in orders ledger ✅** — Phase 81-E "one cycle_id per invocation" claim holds in production; the dual snapshots come from a SECOND WRITER PATH not from a second cycle invocation). 4 new positions opened c2 14:30 UTC: GOOG/GOOGL/STX/CSCO (all `momentum_v1`, all `origin_strategy` stamped). 13 OPEN / 194 closed (was 9/194 — +4 new today). 4/5 new today (room for 1 more under daily cap). 6 orders today: 4 BUYs c2 + 2 SELLs c3, all with populated quantity ✅ (Phase 80 holds). Stack: 8/8 containers Up 43h, RestartCount=0; /health 7/7 ok 19:08:57Z mode=paper; Worker 51 ERR / API 48 ERR = stale-ticker yfinance (43) + Alpaca DNS (5) + ingestion-info (≈3 lines mislabeled). 0 crash-triad on all 5 patterns. Prom 2/2 up. Alertmanager **0 active** ✅ (drift WARNINGs are worker log events, not Prom alerts). Resources well under threshold. DB 229 MB (+7 vs morning, today's writes). Watchdog Ready, log 467KB (+56KB vs morning), latest tick 14:10 CT `tick_complete`. Pytest **406p / 0f / 3670d in 23.69s** matches baseline ✅. CI **#25864627182** on `cc40c6f` conclusion=success ✅ unchanged. Alembic `q7r8s9t0u1v2` single head ✅. All 11 env-exposed APIS_* flags correct. Scheduler `job_count=36`, heartbeat age 287s ✅. Data freshness: bars 2026-05-15 (Fri close ✅), **signals 2026-05-18 10:30 UTC ✅, rankings 2026-05-18 10:45 UTC ✅** (Mon AM pipeline ran fresh). evaluation_runs=105 unchanged (Mon EOD eval will fire at 21:00 UTC, after this probe). NULL-qty FILLED=27 unchanged ✅. NULL realized_pnl closed=169 unchanged (Phase 81-C hasn't fired on Mon yet — only c3 GOOGL close didn't close-loop, so the fallback path wasn't even reached). Idempotency clean: 0 dup keys ✅, 0 dup OPEN tickers ✅. Kill-switch=false, mode=paper ✅. **Action required from Aaron**: (1) **NEW MEDIUM** — investigate GOOGL close-loop gap (Phase 82 candidate) or run manual `UPDATE positions SET status='closed', closed_at='2026-05-18 15:30:00+00', realized_pnl=(exit-entry)*qty WHERE security_id=(SELECT id FROM securities WHERE ticker='GOOGL') AND status='open'`. (2) **NEW LOW** — DEC-086 hotfix shipped partial fix (broker reseed ✅, app_state.portfolio_state restore ✅) but dual-invocation snapshot writer still emits two divergent rows per cycle; recommend Phase 82 investigation of the secondary snapshot writer path (`_persist_portfolio_snapshot` vs `_run_portfolio_lifecycle` or whichever path runs in addition to `_persist_portfolio_snapshot`). (3) **carry-forward** — clean up merged `claude/elated-austin-ecf51f` feature branch (low priority).
+
+### §1 Infrastructure
+- Containers: 8/8 healthy `Up 43 hours` since 2026-05-16T23:48:57Z. RestartCount=0 across worker/api/postgres/redis (per Sat boot, still single boot lifecycle). worker/api/postgres/redis show `(healthy)`; grafana/prometheus/alertmanager/control-plane show `Up`.
+- /health: all 7 components `ok` at 2026-05-18T19:08:57Z. mode=paper. db/broker/scheduler/paper_cycle/broker_auth/system_state_pollution/kill_switch all ok ✅.
+- Worker log scan (`--since 24h`, 1056 lines / 259 KB): **51 ERROR lines** — ALL stale-ticker yfinance noise on the 13 documented delisted names from today's 10:00 UTC AM ingestion + minor cycle-related re-fetches. **0 Tracebacks / 0 TypeErrors / 0 crash-triad** on all 5 patterns ✅.
+- API log scan (`--since 24h`, 9676 lines / 780 KB): **48 ERROR lines** — 43 stale-ticker yfinance + **5 Alpaca DNS NameResolutionError clustered at 2026-05-18T15:30:04Z** (during c3 execution; `Failed to resolve 'paper-api.alpaca.markets'`; transient). **0 Tracebacks / 0 crash-triad** ✅. Sat 23:49Z API startup `regime_result_restore_failed` + `readiness_report_restore_failed` WARNINGs now **outside 24h window** ✅ (aged out as predicted).
+- Prometheus: 2/2 active targets up (apis health=up err=empty; prometheus health=up err=empty). 0 dropped.
+- Alertmanager: **0 active alerts** at `/api/v2/alerts` → `[]` ✅. (Note: the `broker_health_position_drift` events are worker-log structured warnings, not Prom alerts.)
+- Resource usage: worker 788 MiB / 0.00% CPU, api 821 MiB / 0.11%, postgres 172 MiB / 0%, redis 8.4 MiB / 0.35%, prometheus 42.6 MiB / 0%, grafana 50.9 MiB / 0.03%, alertmanager 14.8 MiB / 0.09%, apis-control-plane 1.229 GiB / 13.23% CPU. All well under 80% mem / 90% CPU thresholds on 31.19 GiB host.
+- DB size: **229 MB** (+7 MB vs morning probe; today's snapshots/orders/positions writes).
+- **Windows Docker Watchdog (Phase 81-D):** Scheduled Task `APIS Docker Watchdog` Ready ✅; Next Run 2026-05-18 02:15 PM CT. watchdog.log 467 KB (+56 KB vs morning 411 KB). Latest tick 14:10:02 CT `scheduler_heartbeat_fresh age_seconds=53` → `tick_complete` → `watchdog_one_shot_complete`.
+
+### §2 Execution + Data Audit
+- **Paper cycles since last probe: 6** (Mon c1 13:35, c2 14:30, c3 15:30, c4 16:00, c5 17:30, c6 18:30 UTC). All emitted `paper_trading_cycle_starting` + `paper_trading_cycle_complete`. c1 proposed=8/approved=0/executed=0; **c2 proposed=9/approved=5/executed=5** (4 BUYs in orders + 1 internal action); **c3 proposed=4/approved=2/executed=2** (2 SELLs); c4-c6 each proposed≥6 but approved=0/executed=0 (daily cap reached at 4/5 new today).
+- **DEC-086 hotfix VERIFIED FIRING ✅** on Mon c1 13:35Z:
+  - `phase81_portfolio_state_restored_at_worker {cycle_id: 97de9b5a..., positions: 9, cash: 43801.23, equity: 120374.68}` at 13:35:00.228Z
+  - `phase81_broker_sod_reseeded_from_db {cycle_id: 97de9b5a..., prior_cash: 100000.00, new_cash: 55859.87, cost_basis: 64514.81, seeded: 9}` immediately after
+  - `sod_equity_captured equity=$120,374.68` at 13:35:00.507Z (matches Thu c7 final snapshot ✅, NOT $100k phantom)
+- **YELLOW-1 NEW — Dual-invocation snapshot writer persists 6-of-6 Mon cycles (27-of-27 weekday cumulative).** DEC-086 hotfix narrowed the divergence (first writer now shows reseeded broker state, second writer now shows `app_state.portfolio_state` restored from prior Thu c7 second-snap) but did NOT eliminate the dual-write. Each Mon cycle still produces 2 snapshot rows with different equity:
+  - c1 13:35:02.455 cash=$55,859.87 equity=$120,374.68 / 13:35:02.732 cash=$43,801.23 equity=$117,659.50
+  - c2 14:30:02.120 cash=$43,801.23 equity=$115,430.57 / 14:30:02.615 cash=$14,570.27 equity=$120,354.13
+  - c3 15:30:04.105 cash=$43,801.23 equity=$115,430.57 (frozen from c2 first writer) / 15:30:04.110 cash=$14,618.27 equity=$95,809.41
+  - c4 16:00:02.240 cash=$14,618.27 equity=$95,809.41 / 16:00:02.260 cash=$43,801.23 equity=$115,154.59
+  - c5 17:30:02.220 / 17:30:02.386 (same dual pattern)
+  - c6 18:30:01.964 / 18:30:02.556 (same dual pattern)
+  - **All cycles single cycle_id in orders ledger** (per Phase 81-E refute) — the dual snapshots come from TWO WRITER CALL SITES not two cycle invocations. Phase 82 candidate.
+- **YELLOW-2 NEW — GOOGL close-loop gap.** c2 14:30 UTC: 4 BUYs (GOOG=21, GOOGL=20, STX=11, CSCO=72) filled + 4 new OPEN positions written ✅. c3 15:30 UTC: 2 SELLs (GOOGL=20 should close, CSCO=28 partial trim) both filled ✅. **DB state at 19:08 UTC**: GOOGL position still shows `status='open' quantity=20` ❌ (should be closed); CSCO position correctly shows `quantity=44` ✅ (trim applied). Confirmed by `broker_health_position_drift` WARNINGs at 16:00 and 17:30 UTC listing CSCO/GOOGL/GOOG/STX. CSCO/GOOG/STX may be in the warning list because they were freshly-opened today (audit baselines), but GOOGL is the actual drift. Looks like Phase 75-style close-loop regression for momentum_v1 same-cycle close path.
+- **YELLOW-3 NEW — Alpaca DNS transient.** 5 `Failed to resolve 'paper-api.alpaca.markets'` API errors all timestamped 2026-05-18T15:30:04.0Z-15:30:04.1Z (5 calls in ~70ms during c3). APIS is in paper-broker mode but audit calls to /v2/account, /v2/positions, /v2/orders happen for Alpaca-side reconciliation. c3 still completed approved=2/executed=2 — these errors did NOT cause cycle failure. No recurrence c4/c5/c6.
+- evaluation_runs total: **105** unchanged from Sun/Mon-morning. Latest `run_timestamp 2026-05-14 21:00:00`. Mon EOD eval will fire 21:00 UTC (after this probe at 19:08 UTC). Floor ≥80 ✅.
+- Broker↔DB reconciliation: DB **13 OPEN / 194 closed** (was 9/194 Sun/Mon-morning; +4 new at c2 c=GOOG/GOOGL/STX/CSCO). `/api/v1/broker/positions` endpoint not exposed; rely on log warnings.
+- 13 OPEN tickers: 9 carry-forward (BE, UNH, INTC, WDC, MU, MRVL, EQIX, AMD, AMZN) + 4 new today (GOOG, GOOGL, STX, CSCO). All 13 stamped `origin_strategy` ✅ (8× rebalance + 1× ranking_buy_signal UNH + 4× momentum_v1).
+- Origin-strategy stamping: ALL 13 OPEN positions stamped ✅ — 0 NULLs on rows opened ≥2026-04-18.
+- Position caps: **13/15 OPEN** ✅ (room for 2 more). **4 new positions today, daily cap exhausted** (Phase 65 = 5/day; 4/5 used — c4-c6 each had approved=0 likely due to cap exhaustion + other risk gates).
+- **NULL-quantity FILLED orders lifetime: 27** unchanged ✅.
+- **NULL `realized_pnl` closed positions lifetime: 169** unchanged (Phase 81-C didn't fire today — the one missed close was the GOOGL close-loop gap, which means we didn't even enter the close-loop where the fallback lives).
+- **broker_health_position_drift in worker `--since 24h`: 2** (16:00 + 17:30 UTC, both on tickers CSCO/GOOGL/GOOG/STX). NEW today — same drift the YELLOW-2 finding documents.
+- Data freshness:
+  - latest `daily_market_bars trade_date=2026-05-15` (Fri close ✅; Mon EOD bars at 17:00 ET / 22:00 UTC haven't fired yet)
+  - latest `signal_runs run_timestamp=2026-05-18 10:30:00` ✅ (Mon AM signal job ran)
+  - latest `ranking_runs run_timestamp=2026-05-18 10:45:00` ✅ (Mon AM ranking job ran)
+- Stale tickers: **14 securities `is_active=false`** unchanged.
+- Kill-switch: `APIS_KILL_SWITCH=false` ✅. Operating mode: `APIS_OPERATING_MODE=paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). `alembic current` and `alembic heads` agree.
+- Pytest smoke: **406 passed / 0 failed / 3670 deselected in 23.69s** under `APIS_PYTEST_SMOKE=1` inside `docker-api-1` with `--no-cov` (filter: `deep_dive or phase22 or phase57 or phase77_78 or phase79 or phase81`). Matches Sun/Mon-morning baseline 406p ✅. 4 cache-write warnings (RO `.coverage` layer — expected, per `feedback_apis_deep_dive_probes.md`). 2 deprecation warnings (Pydantic v2 + websockets.legacy) — pre-existing.
+- Git: tree near-CLEAN — only `apis/state/ACTIVE_CONTEXT.md`, `apis/state/HEALTH_LOG.md`, `state/HEALTH_LOG.md` modified (carry-forward in-flight from Sun/Mon-morning probes; not committed) + `outputs/` and `.claude/worktrees/` untracked (expected). HEAD `cc40c6f`. **0 unpushed commits.** 1 lingering remote branch `claude/elated-austin-ecf51f` (merged via `0f80ddb`; safe to delete; low-priority).
+- **GitHub Actions CI:** Run **#25864627182** on `cc40c6f` (HEAD) — `status=completed, conclusion=success` ✅ (https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25864627182). Unchanged.
+
+### §4 Config + Gate Verification
+- All 11 env-exposed APIS_* flags at expected values (via `docker exec docker-worker-1 env`):
+  - `APIS_OPERATING_MODE=paper` ✅, `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅, `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅, `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_DAILY_LOSS_LIMIT_PCT=0.02` ✅, `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05` ✅
+  - `APIS_MAX_SECTOR_PCT=0.40` ✅, `APIS_MAX_SINGLE_NAME_PCT=0.20` ✅, `APIS_MAX_POSITION_AGE_DAYS=20` ✅
+- Phase 81 flags governed by `settings.py` defaults (all True): `phase81_broker_sod_reseed_enabled`, `phase81b_open_stacking_guard_enabled`, `phase81c_realized_pnl_fallback_enabled` ✅. DEC-086 hotfix flag-less (graceful skip when state already present).
+- 3 default-OFF flags (`APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED`, `APIS_INSIDER_FLOW_PROVIDER`, Step 6/7/8) governed by `settings.py` ✅.
+- Scheduler `job_count=36` per Sat `apis_worker_started` 23:49:00.098558Z ✅. Liveness heartbeat age 287s ✅ (< 600s threshold).
+
+### Issues Found
+- **YELLOW-1 NEW** — Dual-invocation snapshot writer persists 6-of-6 Mon cycles (27-of-27 weekday cumulative). DEC-086 hotfix narrowed first/second writer values but did NOT eliminate the dual-write. Filed as Phase 82 candidate (secondary snapshot writer path investigation).
+- **YELLOW-2 NEW** — GOOGL close-loop gap: c3 SELL filled in orders but positions row not closed. CSCO trim applied correctly (44 remaining). Looks like momentum_v1 close-path regression. `broker_health_position_drift` WARNING confirms.
+- **YELLOW-3 NEW** — 5 transient Alpaca DNS resolution failures clustered at 15:30:04Z during c3. Did not cause cycle failure. Single-event; no recurrence c4/c5/c6.
+- **Carry-forward unchanged:** 27 lifetime NULL-qty FILLED orders; 169 lifetime NULL `realized_pnl` closed positions; 14 inactive tickers (13 stale delisted S&P 500 + HOLX); 1 merged feature branch `claude/elated-austin-ecf51f` (low-priority hygiene).
+- Sat 23:49Z API startup `regime_result_restore_failed` + `readiness_report_restore_failed` WARNINGs **aged out** of 24h window ✅ (as predicted Sun/Mon-morning).
+
+### Fixes Applied
+- None this run. All 3 NEW YELLOW items require code-level investigation (Phase 82 candidate), not autonomous-fix-eligible (no env drift, no container restart needed, no `.env` flag drift, no immediate trading impact beyond GOOGL 20-share discrepancy).
+
+### Action Required from Aaron
+- **NEW MEDIUM (YELLOW-2)** — Investigate GOOGL close-loop gap. Options: (a) Phase 82 code investigation of momentum_v1 SELL path in `_persist_positions`; (b) manual SQL cleanup `UPDATE positions SET status='closed', closed_at='2026-05-18 15:30:00.000721+00', realized_pnl=(market_value - entry_price * quantity) WHERE security_id=(SELECT id FROM securities WHERE ticker='GOOGL') AND status='open' AND opened_at='2026-05-18 14:30:00.000841+00'`. Recommend (a) first to find the root cause before patching DB state.
+- **NEW LOW (YELLOW-1)** — DEC-086 hotfix successfully restored `app_state.portfolio_state` at worker lazy-init (verified by `phase81_portfolio_state_restored_at_worker` log line), but the dual-invocation snapshot writer pattern persists. Two writer call sites both run on every cycle (likely `_persist_portfolio_snapshot` + a second path). Phase 82 candidate for secondary writer hunt — operator-host probing remains UNNECESSARY per Phase 81-E refute (orders ledger confirms single cycle_id per cycle).
+- **carry-forward** — clean up merged `claude/elated-austin-ecf51f` feature branch (low-priority hygiene; safe to `git push origin --delete claude/elated-austin-ecf51f`).
+- **Email**: YELLOW Gmail draft created — manual send recommended.
+
+---
+
+## Health Check — 2026-05-18 10:11 UTC (Monday 05:11 AM CT, pre-market — ~3.5h before c1 13:35 UTC)
+
+**Overall Status:** GREEN — Clean Monday pre-market probe. Stack still on the Sat 2026-05-16T23:48:57Z boot (~34h uptime, RestartCount=0 all four core). 8/8 containers healthy, /health 7/7 ok mode=paper. Worker 17 ERR / API 15 ERR all 24h-window stale-ticker yfinance carry-forward — and **today's 06:00 ET / 10:00 UTC AM data ingestion job ran cleanly** (delisted errors timestamped 2026-05-18T10:00Z confirm pipeline live). 0 crash-triad on both worker + API. The Sat 23:49Z API startup warnings (`regime_result_restore_failed` + `readiness_report_restore_failed`) have aged out of the 24h window as predicted Sunday. Prom 2/2 up, Alertmanager 0 active. Pytest **406p / 0f / 3670d in 22.80s** matches new baseline ✅. CI **#25864627182** on `cc40c6f` conclusion=success ✅ unchanged. Alembic `q7r8s9t0u1v2` single head ✅. All 11 env-exposed APIS_* flags correct. Scheduler `job_count=36`, heartbeat age 157s ✅. DB 222 MB unchanged. 9 OPEN / 194 closed unchanged (all 9 `origin_strategy` stamped). 0 new positions today (pre-market). NULL-qty FILLED=27, NULL realized_pnl=169 unchanged. Idempotency clean. Data freshness: bars **2026-05-15 (Fri close — Sat boot picked it up ✅)**, signals/rankings still Thu 5/14 10:30/10:45 UTC — today's AM jobs at 10:30/10:45 UTC will refresh within ~19-34 min from probe time. Kill-switch=false, mode=paper ✅. **DEC-086 hotfix verification is now T-3.5h** — watch worker log at 13:35 UTC for `phase81_portfolio_state_restored_at_worker {cash, positions_count, equity}` INFO line and confirm both snapshot writers agree on equity (no $43,801 vs $4,808 split). **Action required from Aaron: NONE.**
+
+### §1 Infrastructure
+- Containers: 8/8 healthy `Up 34 hours` since 2026-05-16T23:48:57Z. RestartCount=0 across worker/api/postgres/redis (verified via `docker inspect`). worker/api/postgres/redis show `(healthy)`; grafana/prometheus/alertmanager/control-plane show `Up` (no in-container healthcheck, expected).
+- /health: all 7 components `ok` at 2026-05-18T10:08:51Z. mode=paper. db/broker/scheduler/paper_cycle/broker_auth/system_state_pollution/kill_switch all ok ✅.
+- Worker log scan (`--since 24h`, 606 lines): **17 ERROR lines** — ALL stale-ticker yfinance noise on the 13 documented delisted names (PARA, PKI, ANSS, MRO, PXD, DFS, K, IPG, JNPR, HES, WRK, MMC, CTLT) emitted at 2026-05-18T10:00:02-11Z by today's AM ingestion job. **0 Tracebacks / 0 TypeErrors / 0 crash-triad** ✅.
+- API log scan (`--since 24h`, 9237 lines): **15 ERROR lines** — same yfinance stale-ticker pattern, timestamped 2026-05-18T10:00:02-09Z. **0 Tracebacks / 0 crash-triad** ✅. Sat 23:49:03Z API startup `regime_result_restore_failed` + `readiness_report_restore_failed` WARNINGs are now **outside the 24h window** as predicted in Sunday's probe.
+- Prometheus: 2/2 active targets up (apis @ api:8000 health=up err=empty; prometheus @ localhost:9090 health=up err=empty). 0 dropped.
+- Alertmanager: **0 active alerts** at `/api/v2/alerts` → `[]` ✅.
+- Resource usage: worker 777.2 MiB / 0.00% CPU, api 813.2 MiB / 0.12%, postgres 86.11 MiB / 0.00%, redis 8.38 MiB / 0.34%, prometheus 41.31 MiB / 0.00%, grafana 51.11 MiB / 0.10%, alertmanager 14.69 MiB / 0.07%, apis-control-plane 1.161 GiB / 13.59% CPU. All well under 80% mem / 90% CPU thresholds on the 31.19 GiB host. (Worker + api memory ~10× Sunday's idle level because today's 10:00 UTC ingestion job loaded yfinance batch data — expected post-AM-job pattern.)
+- DB size: **222 MB** unchanged from Sunday.
+- **Windows Docker Watchdog (Phase 81-D):** Scheduled Task `APIS Docker Watchdog` Ready ✅; Next Run 2026-05-18 05:15 CT. watchdog.log 411 KB (+125 KB vs Sun's 286 KB — confirms host stayed online through the weekend, ticks every 5 min). Latest tick 05:10:02 CT `scheduler_heartbeat_fresh age_seconds=53` → `tick_complete` → `watchdog_one_shot_complete`.
+
+### §2 Execution + Data Audit
+- **Paper cycles since last probe: 0** (Sun + Mon pre-market, expected). Next cycle: Mon c1 at 13:35 UTC (~3.5h from probe time). **DEC-086 hotfix forward-verification deferred to c1.**
+- evaluation_runs total: **105** unchanged from Sunday. Latest `run_timestamp 2026-05-14 21:00:00` (Thu EOD eval). Floor ≥80 ✅. Phase 63 restore intact.
+- Latest portfolio snapshots (top 10 = Thu c1-c7 dual-invocation pairs):
+  - 2026-05-14 19:30:02.177743 cash=$43,801.23 / equity=$120,374.68 ← Thu c7 second writer
+  - 2026-05-14 19:30:01.28938 cash=$75,509.26 / equity=$129,474.10 ← Thu c7 first writer (frozen-stale-cash since c3)
+  - 2026-05-14 18:30:02.191927 cash=$43,801.23 / equity=$120,556.57
+  - 2026-05-14 18:30:01.206343 cash=$75,509.26 / equity=$129,474.10
+  - 2026-05-14 17:30:02.172464 cash=$43,801.23 / equity=$120,141.39
+  - (5 more Thu dual-invocation pairs)
+- Broker↔DB reconciliation: DB **9 OPEN / 194 closed** unchanged from Sunday. `/api/v1/broker/positions` endpoint not exposed; fallback to `/health broker=ok` per `feedback_apis_deep_dive_probes.md`.
+- 9 OPEN tickers: BE, UNH, INTC, WDC, MU, MRVL, EQIX, AMD, AMZN. All stamped `origin_strategy` (8× `rebalance` + 1× `ranking_buy_signal` UNH).
+- Origin-strategy stamping: ALL 9 OPEN positions stamped ✅ — 0 NULLs on rows opened ≥2026-04-18.
+- Position caps: **9/15 OPEN** ✅ (room for 6 more). **0 new positions today** (pre-market).
+- **NULL-quantity FILLED orders lifetime: 27** unchanged ✅.
+- **NULL `realized_pnl` closed positions lifetime: 169** unchanged.
+- **broker_health_position_drift in worker `--since 24h`: 0** ✅.
+- Data freshness:
+  - latest `daily_market_bars trade_date=2026-05-15` (Fri close ✅ — Sat 23:49Z boot picked it up; +1 day fresher than Sunday probe)
+  - latest `signal_runs run_timestamp=2026-05-14 10:30:00` (Thu AM — today's 10:30 UTC slot in ~19 min)
+  - latest `ranking_runs run_timestamp=2026-05-14 10:45:00` (Thu AM — today's 10:45 UTC slot in ~34 min)
+- Stale tickers: **14 securities `is_active=false`** unchanged.
+- Kill-switch: `APIS_KILL_SWITCH=false` ✅. Operating mode: `APIS_OPERATING_MODE=paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). `alembic current` and `alembic heads` agree.
+- Pytest smoke: **406 passed / 0 failed / 3670 deselected in 22.80s** under `APIS_PYTEST_SMOKE=1` inside `docker-api-1` with `--no-cov` (filter: `deep_dive or phase22 or phase57 or phase77_78 or phase79 or phase81`). Matches Sun's new baseline 406p ✅. 4 cache-write warnings (RO `.coverage` layer — expected, per `feedback_apis_deep_dive_probes.md`).
+- Git: tree near-CLEAN — only `apis/state/ACTIVE_CONTEXT.md`, `apis/state/HEALTH_LOG.md`, `state/HEALTH_LOG.md` modified (carry-forward from Sunday probe's edits-in-flight, never committed — same pattern as multi-run deep-dives) + `outputs/` and `.claude/worktrees/` untracked (expected). HEAD `cc40c6f`. **0 unpushed commits.** 1 lingering remote branch `claude/elated-austin-ecf51f` (already merged via `0f80ddb`; safe to delete; low-priority — same observation as Sun).
+- **GitHub Actions CI:** Run **#25864627182** on `cc40c6f` (HEAD) — `status=completed, conclusion=success` ✅ (https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25864627182). Unchanged from Sunday.
+
+### §4 Config + Gate Verification
+- All 11 env-exposed APIS_* flags at expected values (via `docker exec docker-worker-1 env`):
+  - `APIS_OPERATING_MODE=paper` ✅, `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅, `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅, `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_DAILY_LOSS_LIMIT_PCT=0.02` ✅, `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05` ✅
+  - `APIS_MAX_SECTOR_PCT=0.40` ✅, `APIS_MAX_SINGLE_NAME_PCT=0.20` ✅, `APIS_MAX_POSITION_AGE_DAYS=20` ✅
+- Phase 81 flags governed by `settings.py` defaults (all True): `phase81_broker_sod_reseed_enabled`, `phase81b_open_stacking_guard_enabled`, `phase81c_realized_pnl_fallback_enabled` ✅. DEC-086 hotfix has no new env knob.
+- 3 default-OFF flags (`APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED`, `APIS_INSIDER_FLOW_PROVIDER`, Step 6/7/8 flags) governed by `settings.py` defaults — env-absent is correct.
+- Scheduler `job_count=36` per Sat `apis_worker_started` 23:49:00Z ✅. Liveness heartbeat `worker:scheduler_heartbeat=1779098949` → 10:09:09Z, age 157s ✅.
+
+### Issues Found
+- None new. Pre-existing carry-forward observations only:
+  - Dual-invocation snapshot writer split (frozen-stale-cash $75,509.26 / fresh $43,801.23) — pending DEC-086 hotfix verification at Mon c1 13:35 UTC.
+  - 169 lifetime NULL `realized_pnl` closed positions — historical backfill optional per Phase 81-C filing.
+  - 27 lifetime NULL-quantity FILLED orders — historical, capped (no new ones since Phase 80 landed).
+  - 13 stale delisted S&P 500 tickers + HOLX = 14 `is_active=false` — known non-blocking, fully filtered at strategy + risk layers.
+  - 1 merged feature branch `claude/elated-austin-ecf51f` — safe to delete, low-priority hygiene.
+- Sat 23:49Z API startup `regime_result_restore_failed` + `readiness_report_restore_failed` WARNINGs aged out of 24h window as predicted Sunday; will reappear on next worker boot. Memory file `project_api_startup_restore_warnings_2026-05-17.md` retains the diagnosis + fix paths.
+
+### Fixes Applied
+- None this run. Stack healthy; no auto-fix triggers met.
+
+### Action Required from Aaron
+- **NONE blocking.** Next material check-point is Mon 2026-05-18 13:35 UTC (c1) for DEC-086 hotfix verification — captured by the scheduled 14:00 UTC probe.
+- Optional follow-ups (unchanged from Sun): (a) clean up merged `claude/elated-austin-ecf51f` feature branch; (b) consider sending the standing Sun YELLOW Gmail draft `r1265829107712813846` if not already acted on (today's run is GREEN, no new draft).
+
+---
+
+## Health Check — 2026-05-17 15:08 UTC (Sunday 10:08 AM CT, weekend mid-morning, follow-up after 05:09 AM probe)
+
+**Overall Status:** YELLOW — Identical carry-forward state from the 05:09 AM CT probe ~5h earlier. No new issues; no new cycles (Sunday, weekend); stack still on the same Sat 2026-05-16T23:48:57Z boot. 9 OPEN positions unchanged, all `origin_strategy` stamped ✅. Same 2 API startup warnings (`regime_result_restore_failed`, `readiness_report_restore_failed`) still visible in 24h log window (boot was within the 16h-old window). Same Friday-cycles-missed historical fact stands. Pytest **406p / 0f / 3670d in 22.25s** — exact match against the new baseline. CI **#25864627182** on `cc40c6f` conclusion=success ✅ unchanged. Alembic `q7r8s9t0u1v2` single head ✅. All 11 env-exposed APIS_* flags correct. Scheduler `job_count=36`, heartbeat fresh (age 202s). 8/8 containers Up 15h RestartCount=0 healthy. 0 crash-triad. Prom 2/2 up. Alertmanager 0 active. **Action required from Aaron: NONE.** Next material check-point is Mon 2026-05-18 13:35 UTC (c1) for DEC-086 hotfix verification.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy `Up 15 hours` since 2026-05-16T23:48:57Z. RestartCount=0 across the board. worker/api/postgres/redis show `(healthy)`; grafana/prometheus/alertmanager/control-plane show `Up` (no in-container healthcheck, expected).
+- /health: all 7 components `ok` at 2026-05-17T15:08:18Z. mode=paper. db/broker/scheduler/paper_cycle/broker_auth/system_state_pollution/kill_switch all ok ✅.
+- Worker log scan (`--since 24h`, 482 lines): **0 ERROR/CRITICAL/Traceback/TypeError** ✅. **0 crash-triad** on all 5 patterns. **0 `broker_health_position_drift`** in 24h window. Log is steady scheduler-liveness heartbeats every 5 min since the 23:49Z boot.
+- API log scan (`--since 24h`, 5975 lines): **2 WARNING lines** at startup 2026-05-16T23:49:03Z (carry-forward from morning probe, same boot still in 24h window):
+  - `regime_result_restore_failed error=detection_basis_json`
+  - `readiness_report_restore_failed error=ReadinessGateRow.__init__() missing 1 required positional argument: 'description'`
+  - Both caught in `except` (graceful), runtime healthy. Once the 23:49Z boot drops out of the 24h window (~Mon 2026-05-18 ~00:00Z) these will stop being reported until the next worker boot.
+- Prometheus: 2/2 active targets up (apis @ api:8000 health=up err=empty; prometheus @ localhost:9090 health=up err=empty). 0 dropped.
+- Alertmanager: **0 active alerts** at `/api/v2/alerts` → `[]` ✅.
+- Resource usage: worker 85.85 MiB / 0.00% CPU, api 152.3 MiB / 2.39%, postgres 52.15 MiB / 0.14%, redis 8.07 MiB / 0.41%, prometheus 39.86 MiB / 0.00%, grafana 50.91 MiB / 0.03%, alertmanager 14.77 MiB / 0.07%, apis-control-plane 1.018 GiB / 9.72% CPU. All well under 80% mem / 90% CPU thresholds.
+- DB size: **222 MB** unchanged from morning probe.
+- **Windows Docker Watchdog (Phase 81-D):** Scheduled Task `APIS Docker Watchdog` Ready ✅; Next Run 2026-05-17 10:10:00 AM CT. watchdog.log 286 KB (+24 KB vs morning's 262 KB). Latest tick 10:05:03 CT `watchdog_one_shot_complete`.
+
+### §2 Execution + Data Audit
+- **Paper cycles since last probe: 0** (Sunday, expected; markets closed weekend).
+- evaluation_runs total: **105** unchanged from morning. Latest run_timestamp `2026-05-14 21:00:00` (Thu EOD eval). 0 new rows in last 50h (Sunday weekend, expected). Floor ≥80 ✅. Phase 63 restore intact.
+- Latest portfolio snapshots (top 5 = Thu c5/c6/c7 dual-invocation pairs):
+  - 2026-05-14 19:30:02.177743 cash=$43,801.23 / equity=$120,374.68 ← Thu c7 second writer
+  - 2026-05-14 19:30:01.28938 cash=$75,509.26 / equity=$129,474.10 ← Thu c7 first writer (frozen-stale-cash since c3 — see morning probe)
+  - 2026-05-14 18:30:02.191927 cash=$43,801.23 / equity=$120,556.57
+  - 2026-05-14 18:30:01.206343 cash=$75,509.26 / equity=$129,474.10
+  - 2026-05-14 17:30:02.172464 cash=$43,801.23 / equity=$120,141.39
+- Broker↔DB reconciliation: DB **9 OPEN / 194 closed** unchanged from morning probe. `/api/v1/broker/positions` endpoint not exposed; fallback to `/health broker=ok` per `feedback_apis_deep_dive_probes.md`.
+- 9 OPEN tickers: BE, UNH, INTC, WDC, MU, MRVL, EQIX, AMD, AMZN. All stamped `origin_strategy` (8× `rebalance` + 1× `ranking_buy_signal` UNH).
+- Origin-strategy stamping: ALL 9 OPEN positions stamped ✅ — 0 NULLs on rows opened ≥2026-04-18.
+- Position caps: **9/15 OPEN** ✅ (room for 6 more). 0 new positions today (Sunday, no cycles).
+- **NULL-quantity FILLED orders lifetime: 27** unchanged ✅.
+- **NULL `realized_pnl` closed positions lifetime: 169** unchanged.
+- **broker_health_position_drift in worker `--since 24h`: 0** ✅.
+- Data freshness (unchanged from morning — will self-recover Mon 06:00/06:30/06:45 ET):
+  - latest `daily_market_bars trade_date=2026-05-13` (Wed EOD)
+  - latest `signal_runs run_timestamp=2026-05-14 10:30:00` (Thu AM)
+  - latest `ranking_runs run_timestamp=2026-05-14 10:45:00` (Thu AM)
+- Stale tickers: 14 securities `is_active=false` unchanged.
+- Kill-switch: `APIS_KILL_SWITCH=false` ✅. Operating mode: `APIS_OPERATING_MODE=paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). `alembic current` and `alembic heads` agree.
+- Pytest smoke: **406 passed / 0 failed / 3670 deselected in 22.25s** under `APIS_PYTEST_SMOKE=1` inside `docker-api-1` with `--no-cov` (filter: `deep_dive or phase22 or phase57 or phase77_78 or phase79 or phase81`). Matches the new baseline 406p ✅. 4 cache-write warnings (RO `.coverage` layer — expected).
+- Git: tree near-CLEAN — only `apis/state/ACTIVE_CONTEXT.md`, `apis/state/HEALTH_LOG.md`, `state/HEALTH_LOG.md` modified (this run's edits in flight) + `outputs/` and `.claude/worktrees/` untracked (expected). HEAD `cc40c6f`. 0 unpushed commits. 1 lingering remote branch `claude/elated-austin-ecf51f` (already merged via `0f80ddb`; safe to delete; low-priority).
+- **GitHub Actions CI:** Run **#25864627182** on `cc40c6f` (HEAD) — `status=completed, conclusion=success` ✅ (https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25864627182). Unchanged from morning.
+
+### §4 Config + Gate Verification
+- All 11 env-exposed APIS_* flags at expected values (via `docker exec docker-worker-1 env`):
+  - `APIS_OPERATING_MODE=paper` ✅, `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅, `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅, `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_DAILY_LOSS_LIMIT_PCT=0.02` ✅, `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05` ✅
+  - `APIS_MAX_SECTOR_PCT=0.40` ✅, `APIS_MAX_SINGLE_NAME_PCT=0.20` ✅, `APIS_MAX_POSITION_AGE_DAYS=20` ✅
+- Phase 81 flags governed by `settings.py` defaults (all True): `phase81_broker_sod_reseed_enabled`, `phase81b_open_stacking_guard_enabled`, `phase81c_realized_pnl_fallback_enabled` ✅. DEC-086 hotfix has no new env knob.
+- 3 default-OFF flags governed by `settings.py` (self-improvement auto-execute, insider-flow provider, Deep-Dive Step 6/7/8) ✅.
+- Scheduler: `apis_worker_started job_count=36` at 2026-05-16T23:49:00.098558Z ✅.
+- Liveness heartbeat: `worker:scheduler_heartbeat=1779030549` → 2026-05-17T15:09:09Z UTC, age 202s ✅ (< 600s threshold).
+
+### Issues Found
+- All YELLOWs identical to 05:09 AM CT probe (carry-forward; nothing escalated, nothing resolved):
+  - **YELLOW-1 (carry-forward)** Fri 2026-05-15 all weekday paper cycles missed (operator-machine outage; documented Docker Desktop Autostart Blocker pattern). Historical fact, no fix possible after the window.
+  - **YELLOW-2 (carry-forward)** API startup `readiness_report_restore_failed` — pre-existing ORM signature drift. Caught in `except`, runtime healthy. Still in 24h log window from 23:49Z boot.
+  - **YELLOW-3 (carry-forward)** API startup `regime_result_restore_failed error=detection_basis_json`. Same handling as -2.
+  - **YELLOW-4 (carry-forward)** Dual-invocation persistence pattern 21-of-21 weekday cycles cumulative. DEC-086 hotfix deployed in current worker boot; Mon c1 will be first exercise.
+  - **Carry-forward unchanged:** 27 NULL-qty FILLED orders lifetime; 169 NULL `realized_pnl` closed positions lifetime; `alembic check` ORM↔DB cosmetic drift; 14 inactive tickers.
+
+### Fixes Applied
+- None this run. Probe is weekend mid-morning; no cycles to verify against. Mon c1 13:35 UTC remains the next material check-point for DEC-086 hotfix verification.
+
+### Action Required from Aaron
+- **None blocking.** Same Monday-morning verification asks as the 05:09 AM probe; will be captured by the Mon 10 AM CT scheduled deep-dive at 15:00 UTC:
+  1. `phase81_portfolio_state_restored_at_worker {cash, positions_count, equity}` INFO line in worker log on Mon c1.
+  2. Mon c1 second-writer snapshot should match first-writer equity (no $43,801 vs $4,808 split).
+  3. If dual-invocation still produces two distinct cycle_id snapshot pairs Mon c1 despite DEC-086, escalate to Phase 82 (dual-cycle_id second-writer-path investigation).
+
+---
+
+## Health Check — 2026-05-17 10:09 UTC (Sunday 05:09 AM CT, weekend pre-dawn, post 3-day stack-off recovery)
+
+**Overall Status:** YELLOW — Stack healthy now (recovered Sat 2026-05-16T23:48:57Z after operator brought machine back online). **Friday 2026-05-15 all weekday paper cycles MISSED** (same Docker Desktop Autostart Blocker / operator-machine-availability pattern as Wed 2026-05-13; watchdog Scheduled Task structurally cannot fire when Windows host is off). Thursday 2026-05-14 ran 7-of-7 cycles cleanly with Phase 81-A reseed verified working (c1 first snapshot equity ≈ Wed close $120,979.81 vs cold-start $100k). Phase 81-A hotfix DEC-086 committed Thu 13:46 UTC adds `app_state.portfolio_state` restore at worker lazy-init — addresses the residual SOD-from-cold-start issue exposed by Thu c1; will exercise on Mon c1 (worker boot since hotfix = Sat 23:49 UTC). Dual-invocation persists 7-of-7 Thu (14 snapshots), now 21-of-21 weekday cumulative. 9 OPEN positions (down from 11 Thu morning — Wed c7's GOOG/GOOGL SELLs finally persisted, +5 momentum_v1 same-microsecond opens-and-closes on Thu c1 from Phase 81-A reseed reconciliation). All 9 OPEN origin_strategy stamped ✅. NULL-qty FILLED=27 unchanged ✅; NULL realized_pnl closed=169 unchanged (Phase 81-C confirmed working on Thu's 7 new closes — all have non-NULL realized_pnl). API startup logged 2 graceful restore warnings (`regime_result_restore_failed error=detection_basis_json`, `readiness_report_restore_failed error=ReadinessGateRow.__init__() missing 1 required positional argument: 'description'`) — pre-existing ORM/state-shape drift, restore caught in `except`, runtime healthy. Pytest **NEW BASELINE 406p / 0f / 3670d in 24.20s** (+4 vs Thu 402 = Phase 81-A hotfix `TestPhase81AHotfixPortfolioStateSeed` class). CI **#25864627182** on `cc40c6f` conclusion=success ✅. Alembic `q7r8s9t0u1v2` single head ✅. All 11 env-exposed APIS_* flags correct. Scheduler `job_count=36`, heartbeat fresh. 8/8 containers Up 10h RestartCount=0 healthy. 0 crash-triad. Prom 2/2 up. Alertmanager 0 active. **Action required from Aaron: NONE** — Mon c1 13:35 UTC will be first cycle to exercise DEC-086 hotfix (watch for `phase81_portfolio_state_restored_at_worker` INFO line in worker log + second-writer snapshot now matching first-writer equity).
+
+### §1 Infrastructure
+- Containers: 8/8 healthy. worker/api/postgres/redis/grafana/prometheus/alertmanager/control-plane all `Up 10 hours` since 2026-05-16T23:48:57Z. RestartCount=0 across the board. Machine came back online Sat evening (18:48 CT) after ~2.5 day operator-host outage (Thu PM through Sat evening).
+- /health: all 7 components `ok` at 2026-05-17T10:08:57Z. mode=paper. db/broker/scheduler/paper_cycle/broker_auth/system_state_pollution/kill_switch all ok ✅.
+- Worker log scan (`--since 24h`, 88.1 KB): **0 ERROR/CRITICAL/Traceback/TypeError** ✅. **0 crash-triad** on all 5 patterns. Log starts at 2026-05-16T23:49:00Z → `apis_worker_started job_count=36` then steady 5-min scheduler-liveness heartbeats. No paper cycles since reboot (weekend, expected).
+- API log scan (`--since 24h`, 304.9 KB): **2 WARNING lines** at startup 2026-05-16T23:49:03Z (caught in `except` blocks, restore-failure path):
+  - `regime_result_restore_failed error=detection_basis_json` — pre-existing state-shape drift on regime restore.
+  - `readiness_report_restore_failed error=ReadinessGateRow.__init__() missing 1 required positional argument: 'description'` — pre-existing ORM signature drift; `apps/api/main.py:487` `ReadinessGateRow(**g)` cannot reconstruct old-shape dicts. Runtime impact: `latest_readiness_report` doesn't restore — regenerates on next scheduled run. Filed as observation.
+  - 0 Tracebacks. 0 crash-triad on all 5 patterns. (1 PowerShell-side `NativeCommandError` line is stderr-merge noise, not a log event.)
+- Prometheus: 2/2 active targets up (apis @ api:8000 lastScrape 10:09:23Z health=up err=empty; prometheus @ localhost:9090 lastScrape 10:09:31Z health=up err=empty). 0 dropped.
+- Alertmanager: **0 active alerts** at `/api/v2/alerts` → `[]` ✅.
+- Resource usage: worker 85.25 MiB / 0.00% CPU, api 151 MiB / 0.20%, postgres 52.11 MiB / 0.00%, redis 8.62 MiB / 0.29%, prometheus 40.78 MiB / 0.10%, grafana 50.67 MiB / 0.06%, alertmanager 14.74 MiB / 0.09%, apis-control-plane 1010 MiB / 15.57% CPU. All well under 80% mem / 90% CPU thresholds.
+- DB size: **222 MB** (+7 MB vs Thu 215 MB; normal accumulation from Thu cycles + EOD eval).
+- **Windows Docker Watchdog (Phase 81-D):** Scheduled Task `APIS Docker Watchdog` Ready ✅; Next Run 2026-05-17 05:10:00 CT. watchdog.log 262 KB. Latest tick 05:05:03 CT `scheduler_heartbeat_fresh age_seconds=54 tick_complete watchdog_one_shot_complete`. **Per-day log counts:** Wed 5/13=510, Thu 5/14=1388, Sat 5/16=318, Sun 5/17=320. **Fri 5/15=0** — confirms operator machine was OFF entire Fri (watchdog cannot fire when Windows host is off; Linux/WSL2+systemd migration is the documented long-term fix, filed as accepted-risk follow-up in NEXT_STEPS).
+
+### §2 Execution + Data Audit
+- **Paper cycles since last probe: 7** (all on Thu 2026-05-14 between 13:35–19:30 UTC).
+- **Friday 2026-05-15: 0 paper cycles** (entire stack down ~Thu 22:00 UTC → Sat 23:48 UTC; operator-machine availability gap, watchdog cannot help when host is off — known recurring pattern per `project_docker_desktop_autostart_blocker.md`). Friday EOD evaluation also missed (no `2026-05-15` row in `evaluation_runs`).
+- evaluation_runs total: **105** (+1 vs Thu baseline 104; Thu EOD eval at 2026-05-14 21:00:00 `complete mode=paper idempotency_key=2026-05-14:paper:evaluation_run`). Floor ≥80 ✅. Phase 63 restore intact.
+- Snapshot counts by day: Mon=14, Tue=14, Wed=2 (RED day, c7 only), Thu=14 (7 cycles × 2 dual-invocation pair), Fri=0, Sat=0, Sun=0.
+- **Thu c1 13:35 UTC — Phase 81-A reseed VERIFIED WORKING ✅** First snapshot 13:35:02.781 `cash=$4,808.12 / equity=$120,959.41 / gross_exposure=$116,151.29` matches Wed close `equity=$120,979.81` within rounding — broker correctly reseeded from DB. Second snapshot 13:35:03.742 `cash=$43,801.23 / equity=$119,714.96 / gross_exposure=$75,913.73` = the second writer reading cold-start `app_state.portfolio_state` (this is the residual bug fixed by hotfix DEC-086 committed Thu 13:46 UTC, AFTER Thu c1 fired — won't exercise until Mon c1).
+- **Dual-invocation pattern: 7-of-7 Thu cycles (14 snapshots), cumulative 21-of-21 weekday cycles since 2026-05-11.** Each Thu cycle pair has distinct cycle_id prefixes (e.g. c1=`7cf036176d764153`+`cef0b4e5eb33424e`, c2=`35f6c621ba8349b4`+`53dc893ffc9f4af4`, ...). Second writer's snapshot values freeze from c3 onwards at `cash=$75,509.26 / equity=$129,474.10` (frozen-stale-cash pattern persists).
+- **Thu c1 momentum_v1 same-microsecond opens-and-closes (5 positions: AAPL/STX/CSCO/TXN + GOOGL second-leg):** opened_at == closed_at == `2026-05-14 13:35:00.001277` for AAPL/STX/CSCO/TXN; realized_pnl = `[-$7.50, -$6.56, -$3.08, -$3.26]`. Likely Phase 81-A reseed reconciliation artifact — broker reseed established cost basis from DB at c1 then immediately marked-to-market against current price, generating tiny negative P&L closes. Hotfix DEC-086 expected to eliminate this on Mon c1 (since `app_state.portfolio_state` will also be reseeded, the two-writer races shouldn't generate same-tick close events).
+- **Broker↔DB reconciliation:** DB **9 OPEN / 194 closed** (down from Thu morning 11/187 → 2 closes + 5 same-microsecond closes + 0 reopens = net -2 OPEN, +7 closed). `/api/v1/broker/positions` 404 fallback to `/health broker=ok` per `feedback_apis_deep_dive_probes.md`. **9 OPEN tickers:** BE (5/8), UNH (5/8), INTC/WDC/MU (5/1), AMZN/MRVL/AMD/EQIX (4/29). All stamped `origin_strategy` (8 × `rebalance` + 1 × `ranking_buy_signal` UNH).
+- Origin-strategy stamping: ALL 9 OPEN positions stamped ✅ — 0 NULLs on rows opened ≥2026-04-18.
+- Position caps: **9/15 OPEN** ✅ (room for 6 more). 0 new positions today (Sunday, no cycles).
+- Orders Thu (10 rows): 5 BUY filled + 4 SELL filled + 1 SELL rejected (GOOG c1 reject at 13:35:00.001277, cycle_id `cef0b4e5eb33424e`). All filled orders have populated `quantity` ✅ (Phase 80 holds).
+- **NULL-quantity FILLED orders lifetime: 27** unchanged ✅.
+- **NULL `realized_pnl` closed positions lifetime: 169** unchanged. **Phase 81-C VERIFIED WORKING ✅** — Thu's 7 new closes all have non-NULL realized_pnl (GOOGL×2 = $0.00, -$9.00; AAPL=-$7.50; STX=-$6.56; CSCO=-$3.08; TXN=-$3.26; GOOG=$0.00). Historical 169-row gap remains as accepted-risk follow-up.
+- **broker_health_position_drift in worker `--since 24h`: 0** ✅ (no cycles since worker restart at 23:49 UTC).
+- Data freshness (STALE due to 3-day outage, will self-recover Mon 06:00/06:30/06:45 ET):
+  - latest `daily_market_bars trade_date=2026-05-13` covering 490 securities (Wed EOD — Thu/Fri EOD bars never ingested).
+  - latest `signal_runs run_timestamp=2026-05-14 10:30:00` (Thu AM, last fired before outage).
+  - latest `ranking_runs run_timestamp=2026-05-14 10:45:00` (Thu AM, last fired before outage).
+- Stale tickers: 14 securities `is_active=false` unchanged.
+- Kill-switch: `APIS_KILL_SWITCH=false` ✅. Operating mode: `APIS_OPERATING_MODE=paper` ✅.
+- Idempotency: 0 duplicate orders by `idempotency_key` ✅. 0 duplicate OPEN positions per ticker ✅.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). `alembic current` and `alembic heads` agree.
+- Pytest smoke: **406 passed / 0 failed / 3670 deselected in 24.20s** under `APIS_PYTEST_SMOKE=1` inside `docker-api-1` with `--no-cov` (filter: `deep_dive or phase22 or phase57 or phase77_78 or phase79 or phase81`). **NEW BASELINE 406p** (402 prior + 4 from Phase 81-A hotfix `TestPhase81AHotfixPortfolioStateSeed`). 4 cache-write warnings (RO `.coverage` layer — expected). 2 deprecation warnings on `RegimeSnapshotSchema` Pydantic v2 class-based config + websockets.legacy — pre-existing, non-actionable.
+- Git: tree CLEAN — only `outputs/` and `.claude/worktrees/` untracked (expected). HEAD `cc40c6f` ("state: 2026-05-14 pre-market health probe (GREEN, post-Phase-81 deploy)"). 0 unpushed commits. 1 lingering feature branch `claude/elated-austin-ecf51f` (the Phase 81 hotfix dev branch, already merged via `0f80ddb` — safe to delete but low-priority).
+- Recent commits since Thu 5/14 5 AM probe: `cc40c6f` (state Thu pre-market) ← `0f80ddb` (Merge Phase 81-A hotfix DEC-086) ← `eda2ef9` (Phase 81-A hotfix: app_state.portfolio_state restore at worker lazy-init, +4 tests).
+- **GitHub Actions CI:** Run **#25864627182** on `cc40c6f` (HEAD) — `status=completed, conclusion=success` ✅ (https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/25864627182).
+
+### §4 Config + Gate Verification
+- All 11 env-exposed APIS_* flags at expected values (via `docker exec docker-worker-1 env | findstr APIS_`):
+  - `APIS_OPERATING_MODE=paper` ✅, `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅, `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅, `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_DAILY_LOSS_LIMIT_PCT=0.02` ✅, `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05` ✅
+  - `APIS_MAX_SECTOR_PCT=0.40` ✅, `APIS_MAX_SINGLE_NAME_PCT=0.20` ✅, `APIS_MAX_POSITION_AGE_DAYS=20` ✅
+- Phase 81 flags governed by `settings.py` defaults (all True): `phase81_broker_sod_reseed_enabled`, `phase81b_open_stacking_guard_enabled`, `phase81c_realized_pnl_fallback_enabled` ✅. Phase 81-A hotfix DEC-086 has no new env knob (graceful skip when state already present).
+- 3 default-OFF flags governed by `settings.py` (self-improvement auto-execute, insider-flow provider, Deep-Dive Step 6/7/8) ✅.
+- Scheduler: `apis_worker_started job_count=36` at 2026-05-16T23:49:00.098558Z ✅.
+- Liveness heartbeat: `worker:scheduler_heartbeat=1779012849` → 2026-05-17T10:14:09Z UTC, age ~0s at probe time ✅ (< 10 min threshold).
+
+### Issues Found
+- **YELLOW-1 (NEW today)** — **Friday 2026-05-15 ALL weekday paper cycles missed** (0 portfolio_snapshots, 0 evaluation_runs, 0 signal_runs, 0 ranking_runs on Fri). Same Docker Desktop Autostart Blocker / operator-machine-availability gap as Wed 2026-05-13 RED entry. Watchdog Phase 81-D structurally cannot fire when Windows host is off (watchdog.log Fri count=0 confirms host was off entire Fri). Linux/WSL2+systemd migration filed as accepted-risk long-term fix in NEXT_STEPS.
+- **YELLOW-2 (NEW observation today)** — **API startup `readiness_report_restore_failed`**: `ReadinessGateRow.__init__() missing 1 required positional argument: 'description'` at `apps/api/main.py:487`. Pre-existing ORM signature drift; old `latest_readiness_report` DB row dict doesn't include `description`. Caught in `except` (graceful), runtime healthy, restore regenerates on next scheduled run. Filed for follow-up investigation (add default or migrate DB row).
+- **YELLOW-3 (NEW observation today)** — **API startup `regime_result_restore_failed error=detection_basis_json`**. Similar pattern: pre-existing state-shape drift on regime restore. Caught in `except`, runtime healthy.
+- **YELLOW-4 (carry-forward, REFINED)** — Dual-invocation persistence pattern continues, **21-of-21 weekday cycles cumulative** (Mon 7 + Tue 6 + Wed 1 + Thu 7). Phase 81-A hotfix DEC-086 (committed Thu 13:46 UTC) deployed in current worker boot (Sat 23:49 UTC) — Mon c1 will be first cycle to exercise the `app_state.portfolio_state` restore that should eliminate the second-writer divergence.
+- **Carry-forward unchanged:** 27 NULL-qty FILLED orders lifetime; 169 NULL `realized_pnl` closed positions lifetime (Phase 81-C confirmed working on new closes — historical backfill remains optional follow-up); `alembic check` ORM↔DB cosmetic drift; 14 inactive tickers.
+
+### Fixes Applied
+- None this run. Probe is weekend pre-market; no cycles to verify against. Mon c1 13:35 UTC will be first cycle to exercise hotfix DEC-086.
+
+### Action Required from Aaron
+- **None blocking.** Recommendation for Mon 5/18 c1 forward verification (will be captured by Mon 10 AM CT scheduled probe at 14:00 UTC):
+  1. `phase81_portfolio_state_restored_at_worker {cash, positions_count, equity}` INFO line in worker log on first cycle after reboot (Mon c1).
+  2. Mon c1 second-writer snapshot should now match first-writer equity (no $43,801 vs $4,808 split — both writers should agree on the reseeded equity ≈ $120k).
+  3. If dual-invocation still produces two distinct cycle_id snapshot pairs on Mon c1 despite DEC-086, the "second writer code path" remains separate from `_persist_portfolio_snapshot` and needs further investigation (filed under Phase 82 / dual-cycle_id diagnostic in NEXT_STEPS).
+
+---
+
 ## Health Check — 2026-05-14 10:08 UTC (Thursday 05:08 AM CT, pre-market, post-Phase-81-deploy first probe)
 
 **Overall Status:** GREEN — Phase 81 bundle live (worker/api recreated 2026-05-13T20:25:31Z); watchdog Scheduled Task registered + running ✅; all carry-forward items unchanged pending today's first-cycle Phase 81-A reseed verification at 13:35 UTC. Probe ran ~3.5h before first weekday cycle, so the `phase81_broker_sod_reseeded_from_db` log line and corrected `sod_equity_captured` value (expected ≈ $120,979.81 not $100k) cannot yet be confirmed — forward verification deferred to next probe.
