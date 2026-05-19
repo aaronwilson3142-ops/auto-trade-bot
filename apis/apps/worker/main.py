@@ -42,7 +42,10 @@ For multi-process deployments, replace with a Redis-backed state bridge.
 """
 from __future__ import annotations
 
+import datetime as _dt
+import os as _os
 import signal
+import socket as _socket
 import sys
 import threading
 import time as _time_mod
@@ -218,10 +221,27 @@ def _job_ranking_generation() -> None:
 
 
 def _job_daily_evaluation() -> None:
-    run_daily_evaluation(
-        app_state=get_app_state(),
-        settings=settings,
+    # Phase 82 cross-process lock — _persist_evaluation_run hit a
+    # UniqueViolation on Mon EOD 2026-05-18 because both containers fired
+    # the 21:00 UTC evaluation job in parallel and raced past the
+    # exists() check before either INSERT landed.
+    acquired_p82, p82_key, p82_value = _phase82_acquire(
+        "daily_evaluation", _phase82_minute_slot(),
     )
+    if acquired_p82 is False and p82_key is not None:
+        logger.warning(
+            "phase82_daily_evaluation_skipped_other_process",
+            reason="another process holds the cross-process lock",
+            lock_key=p82_key,
+        )
+        return
+    try:
+        run_daily_evaluation(
+            app_state=get_app_state(),
+            settings=settings,
+        )
+    finally:
+        _phase82_release(p82_key, p82_value)
 
 
 def _job_attribution_analysis() -> None:
@@ -323,21 +343,150 @@ def _job_readiness_report_update() -> None:
 _paper_cycle_lock = threading.Lock()
 
 
+# ---------------------------------------------------------------------------
+# Phase 82 (2026-05-19, DEC-087): Redis distributed lock for cross-process
+# job serialization.
+# ---------------------------------------------------------------------------
+# Phase 70's threading.Lock is PER-PROCESS — it does NOT prevent docker-api-1
+# from firing the same scheduled job ~100μs after docker-worker-1 (or vice
+# versa). Both containers run build_scheduler() (api-main:733 + worker-main),
+# producing two parallel cron firings of every scheduled job. For
+# paper_trading_cycle this caused the dual-invocation YELLOW-1 pattern
+# observed daily from 2026-05-08 → 2026-05-19, including the Tue 2026-05-19
+# c1 phantom OPEN rows (GOOG×2/GOOGL×2/VRT×2), the b449 NULL-qty BUYs, and
+# the Mon EOD daily_evaluation UniqueViolation.
+#
+# The fix uses Redis ``SET key value NX EX ttl`` (atomic compare-and-set with
+# TTL) to elect ONE process per cron firing. The losing process logs
+# ``phase82_*_skipped_other_process`` and returns. The TTL prevents stuck
+# locks from crashing the cycle: ~3× a typical cycle wall-clock duration.
+# ---------------------------------------------------------------------------
+
+_PHASE82_LOCK_PREFIX = "apis:scheduler:lock"
+_PHASE82_LOCK_TTL_SECONDS = 180  # 3 min — longer than any normal job
+
+_phase82_redis_client: _redis_mod.Redis | None = None
+
+
+def _phase82_get_redis() -> _redis_mod.Redis | None:
+    """Lazily construct + cache a Redis client for the distributed lock.
+
+    Returns None on connection failure; the caller treats that as
+    "lock unavailable" and falls back to the per-process threading.Lock so
+    behaviour degrades gracefully in environments without Redis.
+    """
+    global _phase82_redis_client
+    if _phase82_redis_client is not None:
+        return _phase82_redis_client
+    try:
+        _phase82_redis_client = _redis_mod.Redis.from_url(
+            settings.redis_url, socket_connect_timeout=2, socket_timeout=2,
+        )
+        _phase82_redis_client.ping()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("phase82_redis_init_failed", error=str(exc))
+        _phase82_redis_client = None
+    return _phase82_redis_client
+
+
+def _phase82_acquire(job_id: str, slot_key: str) -> tuple[bool, str | None, str | None]:
+    """Atomically acquire the cross-process lock for ``job_id`` at ``slot_key``.
+
+    The lock key is ``apis:scheduler:lock:{job_id}:{slot_key}`` where
+    ``slot_key`` is a coarse time bucket (e.g. minute-floored UTC) so that
+    two parallel scheduler firings of the same cron line collide.
+
+    The lock value is ``{hostname}:{pid}`` so the owner can be inspected and
+    so release-if-held semantics can compare-and-delete (avoids releasing
+    a lock that has already expired and been reacquired by another process).
+
+    Returns ``(acquired, lock_key, lock_value)``. When Redis is unavailable
+    or the lock is held by another process, returns ``(False, None, None)``.
+    """
+    client = _phase82_get_redis()
+    if client is None:
+        return (False, None, None)
+    lock_key = f"{_PHASE82_LOCK_PREFIX}:{job_id}:{slot_key}"
+    lock_value = f"{_socket.gethostname()}:{_os.getpid()}"
+    try:
+        # SET NX EX is atomic — only one process can win for a given key.
+        acquired = client.set(
+            lock_key,
+            lock_value,
+            nx=True,
+            ex=_PHASE82_LOCK_TTL_SECONDS,
+        )
+        return (bool(acquired), lock_key, lock_value)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("phase82_lock_acquire_failed", job_id=job_id, error=str(exc))
+        return (False, None, None)
+
+
+def _phase82_release(lock_key: str | None, lock_value: str | None) -> None:
+    """Compare-and-delete the lock — only release if we still hold it."""
+    if lock_key is None or lock_value is None:
+        return
+    client = _phase82_get_redis()
+    if client is None:
+        return
+    try:
+        # Lua CAS so we don't release a lock owned by another process that
+        # took it over after our TTL expired.
+        _CAS_DELETE = (
+            "if redis.call('get', KEYS[1]) == ARGV[1] then "
+            "return redis.call('del', KEYS[1]) else return 0 end"
+        )
+        client.eval(_CAS_DELETE, 1, lock_key, lock_value)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("phase82_lock_release_failed", lock_key=lock_key, error=str(exc))
+
+
+def _phase82_minute_slot() -> str:
+    """Return a minute-resolution UTC slot key — coarse enough to dedupe
+    two scheduler firings of the same cron line (which fire within a few
+    hundred microseconds of each other) but fine enough that the next
+    legitimate firing of the same cron line gets its own slot.
+    """
+    now = _dt.datetime.now(_dt.UTC)
+    return now.strftime("%Y%m%d%H%M")
+
+
 def _job_paper_trading_cycle() -> None:
-    acquired = _paper_cycle_lock.acquire(blocking=False)
-    if not acquired:
+    # Phase 82 cross-process lock — the API container and the worker
+    # container both call build_scheduler() in-process, so we use Redis
+    # to elect a single executor per cron firing.
+    acquired_p82, p82_key, p82_value = _phase82_acquire(
+        "paper_trading_cycle", _phase82_minute_slot(),
+    )
+    if not acquired_p82 and p82_key is None:
+        # Redis unavailable — fall through to the legacy per-process guard.
+        pass
+    elif not acquired_p82:
         logger.warning(
-            "phase70_paper_cycle_skipped_concurrent",
-            reason="another paper_trading_cycle is already running",
+            "phase82_paper_cycle_skipped_other_process",
+            reason="another process holds the cross-process lock",
+            lock_key=p82_key,
         )
         return
     try:
-        run_paper_trading_cycle(
-            app_state=get_app_state(),
-            settings=settings,
-        )
+        # Phase 70 per-process guard — still useful when Redis is down or
+        # for in-process thread races inside a single container.
+        acquired = _paper_cycle_lock.acquire(blocking=False)
+        if not acquired:
+            logger.warning(
+                "phase70_paper_cycle_skipped_concurrent",
+                reason="another paper_trading_cycle is already running",
+            )
+            return
+        try:
+            run_paper_trading_cycle(
+                app_state=get_app_state(),
+                settings=settings,
+            )
+        finally:
+            _paper_cycle_lock.release()
     finally:
-        _paper_cycle_lock.release()
+        _phase82_release(p82_key, p82_value)
 
 
 def _job_broker_token_refresh() -> None:

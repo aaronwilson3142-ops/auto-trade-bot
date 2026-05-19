@@ -48,6 +48,73 @@ _EXECUTION_MODES = {OperatingMode.PAPER, OperatingMode.HUMAN_APPROVED}
 _KEY_PAPER_CYCLE_COUNT = "paper_cycle_count"
 
 
+def _select_canonical_snapshot(db: Any) -> Any | None:
+    """Phase 81-A snapshot-selection fix (DEC-087, 2026-05-19).
+
+    When the dual-invocation bug produced TWO snapshot rows per cycle (one
+    per scheduler process — see Phase 82 in apps/worker/main.py), naïve
+    "latest snapshot" selection was non-deterministic about which writer's
+    state got chosen at the next SOD reseed.  Tuesday 2026-05-19 c1 picked
+    the worker's frozen $27,405 snapshot over the API process's fresh
+    $43,801, producing $95,809 SOD equity that fired bogus broker sizing.
+
+    Selection rule: pick the FIRST writer per cycle_id (lowest
+    snapshot_timestamp per cycle_id prefix), then return the most recent
+    of those.  Rationale: in healthy single-writer cycles this is just
+    "the only snapshot for the latest cycle"; in legacy dual-write data
+    it deterministically picks one writer per cycle so the choice is
+    auditable rather than racey.
+
+    Falls back to plain DESC order for legacy snapshots without an
+    idempotency_key.  Returns the full ORM row (or None on empty DB).
+    """
+    try:
+        import sqlalchemy as _sa
+
+        from infra.db.models.portfolio import (
+            PortfolioSnapshot as _DBSnapSel,
+        )
+
+        cycle_prefix = _sa.func.split_part(_DBSnapSel.idempotency_key, ":", 1)
+        first_writer_per_cycle = (
+            _sa.select(
+                cycle_prefix.label("cycle_prefix"),
+                _sa.func.min(_DBSnapSel.snapshot_timestamp).label("first_ts"),
+            )
+            .where(_DBSnapSel.idempotency_key.is_not(None))
+            .group_by(cycle_prefix)
+            .subquery()
+        )
+
+        canonical = db.execute(
+            _sa.select(_DBSnapSel)
+            .join(
+                first_writer_per_cycle,
+                _sa.and_(
+                    _DBSnapSel.snapshot_timestamp
+                    == first_writer_per_cycle.c.first_ts,
+                    _sa.func.split_part(_DBSnapSel.idempotency_key, ":", 1)
+                    == first_writer_per_cycle.c.cycle_prefix,
+                ),
+            )
+            .order_by(_DBSnapSel.snapshot_timestamp.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+
+        if canonical is not None:
+            return canonical
+
+        # Legacy fallback: pre-idempotency snapshots.
+        return db.execute(
+            _sa.select(_DBSnapSel)
+            .order_by(_DBSnapSel.snapshot_timestamp.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("phase81a_canonical_snapshot_select_failed", error=str(exc))
+        return None
+
+
 def _seed_paper_broker_from_db(
     broker: Any,
     cycle_id: str | None = None,
@@ -81,7 +148,6 @@ def _seed_paper_broker_from_db(
         import sqlalchemy as _sa_seed
 
         from infra.db.models import Security as _SecSeed
-        from infra.db.models.portfolio import PortfolioSnapshot as _SnapSeed
         from infra.db.models.portfolio import Position as _PosSeed
         from infra.db.session import db_session as _db_session_seed
 
@@ -102,15 +168,29 @@ def _seed_paper_broker_from_db(
                     continue
                 positions.append((ticker, qty_d, entry_d))
 
-            snap = db.execute(
-                _sa_seed.select(_SnapSeed.equity_value)
-                .order_by(_SnapSeed.snapshot_timestamp.desc())
-                .limit(1)
-            ).scalar_one_or_none()
+            # Phase 81-A snapshot-selection fix (DEC-087, 2026-05-19):
+            # pick the first-writer snapshot per cycle, not "latest by
+            # timestamp", so dual-invocation residue doesn't reseed the
+            # broker with a stale-cash second-writer row.
+            canonical_snap = _select_canonical_snapshot(db)
             last_equity: _Decimal | None = None
-            if snap is not None:
+            if canonical_snap is not None and canonical_snap.equity_value is not None:
                 try:
-                    last_equity = _Decimal(str(snap))
+                    last_equity = _Decimal(str(canonical_snap.equity_value))
+                    logger.info(
+                        "phase81a_canonical_snapshot_selected",
+                        scope="broker_reseed",
+                        cycle_id=cycle_id,
+                        canonical_cycle_prefix=(
+                            str(canonical_snap.idempotency_key).split(":", 1)[0]
+                            if canonical_snap.idempotency_key
+                            else None
+                        ),
+                        canonical_snapshot_at=str(
+                            canonical_snap.snapshot_timestamp
+                        ),
+                        equity=str(canonical_snap.equity_value),
+                    )
                 except Exception:  # noqa: BLE001
                     last_equity = None
 
@@ -163,7 +243,6 @@ def _seed_app_portfolio_state_from_db(
         import sqlalchemy as _sa_seed_ps
 
         from infra.db.models import Security as _SecSeedPS
-        from infra.db.models.portfolio import PortfolioSnapshot as _SnapSeedPS
         from infra.db.models.portfolio import Position as _PosSeedPS
         from infra.db.session import db_session as _db_session_seed_ps
         from services.portfolio_engine.models import (
@@ -174,11 +253,23 @@ def _seed_app_portfolio_state_from_db(
         )
 
         with _db_session_seed_ps() as db:
-            snap = db.execute(
-                _sa_seed_ps.select(_SnapSeedPS)
-                .order_by(_SnapSeedPS.snapshot_timestamp.desc())
-                .limit(1)
-            ).scalar_one_or_none()
+            # Phase 81-A snapshot-selection fix (DEC-087, 2026-05-19): pick
+            # the first-writer-per-cycle snapshot rather than naïve latest.
+            snap = _select_canonical_snapshot(db)
+            if snap is not None:
+                logger.info(
+                    "phase81a_canonical_snapshot_selected",
+                    scope="app_state_reseed",
+                    cycle_id=cycle_id,
+                    canonical_cycle_prefix=(
+                        str(snap.idempotency_key).split(":", 1)[0]
+                        if snap.idempotency_key
+                        else None
+                    ),
+                    canonical_snapshot_at=str(snap.snapshot_timestamp),
+                    cash=str(snap.cash_balance) if snap.cash_balance else "none",
+                    equity=str(snap.equity_value) if snap.equity_value else "none",
+                )
 
             rows = db.execute(
                 _sa_seed_ps.select(_PosSeedPS, _SecSeedPS.ticker)
@@ -2201,6 +2292,21 @@ def run_paper_trading_cycle(
         # touched.  Flag-gated for emergency disable.
         if getattr(cfg, "phase81b_open_stacking_guard_enabled", True):
             try:
+                # Phase 81-B activation telemetry (DEC-087, 2026-05-19): explicit
+                # entry log so health probes can confirm the guard ran even on
+                # cycles where it didn't skip anything.  Counts of OPEN actions
+                # going INTO the guard let us distinguish "no OPEN actions to
+                # check" from "guard never executed".
+                _p81b_open_actions_in = sum(
+                    1 for _a in proposed_actions
+                    if _a.action_type == ActionType.OPEN
+                )
+                logger.info(
+                    "phase81b_guard_entered",
+                    cycle_id=cycle_id,
+                    open_actions_in=_p81b_open_actions_in,
+                    proposed_count=len(proposed_actions),
+                )
                 _p81b_broker_tickers: set[str] = set()
                 try:
                     _p81b_broker_tickers = {
