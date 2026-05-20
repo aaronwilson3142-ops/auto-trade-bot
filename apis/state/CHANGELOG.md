@@ -3,6 +3,28 @@ Format: [YYYY-MM-DD] | file/module | description
 
 ---
 
+## [2026-05-20] DEC-088 CI Lint Auto-Fix on Phase 82 Test File — `f25c2b0`
+
+**Files changed:**
+
+| File | Change |
+|------|--------|
+| `apis/tests/unit/test_phase82_canonical_snapshot_selection.py` | -1 blank line at line 33 (between `import pytest` and `# ──` section header) — ruff I001 import-block compliance |
+
+**Trigger:** GitHub Actions CI `conclusion=failure` on Phase 82 commits `1dc3b34` (run 26130593898) + `096aaee` (run 26130745115). Per-job: `Lint & Type Check=failure`, `Unit Tests Py3.11|3.12=failure` (carry-forward continue-on-error), Integration+Docker=success.
+
+**Validation:**
+- `docker exec docker-api-1 python -m ruff check --no-cache` → `All checks passed!` ✅
+- `pytest tests/unit/test_phase82_canonical_snapshot_selection.py --no-cov -q` → **10 passed, 2 warnings in 8.05s** ✅
+- Full Phase 82 sweep `pytest -k "deep_dive or phase22 or phase57 or phase77_78 or phase79 or phase81 or phase82"` → **416 passed / 0 failed / 3670 deselected in 25.04s** ✅ (baseline holds)
+- CI rerun `26156153271` on `f25c2b0` queued, status=in_progress at commit time
+
+**Commit:** `f25c2b0 fix(lint): I001 import-block in test_phase82_canonical_snapshot_selection.py`
+**Pushed:** `origin/main` (096aaee..f25c2b0)
+**Authority:** Daily deep-dive standing authority for `Lint & Type Check` failures (DEC-053 / DEC-088 precedent — autonomous lint fixes only; Unit Tests still operator-review).
+
+---
+
 ## [2026-05-13] Phase 81 Bundle — Broker SOD reseed + OPEN stacking guard + realized_pnl fallback + Docker watchdog (DEC-081 / 082 / 083 / 084 / 085)
 
 **Files changed:**
