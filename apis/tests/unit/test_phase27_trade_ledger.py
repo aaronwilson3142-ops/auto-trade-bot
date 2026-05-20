@@ -312,7 +312,11 @@ class TestClosedTradeRecordingLogic:
                     (_realized_pnl / _cost_sold).quantize(Decimal("0.0001"))
                     if _cost_sold > Decimal("0") else Decimal("0")
                 )
-                _hold_days = max(0, (run_at - _pos.opened_at).days) if _pos.opened_at else 0
+                # Phase 83 (Y2 fix): mirror prod normalization of opened_at.
+                _opened_at = _pos.opened_at
+                if _opened_at is not None and _opened_at.tzinfo is None:
+                    _opened_at = _opened_at.replace(tzinfo=dt.UTC)
+                _hold_days = max(0, (run_at - _opened_at).days) if _opened_at else 0
                 trades.append(ClosedTrade(
                     ticker=_ticker,
                     action_type=_req.action.action_type,
@@ -322,7 +326,7 @@ class TestClosedTradeRecordingLogic:
                     realized_pnl=_realized_pnl.quantize(Decimal("0.01")),
                     realized_pnl_pct=_realized_pnl_pct,
                     reason=_req.action.reason or "",
-                    opened_at=_pos.opened_at,
+                    opened_at=_opened_at,
                     closed_at=run_at,
                     hold_duration_days=_hold_days,
                 ))
@@ -447,6 +451,133 @@ class TestClosedTradeRecordingLogic:
         run_at = dt.datetime(2026, 3, 19, 15, 45, tzinfo=dt.UTC)
         trades = self._extract_closed_trades(reqs, ress, ps, run_at)
         assert len(trades) == 2
+
+
+class TestPhase83NaiveOpenedAtRegression:
+    """Phase 83 (Y2): closed-trade recording must tolerate tz-naive opened_at.
+
+    Tue 2026-05-19 c1 surfaced
+    "can't subtract offset-naive and offset-aware datetimes" in
+    apps.worker.jobs.paper_trading because run_at is tz-aware (UTC) but a
+    PortfolioPosition rehydrated from older state can carry a naive opened_at.
+    The fix normalizes opened_at to UTC before subtracting.
+    """
+
+    def _extract(self, opened_at: dt.datetime | None) -> list:
+        from services.execution_engine.models import ExecutionStatus
+        from services.portfolio_engine.models import (
+            ActionType,
+            PortfolioAction,
+        )
+
+        pos = _make_position(
+            "AAPL",
+            avg_entry_price=Decimal("150"),
+            quantity=Decimal("100"),
+            opened_at=opened_at,
+        )
+        ps = _make_portfolio_state(positions={"AAPL": pos})
+        action = PortfolioAction(
+            action_type=ActionType.CLOSE,
+            ticker="AAPL",
+            reason="not_in_buy_set",
+            target_notional=Decimal("5000"),
+            target_quantity=None,
+            risk_approved=True,
+        )
+        req = MagicMock()
+        req.action = action
+        res = MagicMock()
+        res.status = ExecutionStatus.FILLED
+        res.fill_price = Decimal("160")
+        res.fill_quantity = Decimal("100")
+
+        run_at = dt.datetime(2026, 3, 19, 15, 45, tzinfo=dt.UTC)
+        return TestClosedTradeRecordingLogic()._extract_closed_trades(
+            [req], [res], ps, run_at
+        )
+
+    def test_naive_opened_at_does_not_raise(self):
+        """Naive opened_at must not raise TypeError on subtraction with tz-aware run_at."""
+        naive_opened = dt.datetime(2026, 3, 9, 9, 35)  # no tzinfo
+        assert naive_opened.tzinfo is None
+        trades = self._extract(naive_opened)
+        assert len(trades) == 1
+        assert trades[0].ticker == "AAPL"
+
+    def test_naive_opened_at_normalized_to_utc_on_record(self):
+        """Recorded opened_at should be tz-aware (UTC) even if input was naive."""
+        naive_opened = dt.datetime(2026, 3, 9, 9, 35)
+        trades = self._extract(naive_opened)
+        assert trades[0].opened_at.tzinfo is not None
+
+    def test_naive_opened_at_hold_days_correct(self):
+        """Hold-day math should treat naive opened_at as UTC."""
+        naive_opened = dt.datetime(2026, 3, 9, 9, 35)
+        trades = self._extract(naive_opened)
+        # 2026-03-19 15:45 UTC - 2026-03-09 09:35 UTC = 10 days, 6h05m → .days = 10
+        assert trades[0].hold_duration_days == 10
+
+    def test_tz_aware_opened_at_still_works(self):
+        """Existing tz-aware opened_at path is unaffected."""
+        aware_opened = dt.datetime(2026, 3, 9, 9, 35, tzinfo=dt.UTC)
+        trades = self._extract(aware_opened)
+        assert trades[0].hold_duration_days == 10
+        assert trades[0].opened_at == aware_opened
+
+    def test_none_opened_at_yields_zero_hold_days(self):
+        """None opened_at must short-circuit to hold_duration_days=0, no exception."""
+        # ClosedTrade requires a non-None opened_at, so passing None to the
+        # helper would skip via the falsy guard; verify the guard path holds.
+        from services.execution_engine.models import ExecutionStatus
+        from services.portfolio_engine.models import (
+            ActionType,
+            PortfolioAction,
+        )
+
+        # Construct a position with a real opened_at then null it post-hoc to
+        # mimic the legacy code branch that checked `if _pos.opened_at`.
+        pos = _make_position(
+            "AAPL",
+            avg_entry_price=Decimal("150"),
+            quantity=Decimal("100"),
+        )
+        # Force opened_at = None to exercise the guard
+        pos.opened_at = None  # type: ignore[assignment]
+        ps = _make_portfolio_state(positions={"AAPL": pos})
+
+        action = PortfolioAction(
+            action_type=ActionType.CLOSE,
+            ticker="AAPL",
+            reason="not_in_buy_set",
+            target_notional=Decimal("5000"),
+            target_quantity=None,
+            risk_approved=True,
+        )
+        req = MagicMock()
+        req.action = action
+        res = MagicMock()
+        res.status = ExecutionStatus.FILLED
+        res.fill_price = Decimal("160")
+        res.fill_quantity = Decimal("100")
+
+        run_at = dt.datetime(2026, 3, 19, 15, 45, tzinfo=dt.UTC)
+        # ClosedTrade requires opened_at non-None; the production code creates
+        # the record with opened_at=_opened_at (None here) and a fresh
+        # ClosedTrade allows opened_at typed dt.datetime but None passes through
+        # since it's a plain dataclass without runtime validation. The key
+        # assertion is "no exception raised".
+        try:
+            trades = TestClosedTradeRecordingLogic()._extract_closed_trades(
+                [req], [res], ps, run_at
+            )
+            assert trades[0].hold_duration_days == 0
+        except TypeError as exc:
+            if "offset-naive" in str(exc) or "offset-aware" in str(exc):
+                raise AssertionError(
+                    "Phase 83 regression: tz-naive/aware subtraction crept back in"
+                ) from exc
+            raise
 
 
 class TestTradeHistoryEndpoint:

@@ -2573,7 +2573,14 @@ def run_paper_trading_cycle(
                         (_realized_pnl / _cost_sold).quantize(Decimal("0.0001"))
                         if _cost_sold > Decimal("0") else Decimal("0")
                     )
-                    _hold_days = max(0, (run_at - _pos.opened_at).days) if _pos.opened_at else 0
+                    # Phase 83 (Y2 fix): _pos.opened_at can be tz-naive when
+                    # rehydrated from older state; run_at is tz-aware UTC.
+                    # Normalize to UTC before subtraction to avoid
+                    # "can't subtract offset-naive and offset-aware datetimes".
+                    _opened_at = _pos.opened_at
+                    if _opened_at is not None and _opened_at.tzinfo is None:
+                        _opened_at = _opened_at.replace(tzinfo=dt.UTC)
+                    _hold_days = max(0, (run_at - _opened_at).days) if _opened_at else 0
                     _ct = _ClosedTrade(
                         ticker=_ticker,
                         action_type=_req.action.action_type,
@@ -2583,7 +2590,7 @@ def run_paper_trading_cycle(
                         realized_pnl=_realized_pnl.quantize(Decimal("0.01")),
                         realized_pnl_pct=_realized_pnl_pct,
                         reason=_req.action.reason or "",
-                        opened_at=_pos.opened_at,
+                        opened_at=_opened_at,
                         closed_at=run_at,
                         hold_duration_days=_hold_days,
                     )
