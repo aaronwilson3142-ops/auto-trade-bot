@@ -30,7 +30,6 @@ from typing import Any
 
 import pytest
 
-
 # ──────────────────────────────────────────────────────────────────────────────
 # Fake snapshot rows + fake SQLAlchemy session used by the selection helper
 # ──────────────────────────────────────────────────────────────────────────────
