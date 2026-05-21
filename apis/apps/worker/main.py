@@ -467,6 +467,14 @@ def _job_paper_trading_cycle() -> None:
             reason="another process holds the cross-process lock",
             lock_key=p82_key,
         )
+        # Phase 84: keep the /health paper_cycle freshness check accurate.
+        # The API process always yields to the worker process via this path,
+        # so its in-memory last_paper_cycle_at is never updated by actually
+        # running a cycle.  Update it here so that /health doesn't report
+        # paper_cycle:stale while trading is proceeding normally.
+        _skip_state = get_app_state()
+        if _skip_state is not None:
+            _skip_state.last_paper_cycle_at = _dt.datetime.now(tz=_dt.UTC)
         return
     try:
         # Phase 70 per-process guard — still useful when Redis is down or
