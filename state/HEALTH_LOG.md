@@ -2,6 +2,12 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-05-21 19:10 UTC (Thursday 2:10 PM CT, active trading / post-c6)
+
+**Overall Status:** RED — R1: 4 duplicate OPEN ticker rows (AMD×2, AMZN×2, INTC×2, MU×2) — cross-session close-loop failure. R2: broker_health_position_drift 10 tickers. Y1: GOOG origin_strategy='unknown'. Y2: AAPL/MRVL Day-3 orphan rows. No autonomous fixes — operator DB cleanup + Phase 85 code investigation required. See `apis/state/HEALTH_LOG.md` for full details.
+
+---
+
 ## Health Check — 2026-05-21 15:20 UTC (Thursday 10:20 AM CT, active trading)
 
 **Overall Status:** YELLOW — Two issues identified and autonomously fixed within this probe. Y1: `/health` `paper_cycle:stale` — Phase 82 side-effect (API skip path never updating `last_paper_cycle_at`); Phase 84 fix `8c81443` applied + container restart. Y2: `closed_trade_recording_failed` regression at Thu c1 — Phase 83 code on disk but old Python module in memory; container restart at 15:16 UTC resolves. /health `ok` post-fix. Phase 82 dedup fully validated. No RED findings.

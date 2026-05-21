@@ -2,6 +2,78 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-05-21 19:10 UTC (Thursday 2:10 PM CT, active trading / post-c6)
+
+**Overall Status:** RED — Two RED findings: (R1) 4 duplicate OPEN ticker rows (AMD×2, AMZN×2, INTC×2, MU×2) — c3 rebalance SELLs fully closed those tickers at the broker but `_persist_positions` close-loop failed to mark the old April-May DB rows as `closed`; c4 then re-opened all 4 via Phase 81-B guard (which correctly saw broker as flat); result = 2 OPEN rows per ticker. (R2) `broker_health_position_drift` fired at c6 (18:30 UTC) with 10 tickers (AMD, BE, AMZN, INTC, MRVL, UNH, AAPL, MU, GOOGL, WDC). Both are trading-impact data-integrity regressions. Two additional YELLOWs: (Y1) GOOG OPEN row created at 18:30 UTC with `origin_strategy='unknown'` and no corresponding BUY order — likely broker-sync reconciliation path; (Y2) AAPL + MRVL pre-Phase-82 orphan rows now on Day 3. No autonomous fixes applied — R1 and R2 require operator-approved DB cleanup + Phase 85 code investigation.
+
+### §1 Infrastructure
+- **Containers:** 8/8 healthy. worker+api `Up 4 hours` since 15:16:33 UTC (Phase 83/84 restart this morning). postgres/redis/monitoring `Up 4 days`. RestartCount=0 core.
+- **/health:** `{"status":"ok","paper_cycle":"ok","kill_switch":"ok",...}` at 19:08:42 UTC ✅ — all 7 components ok. mode=paper.
+- **Worker log scan (24h):** Post-restart (last 3h): **0 errors / 0 Tracebacks / 0 crash-triad** ✅. Pre-restart: 13 known stale-ticker yfinance ERRORs (10:00–10:23 UTC, expected) + 1× `closed_trade_recording_failed` at 13:35 UTC (pre-Phase-83-in-memory, resolved by restart ✅). 0 crash-triad on all 5 patterns.
+- **API log scan (24h):** Post-restart (last 3h): 0 non-boilerplate errors ✅. `broker_health_position_drift` WARNING at 18:30 UTC (10 tickers — see §2). 0 crash-triad ✅.
+- **Prometheus:** 2/2 targets up (apis, prometheus). 0 dropped ✅.
+- **Alertmanager:** 0 active alerts ✅.
+- **Resource usage:** worker 119 MiB / 0%, api 172 MiB / 0.13%, postgres 172 MiB / 0%, redis 8 MiB / 0.59%, grafana 51 MiB, prometheus 40 MiB, alertmanager 15 MiB, control-plane 1.71 GiB / 11.54%. All well under threshold ✅.
+- **DB size:** 251 MB (unchanged from 15:20 probe).
+
+### §2 Execution + Data Audit
+- **Paper cycles Wed (2026-05-20):** 7 snapshots (13:35–19:30 UTC), single row per cycle — Phase 82 dedup confirmed ✅.
+- **Paper cycles Thu (2026-05-21):** 6 snapshots (13:35–18:30 UTC, c1–c6), single row per cycle — no dual-invocation ✅. Worker won c1–c5 lock; API won c6 lock (18:30 UTC).
+- **Portfolio trend:** Latest c6 snapshot (18:30 UTC): cash=$38,098.34, equity=$119,287.72. cash>0 ✅. Equity dropped ~$6,677 vs c5 ($125,964) — consistent with c6 market movement + position mix changes. No negative-cash anomaly.
+- **Broker↔DB reconciliation:** DB 15 OPEN / 205 closed. `/health broker=ok` ✅. **`broker_health_position_drift` WARNING fired at c6 18:30 UTC: 10 tickers (AMD, BE, AMZN, INTC, MRVL, UNH, AAPL, MU, GOOGL, WDC)** — wide drift, direct consequence of R1 + Y2 orphan rows.
+- **Origin-strategy stamping:** 14/15 OPEN positions stamped with non-null strategy ✅. **GOOG opened at 18:30 UTC shows `origin_strategy='unknown'`** (see Y1).
+- **Position caps:** 15/15 OPEN (AT cap). `new_today=6` DB rows (COST c1 + 4×c4 + GOOG broker-sync c6). Phase 69 `daily_opens_count=5` (cap = 5) from c6 restore — GOOG broker-sync row not counted in daily cap. ✅ cap tracking consistent, though broker-sync bypass worth noting.
+- **Data freshness:** bars `2026-05-20` ✅ (490 securities). signal_runs `2026-05-21 10:30 UTC` ✅. ranking_runs `2026-05-21 10:45 UTC` ✅.
+- **Stale-ticker audit:** Known 13 (JNPR/MMC/WRK/PARA/K/HES/PKI/IPG/DFS/MRO/CTLT/PXD/ANSS) — 24h errors at 10:00–10:23 UTC as expected. No new additions ✅.
+- **Kill-switch:** `APIS_KILL_SWITCH=false` ✅. **Mode:** `APIS_OPERATING_MODE=paper` ✅.
+- **Evaluation history:** 108 rows ✅ (>80 Phase 63 floor).
+- **Idempotency:** 0 duplicate orders by `idempotency_key` ✅. **4 duplicate OPEN tickers (AMD×2, AMZN×2, INTC×2, MU×2) — positions-table idempotency broken** (see R1).
+
+### §3 Code + Schema
+- **Alembic head:** `q7r8s9t0u1v2` single head ✅. No pending drift.
+- **Pytest smoke:** **360 passed / 0 failed / 3731 deselected in 36.48s** under `APIS_PYTEST_SMOKE=1` ✅ (matches 15:20 probe baseline).
+- **Git:** Clean (only `outputs/` untracked). HEAD `9cb49ad`. 0 unpushed. No stale feature branches ✅.
+- **GitHub Actions CI:** Run `26235290446` on `9cb49ad` — `status=completed conclusion=success` ✅.
+
+### §4 Config + Gate Verification
+- All 11 critical APIS_* flags at expected values ✅:
+  - `APIS_OPERATING_MODE=paper` ✅, `APIS_KILL_SWITCH=false` ✅
+  - `APIS_MAX_POSITIONS=15` ✅, `APIS_MAX_NEW_POSITIONS_PER_DAY=5` ✅
+  - `APIS_MAX_THEMATIC_PCT=0.75` ✅, `APIS_RANKING_MIN_COMPOSITE_SCORE=0.30` ✅
+  - `APIS_DAILY_LOSS_LIMIT_PCT=0.02` ✅, `APIS_WEEKLY_DRAWDOWN_LIMIT_PCT=0.05` ✅
+  - `APIS_MAX_SECTOR_PCT=0.40` ✅, `APIS_MAX_SINGLE_NAME_PCT=0.20` ✅, `APIS_MAX_POSITION_AGE_DAYS=20` ✅
+  - `APIS_REDIS_URL=redis://redis:6379/0` ✅
+- **Scheduler:** worker `apis_worker_started job_count=36` at 15:16:33 UTC ✅.
+
+### Issues Found
+- **R1 — 4 Duplicate OPEN Ticker Rows (AMD×2, AMZN×2, INTC×2, MU×2):** c3 cycle (15:30 UTC) ran rebalance SELL orders for AMD (22), AMZN (25), INTC (76), MU (6). These quantities met or exceeded the old position sizes (AMD=21, AMZN=25, INTC=75, MU=2), fully closing all four at the broker. However `_persist_positions` close-loop failed to update the OLD DB position rows (opened 2026-04-29 to 2026-05-01) to `status='closed'`. c4 cycle (16:00 UTC) saw broker as flat for all 4 tickers, Phase 81-B guard correctly passed (broker=flat, portfolio_state=flat after c3 fills), and opened NEW position rows for all 4. Result: DB now has 2 OPEN rows per ticker — old (April-May `opened_at`) + new (today 16:00 `opened_at`). Root cause: cross-session close-path matching failure in `_persist_positions`. COST was correctly closed because it was opened in the same session (today c1). Phase 85 candidate.
+- **R2 — `broker_health_position_drift` 10 tickers at c6 18:30 UTC:** AMD, BE, AMZN, INTC, MRVL, UNH, AAPL, MU, GOOGL, WDC. Wide broker↔DB divergence. Direct consequence of R1 duplicates + Y2 AAPL/MRVL orphan rows. Broker holds the correct positions (single, current-session rows); DB also has old stale OPEN rows.
+- **Y1 — GOOG `origin_strategy='unknown'` at 18:30 UTC:** OPEN row created at cycle start time with no corresponding BUY order in `orders` table. Executed_count=0 for c6. Likely created by `_persist_positions` during broker-sync reconciliation path (SOD reseed or broker_health_check sync writes broker positions into portfolio_state, which `_persist_positions` then upserts). Origin stamping in the broker-sync path does not assign a strategy name → 'unknown'. Trading impact: position likely real (broker holds it) but audit/strategy attribution is broken.
+- **Y2 — AAPL + MRVL pre-Phase-82 orphan rows: Day 3:** Opened 2026-05-19 18:30 UTC (pre-Phase-82 second-writer). Both now in `broker_health_position_drift` list (broker likely flat, DB still OPEN). Warrant DB cleanup.
+
+### Fixes Applied
+- None (all findings require operator-approved DB cleanup or code investigation).
+
+### Action Required from Aaron
+1. **HIGH RED — DB cleanup (R1):** Close the 4 old duplicate OPEN position rows. These are phantom at the broker; only the today-c4 rows are real.
+   ```sql
+   -- Close old AMD (opened 2026-04-29)
+   UPDATE positions SET status='closed', closed_at=NOW() WHERE status='open' AND opened_at::date='2026-04-29' AND security_id=(SELECT id FROM securities WHERE ticker='AMD');
+   -- Close old AMZN (opened 2026-04-29)
+   UPDATE positions SET status='closed', closed_at=NOW() WHERE status='open' AND opened_at::date='2026-04-29' AND security_id=(SELECT id FROM securities WHERE ticker='AMZN');
+   -- Close old INTC (opened 2026-05-01)
+   UPDATE positions SET status='closed', closed_at=NOW() WHERE status='open' AND opened_at::date='2026-05-01' AND security_id=(SELECT id FROM securities WHERE ticker='INTC') AND quantity=75;
+   -- Close old MU (opened 2026-05-01)
+   UPDATE positions SET status='closed', closed_at=NOW() WHERE status='open' AND opened_at::date='2026-05-01' AND security_id=(SELECT id FROM securities WHERE ticker='MU') AND quantity=2;
+   ```
+2. **HIGH RED — Phase 85 code investigation:** `_persist_positions` close-loop fails for cross-session position closes. When a SELL order executes against a position opened in a prior session (different `opened_at`), the DB row is not updated to `status='closed'`. Reproduces as GOOGL close-loop gap (2026-05-18), and now AMD/AMZN/INTC/MU (2026-05-21). Fix: broaden the close-loop matching logic beyond same-session `opened_at`.
+3. **MEDIUM — DB cleanup (Y2):** Close AAPL (qty=25) and MRVL (qty=42) OPEN rows from 2026-05-19 18:30 UTC (pre-Phase-82 orphans, Day 3, broker flat).
+4. **LOW — Investigate GOOG origin_strategy='unknown' (Y1):** The broker-sync reconciliation path in `_persist_positions` creates position rows without strategy attribution. Should stamp `origin_strategy='broker_sync'` or similar.
+
+**Email:** RED Gmail draft `r-4477402235889780436` created — manual send required.
+
+---
+
 ## Health Check — 2026-05-21 15:20 UTC (Thursday 10:20 AM CT, pre-noon / active trading)
 
 **Overall Status:** YELLOW — Two issues identified and both autonomously fixed within this probe. Current state at probe-end: all systems GREEN. Y1: `/health` was reporting `status:degraded / paper_cycle:stale` — Phase 82 side-effect where the API process (which always yields via Redis lock) never updates `last_paper_cycle_at`; Phase 84 fix applied (`8c81443`) + containers restarted. Y2: `closed_trade_recording_failed` WARNING recurred at Thu c1 13:35 UTC — Phase 83 fix (`99154f6`) was committed but containers hadn't been restarted, leaving the old Python module in memory; container restart at 15:16 UTC resolves this. Phase 82 dual-invocation dedup fully validated: worker won Thu c1+c2, API correctly skipped both; API won Wed c5/c6/c7, worker correctly skipped those. No RED findings.
