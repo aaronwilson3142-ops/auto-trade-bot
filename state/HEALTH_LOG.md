@@ -2,6 +2,20 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-05-21 15:20 UTC (Thursday 10:20 AM CT, active trading)
+
+**Overall Status:** YELLOW — Two issues identified and autonomously fixed within this probe. Y1: `/health` `paper_cycle:stale` — Phase 82 side-effect (API skip path never updating `last_paper_cycle_at`); Phase 84 fix `8c81443` applied + container restart. Y2: `closed_trade_recording_failed` regression at Thu c1 — Phase 83 code on disk but old Python module in memory; container restart at 15:16 UTC resolves. /health `ok` post-fix. Phase 82 dedup fully validated. No RED findings.
+
+See full entry in `apis/state/HEALTH_LOG.md`.
+
+---
+
+## Phase 83 Remediation — 2026-05-20 19:30 UTC (Wednesday 2:30 PM CT) — **GREEN**
+
+**Overall Status: GREEN.** Y2 `closed_trade_recording_failed` tz-aware/naive datetime bug from the 10:08 UTC probe FIXED in commit `99154f6` on `main` (pushed to origin). Y1 CI rerun on `f25c2b0` already confirmed GREEN. Root cause: Phase 27 closed-trade recording in `apis/apps/worker/jobs/paper_trading.py` did `(run_at - _pos.opened_at).days` where `run_at` is tz-aware UTC but `_pos.opened_at` rehydrated from older state can be tz-naive. The Phase 28 grading block immediately below already handled this correctly; fix mirrors that pattern. 5 new regression tests added in `TestPhase83NaiveOpenedAtRegression`. Ruff clean; pytest 51/51 PASS on the file. CI run `26184842842` triggered on push. Full remediation block in primary log at `apis/state/HEALTH_LOG.md`.
+
+---
+
 ## Health Check — 2026-05-20 10:08 UTC (Wednesday 5:08 AM CT, pre-market, ~3.5h before Wed c1 = Phase 82 validation cycle) — **YELLOW**
 
 **Overall Status: YELLOW.** Pre-Wed-c1 Phase 82 forward-verification probe. Phase 82 fix (DEC-087, `1dc3b34`) deployed 23:01 UTC last night but **NOT YET EXERCISED** — no paper cycle has fired since restart. Wed c1 13:35 UTC will validate. **3 new YELLOWs**: (Y1) GitHub Actions CI `conclusion=failure` on both Phase 82 commits driven by 1× I001 ruff diagnostic — **autonomous-fix applied at `f25c2b0`** (1-line deletion in `apis/tests/unit/test_phase82_canonical_snapshot_selection.py`), CI rerun `26156153271` in_progress. (Y2) NEW `closed_trade_recording_failed` WARNING in worker at Tue c1 (`error="can't subtract offset-naive and offset-aware datetimes"`) — Phase 83 candidate; no trading impact. (Y3) 2× NEW yfinance `HTTP Error 401: Invalid Crumb` at Wed 10:00 UTC AM ingestion in docker-api-1; bars still updated to 2026-05-19 ✅. **Carry-forward**: 7-of-7 Tue dual-invocation snapshots + 5 NULL-qty FILLED orders (3 Tue c1 b449 + 2 Tue c5 17:30 AAPL/MRVL) all pre-Phase-82. Tue 21:00 UTC EOD UniqueViolation logged (canonical row 7537d0f7 inserted clean, evaluation_runs=107 ✅). AAPL Tue qty=25 + MRVL Tue qty=42 OPEN rows intentionally retained per Phase 82 ACTIVE_CONTEXT. **Mon Y2 GOOGL close-loop gap RESOLVED** via Tue 18:00 CT DB cleanup. Stack healthy: 8/8 containers (worker+api `Up 11h` since 23:01 UTC), /health 7/7 ok mode=paper, 0 crash-triad, Prom 2/2 up, AM 0 firing. Pytest 416p/0f/3670d ✅. Alembic q7r8s9t0u1v2 single ✅. All 11 APIS_* flags correct + `APIS_REDIS_URL=redis://redis:6379/0` ✅; docker-api-1 `redis.ping()=True` ✅ (Phase 82 lock has working connectivity). 11 OPEN / 202 closed; all 11 origin_strategy stamped; 0 duplicate OPEN tickers; 0 duplicate idempotency keys. NULL-qty FILLED=32 (+2 Tue c5); NULL realized_pnl=169 unchanged. broker_health_position_drift `--since 24h`=6 (Tue c2-c7, decays Wed). Heartbeat age 30s. Bars 2026-05-19 ✅; signals/rankings 5/19 (Wed AM jobs at 10:30/10:45 UTC). Watchdog Ready, +150 KB overnight. DB 236 MB. Kill-switch=false, mode=paper ✅. **§6 Email: YELLOW Gmail draft will be created — manual send recommended.** **Action Required from Aaron: NONE blocking.** Wed c1 13:35 UTC + CI rerun status captured at next 10 AM CT probe.

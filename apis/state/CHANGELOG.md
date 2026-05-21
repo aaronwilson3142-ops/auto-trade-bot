@@ -3,6 +3,25 @@ Format: [YYYY-MM-DD] | file/module | description
 
 ---
 
+## [2026-05-21] Phase 84 — Fix `/health paper_cycle:stale` Phase 82 Side-Effect — `8c81443`
+
+**Files changed:**
+
+| File | Change |
+|------|--------|
+| `apis/apps/worker/main.py` | In `_job_paper_trading_cycle()` Phase 82 skip branch: added `get_app_state().last_paper_cycle_at = _dt.datetime.now(tz=_dt.UTC)` so API process health-check timestamp stays fresh when yielding cycles to the worker process |
+
+**Trigger:** `/health` showed `status:degraded / paper_cycle:stale` at probe open (2026-05-21 15:08 UTC). Root cause: API process always yields to worker via Phase 82 Redis lock, so `last_paper_cycle_at` was 40h stale (set at startup restore, never refreshed). Health check fires `stale` when `age_s > 7200` during market hours.
+
+**Validation:**
+- `docker exec docker-api-1 python -m ruff check --no-cache apps/worker/main.py` → `All checks passed!` ✅
+- `pytest tests/unit -k "deep_dive or phase22 or phase57" --no-cov -q` → **360 passed / 0 failed in 34.70s** ✅
+- Container restart at 15:16:33 UTC; `/health` → `{"status":"ok",...,"paper_cycle":"ok"}` at 15:17:51 UTC ✅
+
+**Also in this restart:** Phase 83 fix (`99154f6` — tz-aware `_record_closed_trade`) loaded into active Python process memory for the first time.
+
+---
+
 ## [2026-05-20] DEC-088 CI Lint Auto-Fix on Phase 82 Test File — `f25c2b0`
 
 **Files changed:**
