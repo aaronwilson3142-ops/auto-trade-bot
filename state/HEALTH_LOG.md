@@ -2,6 +2,92 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-05-23 10:15 UTC (Saturday 5:15 AM CT, weekend / market closed)
+
+**Overall Status:** RED — R1 + R2 carry-forward (4 dup OPEN ticker rows + broker drift); no new regressions. R1 cleanup still awaiting Aaron.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy. worker+api `Up 43h` since 2026-05-21T15:16:33Z (RestartCount=0 core). postgres/redis/monitoring `Up 6 days`.
+- /health: 7/7 ok at 10:09 UTC mode=paper.
+- Worker/API log scan: 19 errors each — all known stale-ticker yfinance 404s. 0 crash-triad.
+- Prometheus: 2/2 up. Alertmanager: 0 active. Resources: all within threshold. DB 259 MB.
+
+### §2 Execution + Data Audit
+- Paper cycles: 0 today (Sat weekend expected). Last eval_run 2026-05-22 21:00 UTC complete. evaluation_runs=110 ✓.
+- Portfolio trend: Latest 2026-05-22 19:30 UTC cash=$41,021.07, equity=$127,717.84 (positive ✓). Fri c3 opened 5 new momentum_v1 positions (ARM/CSCO/QCOM/STX/TXN).
+- Broker↔DB: /broker/positions 404 (known). /health broker=ok ✓. broker_health_position_drift fired Fri c3/c6/c7 — R2 carry-forward, expanding to include c3 new positions.
+- Origin-strategy: all 5 new Fri c3 positions stamped ✓. 0 NULLs on new rows.
+- Position caps: DB=19 OPEN (4 R1 dup rows); unique broker tickers=15 (at cap ✓). Fri c3 daily new=5 (at cap ✓). 0 new today (Sat ✓).
+- Data freshness: bars 2026-05-21 (Fri close not yet ingested, expected Sat AM); signals 2026-05-22 10:30 ✓; rankings 2026-05-22 10:45 ✓.
+- Stale tickers: known 13 — no new additions. Kill-switch=false ✓, mode=paper ✓. eval_runs=110 ✓. Idempotency clean. 4 dup-OPEN security_ids (R1).
+
+### §3 Code + Schema
+- Alembic head: q7r8s9t0u1v2 (single head ✓). No drift.
+- Pytest smoke: 406 passed / 0 failed ✓. Git: 3 dirty (state docs), 0 unpushed, no stale branches.
+- **GitHub Actions CI:** run 26248055594 `3db0fb8` conclusion=success ✓.
+
+### §4 Config + Gate Verification
+- All 11 APIS_* flags correct ✓. Gated flags default OFF ✓. job_count=36 ✓.
+
+### Issues Found
+- **R1 (RED carry-forward)**: 4 dup OPEN ticker rows (AMD×2, AMZN×2, INTC×2, MU×2) from Thu c3 cross-session close-loop failure. Awaiting Aaron's DB cleanup.
+- **R2 (RED carry-forward)**: broker_health_position_drift 3× Fri (c3/c6/c7). Expanded at c6 to include new Fri c3 positions. Resolves when R1 cleanup done.
+- **Bars freshness**: 2026-05-21 (Fri close not yet ingested — expected Sat AM, non-blocking).
+
+### Fixes Applied
+None.
+
+### Action Required from Aaron
+1. **HIGH RED** — Execute DB cleanup SQL (Thu 19:10 HEALTH_LOG §Action Required): close 4 stale dup OPEN rows → resolves R1 + R2.
+2. **HIGH RED** — Phase 85: fix `_persist_positions` cross-session close-loop.
+3. **MEDIUM** — Close AAPL (qty=25) + MRVL (qty=42) Day-5 orphan rows if not held at broker.
+4. **LOW** — Stamp origin_strategy on broker-sync path for GOOGL.
+
+---
+
+## Health Check — 2026-05-22 15:10 UTC (Friday 10:10 AM CT, active trading / between c2–c3)
+
+**Overall Status:** RED (carry-forward) — No new regressions introduced overnight or this morning. R1 and R2 from Thursday's RED probe persist: (R1) 4 duplicate OPEN ticker rows (AMD×2, AMZN×2, INTC×2, MU×2) — cross-session close-loop failure from Thu c3; DB cleanup SQL provided in Thu probe is still pending Aaron's execution. (R2) `broker_health_position_drift` fired again at Fri c2 14:30 UTC with the same 10 tickers (AMD, BE, AMZN, INTC, MRVL, UNH, AAPL, MU, GOOGL, WDC) — direct consequence of R1 + Y2 orphan rows. One new YELLOW: (Y1) 1× HTTP Error 401 Unauthorized in docker-api-1 at 10:00:03 UTC during Fri AM ingestion (yfinance; bars still updated to 2026-05-21 ✅, single occurrence, non-blocking). All other systems GREEN: 8/8 containers healthy (worker+api Up 24h), /health 7/7 ok, pytest 360/360 ✅, CI success, all 11 APIS_* flags correct. No autonomous fixes available — R1/R2 require operator-approved DB cleanup.
+
+### §1 Infrastructure
+- **Containers:** 8/8 healthy. worker+api `Up 24 hours (healthy)` since 2026-05-21T15:16:33 UTC. postgres/redis/monitoring `Up 5 days`. RestartCount=0 core ✅.
+- **/health:** All 7 components ok at 15:08:17 UTC. mode=paper ✅.
+- **Worker/API log scan:** 0 crash-triad. 0 Tracebacks. Worker: known 13 stale-ticker errors only. API: known stale-ticker + pre-existing startup WARNs + R2 drift at 14:30 UTC + NEW 1× 401 Unauthorized at 10:00 UTC.
+- **Prometheus:** 2/2 up ✅. **Alertmanager:** 0 active ✅. **Resources:** all under threshold ✅. **DB:** 259 MB.
+
+### §2 Execution + Data Audit
+- **Paper cycles Fri:** 2/2 completed (c1 13:35, c2 14:30 UTC), single snapshot each (Phase 82 dedup ✅). cash>0 ✅.
+- **Portfolio trend:** c2 14:30 UTC: cash=$38,098.34, equity=$120,381.35 ✅.
+- **Broker↔DB:** DB 15 OPEN / `/health broker=ok` ✅. `broker_health_position_drift` Fri c2 14:30 UTC — 10 tickers (R2 carry-forward).
+- **Origin-strategy:** 0 new positions today. Carry-forward GOOG `unknown` ✅.
+- **Position caps:** 15/15 AT cap, 0 new today ✅.
+- **Data freshness:** bars `2026-05-21` ✅, rankings `2026-05-22 10:45` ✅, signals `2026-05-22 10:30` ✅.
+- **Kill-switch:** false ✅. **Mode:** paper ✅. **Eval history:** 109 rows ✅. **Idempotency:** 0 dup orders ✅; 4 dup OPEN tickers (R1 carry-forward).
+
+### §3 Code + Schema
+- **Alembic:** `q7r8s9t0u1v2` single head ✅. **Pytest:** 360/360 ✅. **Git:** clean, 0 unpushed ✅. **CI:** Run `26248055594` `3db0fb8` conclusion=success ✅.
+
+### §4 Config + Gate Verification
+- All 11 APIS_* flags at expected values ✅. Gated flags (SELF_IMPROVEMENT, INSIDER_FLOW, Step 6/7/8) default OFF ✅. Scheduler job_count=36 ✅.
+
+### Issues Found
+- **R1 (carry-forward RED):** 4 dup OPEN tickers (AMD×2, AMZN×2, INTC×2, MU×2). DB cleanup SQL in Thu 19:10 HEALTH_LOG. Awaiting Aaron.
+- **R2 (carry-forward RED):** `broker_health_position_drift` Fri c2 14:30 UTC, 10 tickers. Resolves when R1 cleanup done.
+- **Y1 (new):** 1× HTTP 401 Unauthorized docker-api-1 10:00:03 UTC (yfinance AM ingestion). Bars still fresh. Single occurrence. Watch Mon AM.
+
+### Fixes Applied
+- None.
+
+### Action Required from Aaron
+1. **HIGH RED** — Execute DB cleanup SQL (Thu 19:10 HEALTH_LOG §Action Required) to close 4 stale AMD/AMZN/INTC/MU OPEN rows.
+2. **HIGH RED** — Phase 85 investigation: broaden `_persist_positions` close-loop matching to cover cross-session `opened_at`.
+3. **MEDIUM** — Close AAPL (qty=25) + MRVL (qty=42) Day-4 orphan rows.
+4. **LOW** — Stamp `origin_strategy='broker_sync'` on broker-reconciliation-created positions.
+
+**Email:** RED — sent via Gmail MCP.
+
+---
+
 ## Health Check — 2026-05-21 19:10 UTC (Thursday 2:10 PM CT, active trading / post-c6)
 
 **Overall Status:** RED — R1: 4 duplicate OPEN ticker rows (AMD×2, AMZN×2, INTC×2, MU×2) — cross-session close-loop failure. R2: broker_health_position_drift 10 tickers. Y1: GOOG origin_strategy='unknown'. Y2: AAPL/MRVL Day-3 orphan rows. No autonomous fixes — operator DB cleanup + Phase 85 code investigation required. See `apis/state/HEALTH_LOG.md` for full details.
