@@ -2,6 +2,54 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-05-24 19:14 UTC (Sunday 2:14 PM CT, weekend / market closed)
+
+**Overall Status:** RED (carry-forward) — R1 dup OPEN rows persist (AMD×2, AMZN×2, INTC×2, MU×2, awaiting Aaron's DB cleanup). R2 broker drift: 0 new events since Fri c7 ✅. No new regressions. Stack fully healthy; 0 log errors in last 24h; scheduler heartbeat clean; pytest 416p/0f; CI success. Weekend — 0 paper cycles expected.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy. worker+api `Up 3 days (healthy)` since 2026-05-21T15:16:33Z (RestartCount=0 core). postgres/redis/monitoring/alertmanager/grafana/prometheus `Up 7 days`. apis-control-plane `Up 7 days`.
+- /health: 7/7 ok at 19:08 UTC (db, broker, scheduler, paper_cycle, broker_auth, system_state_pollution, kill_switch). mode=paper.
+- Worker/API log scan (24h): 0 ERROR/CRITICAL/Traceback/TypeError. 0 crash-triad patterns. Worker logs show only scheduler heartbeat firings every 5 min (clean).
+- Prometheus: 2/2 targets up (apis, prometheus). No errors.
+- Alertmanager: 0 active alerts.
+- Resource usage: All under threshold. worker 730 MiB, api 770 MiB. DB size 259 MB.
+
+### §2 Execution + Data Audit
+- Paper cycles (30h window): 0 rows — expected (weekend).
+- Portfolio trend: Last snapshot 2026-05-22 19:30 UTC. cash=$41,021.07, equity=$127,717.84 (stable). cash>0 ✅.
+- Broker↔DB reconciliation: /health broker=ok ✅. 19 OPEN DB rows (15 unique tickers; 4 R1 dup rows). 0 new broker drift events in 24h ✅.
+- Origin-strategy stamping: 0 new positions in 30h. N/A ✅.
+- Position caps: 15 unique tickers at cap; 0 new today ✅.
+- Data freshness: bars 2026-05-21 ✅. rankings 2026-05-22 10:45 UTC ✅. signals 2026-05-22 10:30 UTC ✅.
+- Stale tickers: No errors in 24h (weekend idle). Known 13 carry-forward.
+- Kill-switch: false ✅. Mode: paper ✅.
+- Evaluation history: 110 rows ✅.
+- Idempotency: 0 duplicate orders ✅. Dup OPEN tickers = R1 carry-forward (Phase 85 bug).
+
+### §3 Code + Schema
+- Alembic head: q7r8s9t0u1v2 ✅  drift: none.
+- Pytest smoke: 416/416 pass ✅  — no new failures.
+- Git: clean (1 untracked outputs/ dir). 0 unpushed. HEAD=0e54e44. 0 stale branches.
+- **GitHub Actions CI:** run 26358516657 `0e54e44` conclusion=success — https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/26358516657 ✅
+
+### §4 Config + Gate Verification
+- All critical APIS_* flags at expected values ✅. Scheduler job_count=36 ✅. Heartbeat clean.
+
+### Issues Found
+- **R1 (RED carry-forward)**: 4 dup OPEN ticker rows (AMD×2, AMZN×2, INTC×2, MU×2). DB cleanup SQL awaiting Aaron.
+- **R2 (RED carry-forward)**: Last broker_health_position_drift Fri c7. 0 new events weekend ✅.
+
+### Fixes Applied
+- None.
+
+### Action Required from Aaron
+1. **HIGH RED** — Execute DB cleanup SQL (Thu 19:10 HEALTH_LOG) to close 4 dup OPEN rows.
+2. **HIGH RED** — Phase 85 `_persist_positions` cross-session close-loop fix.
+3. **MEDIUM** — Close AAPL/MRVL orphan rows.
+4. **LOW** — Stamp origin_strategy on broker-sync path.
+
+---
+
 ## Health Check — 2026-05-24 10:15 UTC (Sunday 5:15 AM CT, weekend / market closed)
 
 **Overall Status:** RED (carry-forward) — R1 + R2 persist unchanged from prior probes. No new regressions since Fri c7. Stack fully healthy; 0 log errors in last 24h; pytest 370p/0f; CI success on new commit d7c01f1.
