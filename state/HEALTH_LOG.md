@@ -2,6 +2,61 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-05-25 15:15 UTC (Monday 10:15 AM CT, Memorial Day / market closed)
+
+**Overall Status:** RED — R1 dup OPEN rows carry-forward + R2 broker drift escalated (3→14 tickers at c2) + R3 NEW GOOGL close-loop reversal via Phase 75 reopen after c1 local-paper-broker close was undone by c2 Alpaca rejection (Memorial Day market closed).
+
+### §1 Infrastructure
+- Containers: 8/8 healthy — worker+api `Up 4 days`, postgres/redis/monitoring `Up 8 days`. 0 restarts.
+- /health: 7/7 `ok`, mode=paper, 15:08 UTC.
+- Worker log scan: known 13 stale tickers only. 0 crash-triad. 0 CRITICAL.
+- API log scan: 0 errors in 24h window.
+- Prometheus: 2/2 up, 0 droppedTargets.
+- Alertmanager: 0 firing.
+- Resources: all normal. DB 268 MB.
+
+### §2 Execution + Data Audit
+- Paper cycles today (Memorial Day): 2 snapshots (13:35 + 14:30 UTC). 0 evaluation_runs in 30h (expected — holiday, last eval_run 2026-05-22 21:00 UTC ✅).
+- Portfolio trend: c2 snapshot cash=$45,375.74 equity=$119,778.52. cash >= 0 ✅.
+- Broker↔DB reconciliation: 14 open positions. c1 (worker) drift: 3 tickers (R2 carry-forward). c2 (API/Alpaca) drift: **14 tickers** incl. QCOM/TXN/CSCO/ARM/STX/WDC (ghost Alpaca positions with no DB OPEN row).
+- Origin-strategy stamping: 0 new positions today, all existing 14 OPEN rows have origin_strategy set ✅.
+- Position caps: 14 open (≤15 ✅), 0 new today ✅.
+- Data freshness: bars=2026-05-22 (Fri — expected holiday ✅), rankings=2026-05-25 10:45 ✅, signals=2026-05-25 10:30 ✅.
+- Stale tickers: known 13, no new ✅.
+- Kill-switch=false ✅, mode=paper ✅.
+- Evaluation history rows: 110 ✅.
+- Idempotency: 0 dup order keys ✅. 4 dup OPEN ticker pairs (R1 carry-forward).
+- **NEW RED R3**: GOOGL close-loop reversal — c1 (worker/local paper broker) filled SELL qty=28 @ $382.78 + `closed_trade_recorded` realized_pnl=-$289.52. c2 (API/Alpaca) tried close, Alpaca rejected "Market is closed." → `phase75_position_row_reopened` reversed c1's DB close. GOOGL stuck OPEN.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` single head ✅. Alembic check: pre-existing ORM drift (non-blocking).
+- Pytest smoke: **370/370 pass** (deep_dive/phase22/phase57/phase82, 37.46s) ✅.
+- Git: clean (1 modified state file, 0 unpushed). HEAD `6ad72f9`.
+- **GitHub Actions CI:** run `26370348563` sha=`6ad72f9` conclusion=`success` ✅.
+
+### §4 Config + Gate Verification
+- All 11 APIS_* flags at expected values ✅. Scheduler job_count=36 ✅.
+
+### Issues Found
+- **[RED R1 carry-forward]** AMD×2/AMZN×2/INTC×2/MU×2 dup OPEN rows. DB cleanup SQL awaiting Aaron.
+- **[RED R2 escalated]** broker_health_position_drift 3→14 tickers at c2. Ghost Alpaca positions: QCOM/TXN/CSCO/ARM/STX/WDC.
+- **[RED R3 NEW]** GOOGL close-loop reversal. Phase 75 reopen undid c1 local-paper-broker close after Alpaca rejection on holiday.
+- **[INFO]** Memorial Day: scheduler holiday-unaware; local paper broker fills on any day; Alpaca rejects "Market is closed." Asymmetry triggers R3.
+- **[INFO]** Alembic check drift (pre-existing, non-blocking).
+
+### Fixes Applied
+- None. All RED issues require Aaron's approval.
+
+### Action Required from Aaron
+1. HIGH RED — Execute Phase 85 DB cleanup SQL (Thu 19:10 HEALTH_LOG).
+2. HIGH RED — Phase 85/R3 fix: `phase75_position_row_reopened` must not revert positions where `closed_trade_recorded` already fired in this session; OR a cross-broker close-coordination mechanism is needed.
+3. HIGH RED — Close ghost Alpaca positions (QCOM/TXN/CSCO/ARM/STX/WDC) to eliminate 14-ticker drift.
+4. MEDIUM — Close AAPL/MRVL orphan rows.
+5. LOW — Stamp origin_strategy on broker-sync path.
+6. LOW — Consider market-hours guard before Alpaca order submission on holidays.
+
+---
+
 ## Health Check — 2026-05-24 19:14 UTC (Sunday 2:14 PM CT, weekend / market closed)
 
 **Overall Status:** RED (carry-forward) — R1 dup OPEN rows persist (AMD×2, AMZN×2, INTC×2, MU×2, awaiting Aaron's DB cleanup). R2 broker drift: 0 new events since Fri c7 ✅. No new regressions. Stack fully healthy; 0 log errors in last 24h; scheduler heartbeat clean; pytest 416p/0f; CI success. Weekend — 0 paper cycles expected.

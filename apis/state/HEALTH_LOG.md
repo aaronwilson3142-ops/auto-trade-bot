@@ -2,6 +2,76 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-05-25 15:15 UTC (Monday 10:15 AM CT, Memorial Day / market closed)
+
+**Overall Status:** RED — R1 dup OPEN rows carry-forward + R2 broker drift escalated (3→14 tickers at c2) + R3 NEW GOOGL close-loop reversal via Phase 75 reopen after c1 local-paper-broker close was undone by c2 Alpaca rejection (Memorial Day market closed).
+
+### §1 Infrastructure
+- Containers: 8/8 healthy — worker+api `Up 4 days` (restart 2026-05-21 15:16 UTC), postgres/redis `Up 8 days`, grafana/prometheus/alertmanager `Up 8 days`. 0 restart loops. RestartCount=0 core.
+- /health: 7/7 `ok` (db, broker, scheduler, paper_cycle, broker_auth, system_state_pollution, kill_switch). mode=paper, timestamp=2026-05-25T15:08:38Z.
+- Worker log scan (24h): 13 known stale-ticker yfinance errors (ANSS/PARA/DFS/JNPR/WRK/PXD/MMC/MRO/PKI/IPG/HES/CTLT/K) at AM ingestion 10:00 UTC. 0 crash-triad patterns. 0 CRITICAL/Traceback/TypeError. Ingestion ran today at 10:00 UTC (holiday — expected; scheduler has no holiday awareness).
+- API log scan (24h): 0 ERROR/CRITICAL/Traceback in `docker logs docker-api-1 --since 24h` scan. Clean.
+- Prometheus: 2/2 targets up (apis, prometheus), 0 droppedTargets, lastError="" both.
+- Alertmanager: 0 firing alerts.
+- Resource usage: worker 821 MiB, api 841 MiB, postgres 170 MiB, redis 9 MiB, grafana 51 MiB, prometheus 39 MiB, alertmanager 15 MiB, k8s control-plane 2.3 GiB / 31.2 GiB (7.4%). All well under threshold.
+- DB size: 268 MB (+9 MB vs Fri 259 MB).
+
+### §2 Execution + Data Audit
+- Paper cycles today (Memorial Day): 2 paper_cycle snapshots at 13:35 UTC (worker) + 14:30 UTC (API). 0 evaluation_runs in last 30h — expected (weekday EOD eval_run runs at 17:00-21:00 ET; holiday scheduler has no market-close awareness). Last eval_run: 2026-05-22 21:00 UTC status=complete.
+- Portfolio trend: Mon c1 snapshot 13:35 UTC cash=$51,738.91 equity=$127,428.32; Mon c2 snapshot 14:30 UTC cash=$45,375.74 equity=$119,778.52. Equity dropped ~$7.9k between c1 and c2 (market price moves on holiday paper broker sim). cash >= 0 throughout ✅. Note: c1 equity vs Fri close $127,717.84 ≈ flat; c2 drop is model-driven.
+- Broker↔DB reconciliation: broker endpoint 404 (expected per build). /health broker=ok. DB: 14 open positions. `broker_health_position_drift` at c1 (worker/local-paper-broker): AMZN/AMD/INTC (3 tickers — R2 carry-forward). `broker_health_position_drift` at c2 (API/Alpaca-paper-broker): **14 tickers** — AMD, BE, INTC, MRVL, AMZN, UNH, AAPL, MU, QCOM, TXN, CSCO, ARM, STX, WDC. QCOM/TXN/CSCO/ARM/STX/WDC have NO matching OPEN row in DB — these are ghost Alpaca positions (Alpaca holds them but DB does not). This is a significant expansion of R2.
+- Origin-strategy stamping: 0 new positions opened today (new_today=0) — N/A for new-row check. All 14 existing OPEN rows have origin_strategy set ✅.
+- Position caps: 14 open (within max=15 ✅). 0 new today (within 5/day cap ✅). No thematic pct violation noted.
+- Data freshness: bars=2026-05-22 (last Fri — expected on holiday, Mon ingestion ran today for Mon bar but Alpaca/yfinance returns Fri as latest trade_date). Rankings=2026-05-25 10:45 UTC ✅ (30 rows). Signals=2026-05-25 10:30 UTC ✅ (4890 rows).
+- Stale tickers: known 13 only — ANSS/PARA/DFS/JNPR/WRK/PXD/MMC/MRO/PKI/IPG/HES/CTLT/K. No new additions ✅.
+- Kill-switch: `APIS_KILL_SWITCH=false` ✅. Operating mode: `APIS_OPERATING_MODE=paper` ✅.
+- Evaluation history rows: 110 (above 80 floor ✅).
+- Idempotency: 0 duplicate idempotency_keys in orders ✅. **4 dup OPEN ticker pairs** (AMD×2, AMZN×2, INTC×2, MU×2) — position-level idempotency broken (R1 carry-forward).
+- **NEW RED R3 — GOOGL close-loop reversal (Holiday + cross-broker divergence):**
+  - c1 (13:35 UTC, worker, local paper broker): GOOGL close action fired, risk passed, `close_order_filled qty=28 fill_price=$382.78 reason=not_in_buy_set`. `closed_trade_recorded realized_pnl=-$289.52`. Cycle complete paper_cycle_count=10. DB GOOGL marked closed (prior_closed_at logged by c2).
+  - c2 (14:30 UTC, API, Alpaca paper broker): `broker_health_position_drift` 14 tickers. GOOGL close attempted via Alpaca → rejected: **"Market is closed. Market orders are not accepted outside market hours."** Then `phase75_position_row_reopened ticker=GOOGL opened_at=2026-05-20 13:35 prior_closed_at=2026-05-25 13:35` — Phase 75 logic found Alpaca still shows GOOGL open, reversed c1's DB close. GOOGL is now OPEN again in DB (qty=19, opened_at=2026-05-20 13:35).
+  - Root cause: two broker instances (worker=local-paper-broker vs API=Alpaca-paper-broker) diverge; Phase 75 reopen-if-closed logic trusts Alpaca state and undoes legitimate closes made by the local paper broker. Compounded by Memorial Day causing Alpaca rejection on the close attempt.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). No pending unapplied migrations.
+- Alembic check: FAILED — ORM/schema drift detected (pre-existing, not new). Key items: `universe_overrides` table exists in DB but ORM model removed (no drop-migration); multiple `TIMESTAMP(timezone=True)` vs `DateTime()` mismatches across shadow_*/signal_outcomes/weight_profiles/etc.; `strategy_bandit_state` index rename drift; `uq_evaluation_run_idempotency_key` shown as "removed" (false positive — constraint IS present per `\d evaluation_runs`). This drift is cosmetic/pre-existing and does NOT affect runtime. Not a new regression.
+- Pytest smoke: **370/370 pass** (`-k "deep_dive or phase22 or phase57 or phase82" --no-cov`) in 37.46s. 3721 deselected. 0 new failures vs baseline ✅.
+- Git: 1 modified (apis/state/ACTIVE_CONTEXT.md — in-flight this probe), 1 untracked (outputs/). 0 unpushed commits. HEAD at `6ad72f9` (Sun 2 PM CT state probe). No stale feature branches.
+- **GitHub Actions CI:** run `26370348563` on sha=`6ad72f9` status=completed conclusion=`success` ✅ — https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/26370348563
+
+### §4 Config + Gate Verification
+- All 11 critical APIS_* flags at expected values ✅:
+  - APIS_OPERATING_MODE=paper ✅
+  - APIS_KILL_SWITCH=false ✅
+  - APIS_MAX_POSITIONS=15 ✅
+  - APIS_MAX_NEW_POSITIONS_PER_DAY=5 ✅
+  - APIS_MAX_THEMATIC_PCT=0.75 ✅
+  - APIS_RANKING_MIN_COMPOSITE_SCORE=0.30 ✅
+  - APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED not set (defaults false) ✅
+  - APIS_INSIDER_FLOW_PROVIDER not set (defaults null) ✅
+  - Deep-Dive Step 6/7/8 flags not set (defaults OFF) ✅
+- Scheduler: `job_count=36`, worker started 2026-05-21 15:16 UTC ✅. Heartbeat signals clean (cycles fired on schedule at 13:35 + 14:30 UTC, no stalls).
+
+### Issues Found
+- **[RED R1 carry-forward]** 4 dup OPEN ticker pairs: AMD×2, AMZN×2, INTC×2, MU×2. DB cleanup SQL in Thu 19:10 HEALTH_LOG awaiting Aaron.
+- **[RED R2 escalated]** `broker_health_position_drift` expanded from 3 tickers at c1 (AMZN/AMD/INTC) to 14 tickers at c2 (API/Alpaca). Ghost Alpaca positions (QCOM/TXN/CSCO/ARM/STX/WDC) have no matching DB OPEN row — Alpaca holds positions DB does not know about.
+- **[RED R3 NEW]** GOOGL close-loop reversal: c1 (worker/local paper broker) successfully closed GOOGL (fill confirmed, closed_trade_recorded), but c2 (API/Alpaca) triggered `phase75_position_row_reopened` after Alpaca rejected the close ("Market is closed"). GOOGL reverted to OPEN in DB. Cross-broker divergence + holiday closure = Phase 75 undo loop.
+- **[INFO]** Memorial Day: scheduler has no holiday awareness; 2 paper cycles ran. c1 (worker) used local paper broker which fills on any day; c2 (API) used real Alpaca paper which correctly rejected the close ("Market is closed"). This asymmetry is the direct trigger for R3.
+- **[INFO]** Alembic check drift (pre-existing, non-blocking): ORM vs DB schema mismatches in shadow_*/signal_outcomes/weight_profiles tables. Does not affect runtime. Present in prior runs.
+
+### Fixes Applied
+- None. All 3 RED issues require Aaron's review and approval (DB cleanup + Phase 85/86 code fix).
+
+### Action Required from Aaron
+1. **HIGH RED — Execute Phase 85 DB cleanup SQL** (Thu 19:10 HEALTH_LOG §Action Required): Close 4 dup OPEN rows for AMD/AMZN/INTC/MU.
+2. **HIGH RED — Phase 85 `_persist_positions` cross-session close-loop fix**: The same root cause struck again today (R3 GOOGL). Both Phase 85 and this new GOOGL incident share the same root: `phase75_position_row_reopened` trusts Alpaca broker state over the local paper broker fill. Fix must coordinate close-loop between both broker instances OR prevent Phase 75 reopen when a `closed_trade_recorded` already fired for that position in the current session.
+3. **HIGH RED — Ghost Alpaca positions (R2 escalated)**: QCOM/TXN/CSCO/ARM/STX/WDC appear in Alpaca but not in DB. These need to be closed at Alpaca to eliminate the 14-ticker drift storm. Possible cause: prior close-loop failures left positions in Alpaca that DB closed.
+4. **MEDIUM** — Close AAPL/MRVL orphan rows (carry-forward from prior probes).
+5. **LOW** — Stamp origin_strategy on broker-sync path (carry-forward).
+6. **LOW** — Holiday market awareness: consider adding a `APIS_MARKET_HOURS_CHECK=true` guard that prevents Alpaca-side order submissions when market is closed (would have prevented c2 GOOGL rejection and the Phase 75 reopen cascade).
+
+---
+
 ## Health Check — 2026-05-24 19:14 UTC (Sunday 2:14 PM CT, weekend / market closed)
 
 **Overall Status:** RED (carry-forward) — R1 dup OPEN rows persist (AMD×2, AMZN×2, INTC×2, MU×2, awaiting Aaron's DB cleanup). R2 broker drift: 0 new events since Fri c7 ✅. No new regressions. Stack fully healthy; 0 log errors in last 24h; scheduler heartbeat clean; pytest 416p/0f; CI success. Weekend — 0 paper cycles expected.
