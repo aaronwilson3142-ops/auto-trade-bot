@@ -2,6 +2,12 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-05-31 17:52 UTC (Sunday 12:52 PM CT, weekend / market closed)
+
+**Overall Status:** RED — R1 carry-forward (dup OPEN rows now 5 tickers, MRVL×2 added May 26) + Y1 machine outage 4.5 days (Wed–Fri May 27–29 missed, 3 trading days lost). Watchdog auto-recovered stack on restart. Stack currently 8/8 healthy. See primary log `apis/state/HEALTH_LOG.md` for full detail.
+
+---
+
 ## Health Check — 2026-05-25 15:15 UTC (Monday 10:15 AM CT, Memorial Day / market closed)
 
 **Overall Status:** RED — R1 dup OPEN rows carry-forward + R2 broker drift escalated (3→14 tickers at c2) + R3 NEW GOOGL close-loop reversal via Phase 75 reopen after c1 local-paper-broker close was undone by c2 Alpaca rejection (Memorial Day market closed).

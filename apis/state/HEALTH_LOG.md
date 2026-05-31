@@ -2,6 +2,73 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-05-31 17:52 UTC (Sunday 12:52 PM CT, weekend / market closed)
+
+**Overall Status:** RED — R1 carry-forward (dup OPEN rows now 5 tickers, MRVL×2 added May 26) + Y1 machine outage 4.5 days (Wed–Fri May 27–29 missed, 3 trading days lost). Watchdog auto-recovered stack on restart. Stack currently 8/8 healthy.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy — all `Up 3 minutes` (fresh restart at 17:47 UTC today after machine-off period). Worker started 17:47:46 UTC, job_count=36. No restart loops; RestartCount=0 core.
+- /health: 7/7 `ok` (db, broker, scheduler, paper_cycle, broker_auth, system_state_pollution, kill_switch). mode=paper, timestamp=2026-05-31T17:51:31Z.
+- Worker/API log scan (24h): 0 ERROR/CRITICAL/Traceback/TypeError (logs begin at 17:47 UTC restart only). 0 crash-triad patterns.
+- Prometheus: 2/2 targets up (apis, prometheus). No errors, no dropped targets.
+- Alertmanager: 0 active alerts.
+- Resource usage: worker 72.9 MiB (fresh start), api 173.3 MiB, postgres 44.8 MiB, redis 8.7 MiB, grafana 54.5 MiB, prometheus 37.1 MiB, alertmanager 15.0 MiB. All well under threshold.
+- DB size: 276 MB (+8 MB vs May 25 268 MB).
+- **KEY FINDING — Machine outage**: Watchdog log gap from `2026-05-26T23:25:03-05:00` to `2026-05-31T12:47:16-05:00` (4.5 days). Watchdog detected `docker_engine_unreachable`, auto-started Docker Desktop, detected `scheduler_heartbeat_unreachable`, then by 12:50 PM CT `scheduler_heartbeat_fresh age=137s` confirming stack self-healed.
+
+### §2 Execution + Data Audit
+- Paper cycles (30h window): 0 rows — weekend, expected ✅. Last completed: Tue 2026-05-26 19:30 UTC.
+- **MISSED TRADING DAYS**: Wed 2026-05-27, Thu 2026-05-28, Fri 2026-05-29 — 3 full trading days with 0 cycles. Machine was powered off; no scheduler could fire.
+- Portfolio trend: Last snapshot 2026-05-26 19:30 UTC — cash=$52,730.07, equity=$121,985.86. cash>0 ✅. No phantom-ledger regression. (vs May 25 peak equity=$127,428 — down ~$5.4k, likely normal price drift).
+- Broker↔DB reconciliation: /api/v1/broker/positions 404 (known). /health broker=ok ✅. DB: 14 OPEN positions.
+- **R1 ESCALATED — dup OPEN tickers now 5 (was 4)**: AMD×2, AMZN×2, INTC×2, MU×2 (carry-forward from May 21), **MRVL×2 NEW** (May 19 + May 26 — Phase 85 bug struck again on May 26 Tue).
+- **R3 RESOLVED**: GOOGL no longer in open positions. The May 26 (Tue) cycles appear to have successfully closed the GOOGL position when markets were open.
+- **R2 status unclear**: Ghost Alpaca positions (QCOM/TXN/CSCO/ARM/STX/WDC) — broker endpoint still 404s; cannot confirm current state. Stack was restarted fresh today; broker drift will be visible at Mon first cycle logs.
+- Origin-strategy stamping: 0 new positions opened in last 30h. All 14 existing OPEN rows have origin_strategy stamped ✅.
+- Position caps: 14 open (within max=15 ✅). 0 new today ✅.
+- Data freshness: bars `2026-05-22` (stale — 4 trading days behind; machine was down during May 26-29 ingestion windows). Rankings `2026-05-26 10:45 UTC` (stale, 5 days). Signals `2026-05-26 10:30 UTC` (stale, 5 days). Will refresh Mon 2026-06-02 at 06:00/10:30/10:45 ET.
+- Stale tickers: known 13 — non-blocking (logs too fresh to confirm; no new additions expected).
+- Kill-switch: `APIS_KILL_SWITCH=false` ✅. Operating mode: `APIS_OPERATING_MODE=paper` ✅.
+- Evaluation history rows: 112 ✅ (>80 floor).
+- Idempotency: 0 duplicate orders by idempotency_key ✅. 5 dup OPEN position tickers (R1 carry-forward + MRVL new; not an orders-idempotency regression).
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). No pending unapplied migrations.
+- Pytest smoke: **360/360 pass** (`-k "deep_dive or phase22 or phase57" --no-cov`) in 30.18s. Known pre-existing 2 failures absent (within baseline ✅). 0 new failures.
+- Git: 1 untracked (outputs/ — expected). 0 unpushed commits. HEAD=`faa1561` (Mon May 25 state probe). 0 stale feature branches.
+- **GitHub Actions CI:** run `26407668965` sha=`faa1561` status=completed conclusion=`success` ✅ — https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/26407668965
+
+### §4 Config + Gate Verification
+- All critical APIS_* flags at expected values ✅:
+  - APIS_OPERATING_MODE=paper ✅
+  - APIS_KILL_SWITCH=false ✅
+  - APIS_MAX_POSITIONS=15 ✅
+  - APIS_MAX_NEW_POSITIONS_PER_DAY=5 ✅
+  - APIS_MAX_THEMATIC_PCT=0.75 ✅
+  - APIS_RANKING_MIN_COMPOSITE_SCORE=0.30 ✅
+  - APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED not set (defaults false) ✅
+  - APIS_INSIDER_FLOW_PROVIDER not set (defaults null) ✅
+  - Deep-Dive Step 6/7/8 flags not set (defaults OFF) ✅
+- Scheduler: `job_count=36`, worker started 2026-05-31 17:47:46 UTC ✅.
+
+### Issues Found
+- **[RED R1 ESCALATED]** 5 dup OPEN ticker pairs: AMD×2, AMZN×2, INTC×2, MU×2 (carry-forward), **MRVL×2 NEW** (Phase 85 bug fired again on Tue May 26 before machine shutdown). Phase 85 `_persist_positions` cross-session close-loop fix still not applied — every trading session risks adding more dups.
+- **[YELLOW Y1]** Machine was shut down 2026-05-26 23:25 CT → 2026-05-31 12:47 CT (4.5 days). Missed 3 trading days (Wed 2026-05-27, Thu 2026-05-28, Fri 2026-05-29). Watchdog auto-recovered on machine restart. Stack currently healthy.
+- **[YELLOW Y2]** Data stale: bars from 2026-05-22 (4 trading days behind), signals/rankings from 2026-05-26. Will self-heal at Mon 06:00/10:30/10:45 ET ingestion jobs.
+- **[INFO R3 RESOLVED]** GOOGL close-loop reversal (May 25 R3) — GOOGL no longer in open positions; resolved naturally when markets were open on May 26.
+- **[INFO R2 UNCONFIRMED]** Ghost Alpaca positions (QCOM/TXN/CSCO/ARM/STX/WDC from May 25 R2) — broker endpoint 404s; state unknown. Will surface at Mon first cycle via `broker_health_position_drift` logs.
+
+### Fixes Applied
+- None. R1 (Phase 85 code fix) requires Aaron's approval.
+
+### Action Required from Aaron
+1. **HIGH RED — Phase 85 `_persist_positions` cross-session close-loop fix** (same root cause as all prior dup-OPEN events). Now 5 dup ticker pairs instead of 4; MRVL×2 was added on Tue May 26. Without this fix, each trading session risks adding another dup pair.
+2. **HIGH RED — DB cleanup SQL for dup OPEN rows**: Close older dup rows for AMD (Apr 29), AMZN (Apr 29), INTC (May 1), MU (May 1), MRVL (May 19). The May 21/26 rows are the canonical ones.
+3. **MEDIUM — R2 ghost Alpaca positions** (QCOM/TXN/CSCO/ARM/STX/WDC): Watch Mon first cycle logs for `broker_health_position_drift`. If still present, manually close these 6 ghost positions at Alpaca.
+4. **LOW — Machine reliability**: Stack was down 4.5 days. Consider whether a more persistent auto-start mechanism is needed (beyond the current watchdog) for when the machine is shut down vs just sleeping.
+
+---
+
 ## Health Check — 2026-05-25 15:15 UTC (Monday 10:15 AM CT, Memorial Day / market closed)
 
 **Overall Status:** RED — R1 dup OPEN rows carry-forward + R2 broker drift escalated (3→14 tickers at c2) + R3 NEW GOOGL close-loop reversal via Phase 75 reopen after c1 local-paper-broker close was undone by c2 Alpaca rejection (Memorial Day market closed).
