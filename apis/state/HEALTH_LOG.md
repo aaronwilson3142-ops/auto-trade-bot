@@ -59,7 +59,9 @@ Auto-generated daily health check results.
 - **[INFO R2 UNCONFIRMED]** Ghost Alpaca positions (QCOM/TXN/CSCO/ARM/STX/WDC from May 25 R2) — broker endpoint 404s; state unknown. Will surface at Mon first cycle via `broker_health_position_drift` logs.
 
 ### Fixes Applied
-- None. R1 (Phase 85 code fix) requires Aaron's approval.
+- None autonomous. R1 (Phase 85 code fix + DB cleanup) requires Aaron's approval.
+- State files committed `38f55a5` + pushed to origin/main.
+- **RED email**: Gmail draft `r-8700349813034522388` created — manual send required (direct-send not available in this MCP).
 
 ### Action Required from Aaron
 1. **HIGH RED — Phase 85 `_persist_positions` cross-session close-loop fix** (same root cause as all prior dup-OPEN events). Now 5 dup ticker pairs instead of 4; MRVL×2 was added on Tue May 26. Without this fix, each trading session risks adding another dup pair.
