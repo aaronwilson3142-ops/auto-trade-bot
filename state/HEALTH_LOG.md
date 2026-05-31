@@ -2,6 +2,43 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-05-31 19:15 UTC (Sunday 2:15 PM CT, weekend / market closed)
+
+**Overall Status:** RED — R1 carry-forward (5 dup OPEN ticker pairs: AMD×2, AMZN×2, INTC×2, MU×2, MRVL×2). No new regressions vs 17:52 UTC probe. All infrastructure clean. Second Sunday probe confirms stable state.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy — all `Up ~1.5 hours` (restarted 17:47 UTC today). No restart loops.
+- /health: 7/7 `ok`. mode=paper, timestamp=2026-05-31T19:08:39Z.
+- Worker/API log scan: 0 ERROR/CRITICAL/Traceback. 0 crash-triad patterns.
+- Prometheus: 2/2 up. Alertmanager: 0 active. Resources: all well under threshold. DB 276 MB.
+
+### §2 Execution + Data Audit
+- Paper cycles: 0 (weekend ✅). Last completed 2026-05-26 19:30 UTC.
+- Portfolio: cash=$52,730.07, equity=$121,985.86. cash≥0 ✅.
+- Broker↔DB: /health broker=ok ✅. 14 OPEN positions. 5 dup ticker pairs persist (R1).
+- Origin-strategy: 0 new rows in 30h — N/A. All 14 open rows stamped ✅.
+- Position caps: 14 open (≤15 ✅). 0 new today ✅.
+- Data freshness: bars=2026-05-22 (stale — outage), rankings/signals=2026-05-26. Self-heals Mon.
+- Stale tickers: known 13 only ✅. Kill-switch=false ✅, mode=paper ✅.
+- eval_runs=112 ✅. Idempotency: 0 dup orders ✅. Scheduler job_count=36 ✅.
+
+### §3 Code + Schema
+- Alembic: `q7r8s9t0u1v2` single head ✅. Pytest: **360/360** pass ✅. Git: clean, 0 unpushed, HEAD=`b98b3e8`.
+- **CI:** run `26720215771` sha=`b98b3e8` conclusion=`success` ✅
+
+### §4 Config + Gate Verification
+- All critical APIS_* flags at expected values ✅. All gated flags OFF ✅.
+
+### Issues Found
+- **[RED R1]** 5 dup OPEN ticker pairs (AMD/AMZN/INTC/MU/MRVL ×2). Phase 85 fix pending.
+- **[YELLOW Y1]** Data stale (bars/signals/rankings). Expected; self-heals Mon 06-02.
+- **[INFO R2]** Ghost Alpaca positions unconfirmed. Watch Mon first cycle.
+
+### Fixes Applied / Action Required
+- None autonomous. See 17:52 UTC probe for full action list. No change in status or findings.
+
+---
+
 ## Health Check — 2026-05-31 17:52 UTC (Sunday 12:52 PM CT, weekend / market closed)
 
 **Overall Status:** RED — R1 carry-forward (dup OPEN rows now 5 tickers, MRVL×2 added May 26) + Y1 machine outage 4.5 days (Wed–Fri May 27–29 missed, 3 trading days lost). Watchdog auto-recovered stack on restart. Stack currently 8/8 healthy. See primary log `apis/state/HEALTH_LOG.md` for full detail.
