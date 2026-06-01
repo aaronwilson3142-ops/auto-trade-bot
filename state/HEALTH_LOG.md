@@ -44,7 +44,8 @@ Auto-generated daily health check results.
 - **[INFO R2 UNCONFIRMED]** Ghost Alpaca positions (QCOM/TXN/CSCO/ARM/STX) — watch Mon c1 13:35 UTC logs.
 
 ### Fixes Applied
-- None autonomous.
+- None autonomous. State files committed `c970202` + pushed to origin/main.
+- **RED email**: Gmail draft `r-7765896161377992674` created — manual send required.
 
 ### Action Required from Aaron
 1. **HIGH RED — Phase 85 `_persist_positions` fix** — first Mon trading day resumes risk.

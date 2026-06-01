@@ -56,6 +56,8 @@ Auto-generated daily health check results.
 
 ### Fixes Applied
 - None autonomous. All R1 items require Aaron's approval.
+- State files committed `c970202` + pushed to origin/main.
+- **RED email**: Gmail draft `r-7765896161377992674` created — manual send required (direct-send not available in this MCP).
 
 ### Action Required from Aaron
 1. **HIGH RED — Phase 85 `_persist_positions` cross-session close-loop fix.** First Mon trading day (today) resumes risk — Phase 85 bug can add dup pairs on any cycle where the bot opens a position it previously held. Now at 5 dup pairs.
