@@ -2,6 +2,68 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-06-01 10:08 UTC (Monday 5:08 AM CT, pre-market / first trading day back)
+
+**Overall Status:** RED — R1 carry-forward (5 dup OPEN ticker pairs: AMD×2, AMZN×2, INTC×2, MRVL×2, MU×2). No new regressions. Stack healthy and ready for Mon first cycle at 13:35 UTC.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy — all `Up 16 hours` (restarted 2026-05-31 17:47 UTC). No restart loops. RestartCount=0 core.
+- /health: 7/7 `ok` (db, broker, scheduler, paper_cycle, broker_auth, system_state_pollution, kill_switch). mode=paper, timestamp=2026-06-01T10:08:45Z.
+- Worker log scan (24h): 13 known stale-ticker errors (ANSS/PARA/DFS/JNPR/WRK/PXD/MMC/MRO/PKI/IPG/HES/CTLT/K) at 10:00 UTC AM ingestion. 0 CRITICAL/Traceback/TypeError. 0 crash-triad patterns.
+- API log scan (24h): 2 known startup restore WARNs (`regime_result_restore_failed`, `readiness_report_restore_failed`) from 2026-05-31 17:47 UTC restart. 13 known stale-ticker errors at 10:00 UTC. 0 CRITICAL/Traceback/TypeError. 0 crash-triad patterns.
+- Prometheus: 2/2 targets up (apis, prometheus). No errors, no dropped targets.
+- Alertmanager: 0 active alerts.
+- Resource usage: worker 747.8 MiB, api 823.6 MiB, postgres 96.6 MiB, redis 8.4 MiB — all well under threshold. DB 277 MB (+1 MB vs May 31).
+
+### §2 Execution + Data Audit
+- Paper cycles (30h): 0 rows — **pre-market probe (5:08 AM CT), expected**. First Mon cycle at 13:35 UTC. Last completed: 2026-05-26 21:00 UTC (status=complete) ✅.
+- Portfolio trend: last snapshot 2026-05-26 19:30 UTC — cash=$52,730.07, equity=$121,985.86. cash≥0 ✅. No phantom-ledger regression.
+- Broker↔DB reconciliation: /health broker=ok ✅. DB: 14 OPEN positions. Broker endpoint 404 (known). No `broker_health_position_drift` in last 48h (no cycles since May 26 — first today at 13:35 UTC will reveal R2 ghost status).
+- **R1 CARRY-FORWARD — 5 dup OPEN ticker pairs**: AMD×2, AMZN×2, INTC×2, MRVL×2, MU×2. Phase 85 fix still pending. No new dup pairs added (no trading days since May 26).
+- **R2 UNCONFIRMED**: Ghost Alpaca positions (QCOM/TXN/CSCO/ARM/STX) — status unknown until Mon c1 13:35 UTC first-cycle `broker_health_position_drift` log. WDC has an OPEN DB row (1×) and may be legitimate.
+- Origin-strategy stamping: 0 new positions in last 30h — N/A. All 14 existing OPEN rows have origin_strategy ✅ (confirmed via schema; no nulls expected given Phase 75+82 coverage).
+- Position caps: 14 open (≤15 ✅), 0 new today ✅.
+- Data freshness: bars=**2026-05-29** ✅ FRESH (last trading day; AM ingestion ran at ~10:00 UTC and caught up 5 missed days). Signals=2026-05-26 10:30 UTC (stale — self-heals at 10:30 UTC today, ~22 min from probe). Rankings=2026-05-26 10:45 UTC (stale — self-heals at 10:45 UTC today). **YELLOW Y1**: signals/rankings expected to refresh within 40 minutes.
+- Stale tickers: known 13 only — no new additions ✅.
+- Kill-switch: `APIS_KILL_SWITCH=false` ✅. Operating mode: `APIS_OPERATING_MODE=paper` ✅.
+- Evaluation history rows: 112 ✅ (>80 floor).
+- Idempotency: 0 duplicate orders by idempotency_key ✅. 5 dup OPEN position tickers (R1 carry-forward — position-level, not orders-level regression).
+- Scheduler: `job_count=36` at 2026-05-31T17:47:46Z ✅.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). No pending migrations.
+- Pytest smoke: **360/360 pass** (`tests/unit -k "deep_dive or phase22 or phase57" --no-cov`) in 37.43s ✅ (3731 deselected). 0 new failures vs baseline.
+- Git: 1 untracked (outputs/ — expected). 0 unpushed commits. HEAD=`bf771eb`. 0 stale feature branches.
+- **GitHub Actions CI:** run `26721931587` sha=`bf771eb` status=completed conclusion=`success` ✅ — https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/26721931587
+
+### §4 Config + Gate Verification
+- All critical APIS_* flags at expected values ✅:
+  - APIS_OPERATING_MODE=paper ✅
+  - APIS_KILL_SWITCH=false ✅
+  - APIS_MAX_POSITIONS=15 ✅
+  - APIS_MAX_NEW_POSITIONS_PER_DAY=5 ✅
+  - APIS_MAX_THEMATIC_PCT=0.75 ✅
+  - APIS_RANKING_MIN_COMPOSITE_SCORE=0.30 ✅
+  - APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED not set (defaults false) ✅
+  - APIS_INSIDER_FLOW_PROVIDER not set (defaults null) ✅
+  - Deep-Dive Step 6/7/8 flags not set (defaults OFF) ✅
+  - APIS_REDIS_URL=redis://redis:6379/0 ✅
+
+### Issues Found
+- **[RED R1 CARRY-FORWARD]** 5 dup OPEN ticker pairs: AMD×2, AMZN×2, INTC×2, MRVL×2, MU×2. Phase 85 `_persist_positions` cross-session close-loop fix still not applied. Each trading session risks adding another dup pair.
+- **[YELLOW Y1]** Signals (2026-05-26) and rankings (2026-05-26) stale — expected at 5 AM CT pre-market probe. Both scheduled to self-heal at 10:30/10:45 UTC today (~22–37 min from probe).
+- **[INFO R2 UNCONFIRMED]** Ghost Alpaca positions (QCOM/TXN/CSCO/ARM/STX) from May 25 — state unconfirmable until Mon c1 13:35 UTC first cycle. Watch logs for `broker_health_position_drift`.
+
+### Fixes Applied
+- None autonomous. All R1 items require Aaron's approval.
+
+### Action Required from Aaron
+1. **HIGH RED — Phase 85 `_persist_positions` cross-session close-loop fix.** First Mon trading day (today) resumes risk — Phase 85 bug can add dup pairs on any cycle where the bot opens a position it previously held. Now at 5 dup pairs.
+2. **HIGH RED — DB cleanup SQL**: Close older dup rows for AMD (Apr29), AMZN (Apr29), INTC (May1), MU (May1), MRVL (May19). The May 21/26 rows are canonical.
+3. **MEDIUM — R2 ghost Alpaca positions**: Watch Mon c1 (13:35 UTC) logs for `broker_health_position_drift`. If QCOM/TXN/CSCO/ARM/STX still show as ghost positions, manually close them at Alpaca.
+
+---
+
 ## Health Check — 2026-05-31 19:15 UTC (Sunday 2:15 PM CT, weekend / market closed)
 
 **Overall Status:** RED — R1 carry-forward (5 dup OPEN ticker pairs: AMD×2, AMZN×2, INTC×2, MU×2, MRVL×2). No new regressions vs 17:52 UTC probe. All infrastructure clean. Second Sunday probe confirms stable state.

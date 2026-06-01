@@ -2,6 +2,57 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-06-01 10:08 UTC (Monday 5:08 AM CT, pre-market / first trading day back)
+
+**Overall Status:** RED — R1 carry-forward (5 dup OPEN ticker pairs: AMD×2, AMZN×2, INTC×2, MRVL×2, MU×2). No new regressions. Stack healthy and ready for Mon first cycle at 13:35 UTC.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy — all `Up 16 hours` (restarted 2026-05-31 17:47 UTC). No restart loops. RestartCount=0 core.
+- /health: 7/7 `ok` (db, broker, scheduler, paper_cycle, broker_auth, system_state_pollution, kill_switch). mode=paper, timestamp=2026-06-01T10:08:45Z.
+- Worker/API log scan (24h): 13 known stale-ticker errors at 10:00 UTC ingestion. 2 known API startup restore WARNs (pre-existing). 0 CRITICAL/Traceback/TypeError. 0 crash-triad patterns.
+- Prometheus: 2/2 targets up. No errors, no dropped targets.
+- Alertmanager: 0 active alerts.
+- Resource usage: worker 747.8 MiB, api 823.6 MiB, postgres 96.6 MiB, redis 8.4 MiB — all well under threshold. DB 277 MB.
+
+### §2 Execution + Data Audit
+- Paper cycles (30h): 0 rows — pre-market probe (5:08 AM CT), expected ✅. Last completed: 2026-05-26 21:00 UTC.
+- Portfolio trend: last snapshot 2026-05-26 19:30 UTC — cash=$52,730.07, equity=$121,985.86. cash≥0 ✅.
+- Broker↔DB reconciliation: /health broker=ok ✅. DB: 14 OPEN positions. No broker_health_position_drift in 48h (no cycles since May 26).
+- **R1 CARRY-FORWARD — 5 dup OPEN ticker pairs**: AMD×2, AMZN×2, INTC×2, MRVL×2, MU×2. Phase 85 fix still pending.
+- **R2 UNCONFIRMED**: Ghost Alpaca positions (QCOM/TXN/CSCO/ARM/STX) — state unknown until Mon c1 13:35 UTC.
+- Origin-strategy stamping: 0 new positions in last 30h — N/A ✅.
+- Position caps: 14 open (≤15 ✅), 0 new today ✅.
+- Data freshness: bars=2026-05-29 ✅ FRESH (last trading day; ingestion caught up at ~10:00 UTC). Signals/rankings=2026-05-26 — stale (Y1, self-heals at 10:30/10:45 UTC today).
+- Stale tickers: known 13 only ✅.
+- Kill-switch: false ✅. Operating mode: paper ✅.
+- Evaluation history rows: 112 ✅.
+- Idempotency: 0 duplicate orders ✅. 5 dup OPEN tickers (R1 carry-forward).
+- Scheduler: job_count=36 ✅.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). No pending migrations.
+- Pytest smoke: **360/360 pass** (--no-cov, 37.43s) ✅. 0 new failures.
+- Git: 1 untracked (outputs/). 0 unpushed. HEAD=`bf771eb`. 0 stale branches.
+- **GitHub Actions CI:** run `26721931587` sha=`bf771eb` status=completed conclusion=`success` ✅ — https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/26721931587
+
+### §4 Config + Gate Verification
+- All critical APIS_* flags at expected values ✅ (OPERATING_MODE=paper, KILL_SWITCH=false, MAX_POSITIONS=15, MAX_NEW_POSITIONS_PER_DAY=5, MAX_THEMATIC_PCT=0.75, RANKING_MIN_COMPOSITE_SCORE=0.30, gated flags all OFF/null).
+
+### Issues Found
+- **[RED R1 CARRY-FORWARD]** 5 dup OPEN ticker pairs: AMD×2, AMZN×2, INTC×2, MRVL×2, MU×2.
+- **[YELLOW Y1]** Signals/rankings stale (2026-05-26) — expected at 5 AM CT probe; self-heals ~10:30/10:45 UTC today.
+- **[INFO R2 UNCONFIRMED]** Ghost Alpaca positions (QCOM/TXN/CSCO/ARM/STX) — watch Mon c1 13:35 UTC logs.
+
+### Fixes Applied
+- None autonomous.
+
+### Action Required from Aaron
+1. **HIGH RED — Phase 85 `_persist_positions` fix** — first Mon trading day resumes risk.
+2. **HIGH RED — DB cleanup SQL**: Close older dup rows (AMD Apr29, AMZN Apr29, INTC May1, MU May1, MRVL May19).
+3. **MEDIUM — R2 ghost Alpaca positions**: Watch Mon c1 13:35 UTC for `broker_health_position_drift`.
+
+---
+
 ## Health Check — 2026-05-31 19:15 UTC (Sunday 2:15 PM CT, weekend / market closed)
 
 **Overall Status:** RED — R1 carry-forward (5 dup OPEN ticker pairs: AMD×2, AMZN×2, INTC×2, MU×2, MRVL×2). No new regressions vs 17:52 UTC probe. All infrastructure clean. Second Sunday probe confirms stable state.
