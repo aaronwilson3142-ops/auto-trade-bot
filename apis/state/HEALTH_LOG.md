@@ -2,6 +2,77 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-06-02 10:09 UTC (Tuesday 5:09 AM CT, pre-market)
+
+**Overall Status:** RED — R1 carry-forward (5 dup OPEN pairs: AMD×2, AMZN×2, INTC×2, MRVL×2, MU×2) + NEW R2/R3/R4: c7 Alpaca paper broker returned fill_qty=0 for all 4 orders (INTC/BE closes + GOOGL/GOOG opens) → BE and INTC (May21) close-loop gap; NULL-qty orders for GOOGL/GOOG.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy — all `Up 40 hours` (since 2026-05-31 17:47 UTC restart). No restart loops. RestartCount=0 core.
+- /health: 7/7 `ok` (db, broker, scheduler, paper_cycle, broker_auth, system_state_pollution, kill_switch). mode=paper, timestamp=2026-06-02T10:08:59Z.
+- Worker log scan (24h): 34 errors — all known stale-ticker yfinance 404s (ANSS/HES/K/PARA/IPG/JNPR/PKI/CTLT/MMC/DFS/PXD/MRO/WRK). 0 CRITICAL/Traceback/TypeError. 0 crash-triad patterns.
+- API log scan (24h): 48 errors — all known stale-ticker yfinance 404s. 0 CRITICAL/Traceback/TypeError. 0 crash-triad patterns.
+- Prometheus: 2/2 targets up (apis, prometheus). No errors, no dropped targets.
+- Alertmanager: 0 active alerts.
+- Resource usage: worker 827 MiB / 0% CPU, api 905 MiB / 0.11% CPU, postgres 199 MiB, redis 8.7 MiB, grafana 50.8 MiB — all well under threshold. DB 285 MB (+8 MB vs Jun 1 277 MB).
+
+### §2 Execution + Data Audit
+- Paper cycles (Mon Jun 1): 7 cycles completed (c1=13:35, c2=14:30, c3=15:30, c4=16:00, c5=17:30, c6=18:30, c7=19:30 UTC). EOD eval 21:00 UTC status=complete ✅. Phase 82 dedup verified at c7 (worker skipped, API ran).
+- Portfolio trend: last snapshot 2026-06-01 19:30 UTC — cash=$52,730.07, equity=$121,506.71 (vs May 26 $121,985.86 — $479 drop, normal market movement). cash≥0 ✅. No phantom-ledger regression. Note: c3 (15:30) showed transient equity=$105,214 (vs c2 $121,958), recovered to $121,321 at c4 — likely MTM snapshot during mid-close operation, not a persistent regression.
+- Broker↔DB reconciliation: /health broker=ok ✅. DB: 14 OPEN positions. `/api/v1/broker/positions` 404 (known). `broker_health_position_drift` fired at c5 (17:30) for MS/GOOGL/GOOG — RESOLVED by c5 rebalance-trim ✅.
+- **R1 CARRY-FORWARD — 5 dup OPEN ticker pairs**: AMD×2 (Apr29+May21), AMZN×2 (Apr29+May21), INTC×2 (May1+May21), MRVL×2 (May19+May26), MU×2 (May1+May21). Phase 85 fix still pending. No new dup pairs added in Monday's trading ✅.
+- **NEW RED R2 — c7 fill_qty=0 broker contract violation**: c7 ran in API process (Phase 82 lock; worker skipped). Alpaca paper broker returned fill_qty=0 for ALL 4 orders executed: (a) INTC close [stop_loss: pnl=-7.70%], (b) BE close [trailing_stop: price=278.45 < trail_level=288.35], (c) GOOGL open [ranked_buy_signal], (d) GOOG open [ranked_buy_signal]. `phase80_orders_writer_qty_unresolvable` fired for GOOGL+GOOG. Root cause unknown — API process may have different Alpaca paper broker interaction than worker process.
+- **NEW RED R3 — BE close-loop gap**: Trailing_stop triggered at c7, close order status=filled with fill_qty=0. DB positions row still `status='open'` (opened May8, qty=29). Position is holding losses beyond trailing_stop threshold.
+- **NEW RED R4 — INTC May21 close-loop gap**: Stop_loss triggered at c7 (pnl=-7.70%), close order status=filled with fill_qty=0. DB positions row still `status='open'` (opened May21, qty=75). Both INTC rows (May1 + May21) remain open.
+- GOOGL/GOOG churn on Mon: c2 opened (14:30) → c3 closed in DB w/o orders (broker-sync) → c5 rebalance-trim executed (broker_health_position_drift + phase75_position_row_reopened for MS) → c6 reopened → c7 broker-sync closed + attempted new opens (fill_qty=0). Complex churn but self-resolved by EOD.
+- Origin strategy: all 14 OPEN rows have origin_strategy stamped ✅ (confirmed via positions query).
+- Position caps: 14 open (≤15 ✅). Mon daily_opens_count reached 5/5 cap at c7 (2 GOOGL/GOOG opens counted despite fill_qty=0 — phase69 incremented on filled_opens=2).
+- Data freshness: bars=2026-06-01 ✅ FRESH. Signals=2026-06-01 10:30 UTC (stale — self-heals at 10:30 UTC today). Rankings=2026-06-01 10:45 UTC (stale — self-heals at 10:45 UTC today).
+- Stale tickers: known 13 only — no new additions ✅.
+- Kill-switch: `APIS_KILL_SWITCH=false` ✅. Operating mode: `APIS_OPERATING_MODE=paper` ✅.
+- Evaluation history rows: 113 ✅ (>80 floor).
+- Idempotency: 0 duplicate orders by idempotency_key ✅. 5 dup OPEN position tickers (R1 carry-forward — position-level, not orders-level).
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). No pending migrations. `alembic check` shows pre-existing ORM↔DB cosmetic drift (universe_overrides table, TIMESTAMP→DateTime type mismatches) — same non-actionable drift documented since 2026-05-14; runtime unaffected.
+- Pytest smoke: **360/360 pass** (`tests/unit -k "deep_dive or phase22 or phase57" --no-cov`) in 36.49s ✅ (3731 deselected, 4 RO cache warnings). 0 new failures vs baseline.
+- Git: 1 untracked (outputs/ — expected). 0 unpushed commits. HEAD=`09d1ee6`. 0 stale feature branches.
+- **GitHub Actions CI:** run `26748888906` sha=`09d1ee6` status=completed conclusion=`success` ✅ — https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/26748888906
+
+### §4 Config + Gate Verification
+- All critical APIS_* flags at expected values ✅:
+  - APIS_OPERATING_MODE=paper ✅
+  - APIS_KILL_SWITCH=false ✅
+  - APIS_MAX_POSITIONS=15 ✅
+  - APIS_MAX_NEW_POSITIONS_PER_DAY=5 ✅
+  - APIS_MAX_THEMATIC_PCT=0.75 ✅
+  - APIS_RANKING_MIN_COMPOSITE_SCORE=0.30 ✅
+  - APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED not set (defaults false) ✅
+  - APIS_INSIDER_FLOW_PROVIDER not set (defaults null) ✅
+  - Deep-Dive Step 6/7/8 flags not set (defaults OFF) ✅
+  - APIS_REDIS_URL=redis://redis:6379/0 ✅
+- Scheduler: `job_count=36` at 2026-05-31T17:47:46Z ✅. No misfires observed.
+
+### Issues Found
+- **[RED R1 CARRY-FORWARD]** 5 dup OPEN ticker pairs: AMD×2, AMZN×2, INTC×2, MRVL×2, MU×2. Phase 85 `_persist_positions` cross-session close-loop fix still not applied.
+- **[RED R2 NEW]** c7 (19:30 UTC, API process): Alpaca paper broker returned fill_qty=0 for ALL 4 orders (INTC/BE closes + GOOGL/GOOG opens). `phase80_orders_writer_qty_unresolvable` for GOOGL+GOOG. Possible root cause: API-process Alpaca connection vs worker-process behaves differently for paper trading order fills.
+- **[RED R3 NEW]** BE (May8, qty=29) position DB close-loop gap — trailing_stop fired at c7, order status=filled but fill_qty=0. Position still `status='open'`. Risk: holding further losses beyond trailing-stop threshold.
+- **[RED R4 NEW]** INTC May21 (qty=75) position DB close-loop gap — stop_loss fired at c7 (pnl=-7.70%), same fill_qty=0 issue. Position still `status='open'`.
+- **[YELLOW Y1]** Signals (2026-06-01) and rankings (2026-06-01) stale — pre-market probe. Self-heal at 10:30/10:45 UTC today.
+- **[YELLOW Y2]** Daily daily_opens_count reached 5/5 (cap) at c7 via 2 GOOGL+GOOG opens with fill_qty=0. Counter incremented despite 0-fill orders — cap for today (Tue Jun 2) may be artificially exhausted if counter rolls over. Need to verify SOD reset behavior.
+- **[INFO]** c3 equity transient drop ($121,958→$105,214→recovered at c4) — not a persistent issue; likely MTM snapshot taken mid-close.
+
+### Fixes Applied
+- None autonomous. All RED items require Aaron's review/approval.
+- State files to be committed after this write.
+
+### Action Required from Aaron
+1. **HIGH RED R2+R3+R4 — c7 fill_qty=0 broker contract violation**: Investigate why API process (which ran c7 via Phase 82 lock) is getting fill_qty=0 from Alpaca paper broker. Check: (a) Are BE and INTC actually closed in Alpaca? (b) Are GOOGL/GOOG actually open in Alpaca? If Alpaca shows them closed/open but DB disagrees, DB cleanup SQL needed. Root cause likely in how the API process initializes its Alpaca broker vs the worker process.
+2. **HIGH RED R1 — Phase 85 `_persist_positions` close-loop fix.** Now 5 dup pairs + R3/R4 evidence that close-loop gap continues to strike new positions.
+3. **HIGH RED R1 — DB cleanup SQL**: Close older dup rows (AMD Apr29, AMZN Apr29, INTC May1, MU May1, MRVL May19). Consider also DB-closing BE May8 and INTC May21 if confirmed closed in Alpaca.
+4. **MEDIUM Y2 — Verify SOD cap reset**: Confirm daily_opens_count resets to 0 at SOD today (Tue Jun 2, c1=13:35 UTC). If the cap counter doesn't reset, Tue Jun 2 will have 0 new opens allowed.
+
+---
+
 ## Health Check — 2026-06-01 10:08 UTC (Monday 5:08 AM CT, pre-market / first trading day back)
 
 **Overall Status:** RED — R1 carry-forward (5 dup OPEN ticker pairs: AMD×2, AMZN×2, INTC×2, MRVL×2, MU×2). No new regressions. Stack healthy and ready for Mon first cycle at 13:35 UTC.

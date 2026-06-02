@@ -2,6 +2,39 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-06-02 10:09 UTC (Tuesday 5:09 AM CT, pre-market)
+
+**Overall Status:** RED — R1 carry-forward (5 dup OPEN pairs: AMD×2, AMZN×2, INTC×2, MRVL×2, MU×2) + NEW R2/R3/R4: c7 Alpaca paper broker returned fill_qty=0 for all 4 orders (INTC/BE closes + GOOGL/GOOG opens) → BE and INTC (May21) close-loop gap; NULL-qty orders for GOOGL/GOOG.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy — all `Up 40 hours`. No restart loops. DB 285 MB.
+- /health: 7/7 `ok`. mode=paper. Prometheus 2/2 up. Alertmanager 0 active. Resources clean.
+
+### §2 Execution + Data Audit
+- Mon Jun 1: 7 cycles completed (c1-c7 13:35→19:30 UTC). EOD eval 21:00 complete ✅. Phase 82 dedup at c7 ✅.
+- Portfolio: last snapshot 2026-06-01 19:30 — cash=$52,730.07, equity=$121,506.71 ✅.
+- **R1 CARRY-FORWARD**: 5 dup OPEN pairs unchanged.
+- **NEW R2**: c7 fill_qty=0 from Alpaca on all 4 orders; **R3**: BE close-loop gap; **R4**: INTC May21 close-loop gap. See primary log for full detail.
+- Data freshness: bars=2026-06-01 ✅, signals/rankings=2026-06-01 (stale, self-heal today).
+- Kill-switch=false ✅, mode=paper ✅. eval_runs=113 ✅. Idempotency clean ✅.
+
+### §3 Code + Schema
+- Alembic `q7r8s9t0u1v2` single head ✅. Pytest 360/360 ✅. Git clean, 0 unpushed. CI run 26748888906 sha=09d1ee6 conclusion=success ✅.
+
+### §4 Config + Gate Verification
+- All critical APIS_* flags correct ✅. Scheduler job_count=36 ✅.
+
+### Issues Found
+- **[RED R1]** 5 dup OPEN pairs carry-forward. **[RED R2/R3/R4]** c7 fill_qty=0 broker violation → BE + INTC May21 close-loop gaps + GOOGL/GOOG NULL-qty orders.
+- **[YELLOW Y1]** Signals/rankings stale (pre-market, self-heal). **[YELLOW Y2]** Daily cap may need SOD reset verification.
+
+### Action Required from Aaron
+1. **HIGH RED**: Investigate c7 fill_qty=0 (check Alpaca state for BE/INTC/GOOGL/GOOG). API-process Alpaca behavior differs from worker process — root cause investigation needed.
+2. **HIGH RED**: Phase 85 `_persist_positions` fix + DB cleanup SQL (AMD Apr29, AMZN Apr29, INTC May1, MU May1, MRVL May19). Consider closing BE May8 + INTC May21 if confirmed closed in Alpaca.
+3. **MEDIUM**: Verify daily_opens_count SOD reset for Tue Jun 2 c1 (13:35 UTC).
+
+---
+
 ## Health Check — 2026-06-01 10:08 UTC (Monday 5:08 AM CT, pre-market / first trading day back)
 
 **Overall Status:** RED — R1 carry-forward (5 dup OPEN ticker pairs: AMD×2, AMZN×2, INTC×2, MRVL×2, MU×2). No new regressions. Stack healthy and ready for Mon first cycle at 13:35 UTC.
