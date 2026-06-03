@@ -2,6 +2,69 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-06-03 19:08 UTC (Wednesday 2:08 PM CT, mid-market)
+
+**Overall Status:** RED — R1 carry-forward (4 dup OPEN pairs: AMD×2, AMZN×2, MU×2, MS×2); R2 root cause unresolved (API-process broker malfunction). **Key improvement since 10:15 UTC probe**: worker process won Phase 82 lock at c3–c6; all orders executing with proper fill_qty; broker drift reduced from 9–13 tickers to 1 (MS, from dup rows). GOOG/GOOGL successfully closed at c3.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy — all `Up 3 days` (since 2026-05-31 17:47 UTC restart). No restart loops. RestartCount=0 core.
+- /health: 7/7 `ok` (db, broker, scheduler, paper_cycle, broker_auth, system_state_pollution, kill_switch). mode=paper, timestamp=2026-06-03T19:08:34Z.
+- Worker log scan (24h): 13 stale-ticker yfinance errors only (known DFS/IPG/PKI/MMC/PXD/ANSS/WRK/MRO/K/CTLT/JNPR/PARA/HES). 0 CRITICAL/Traceback/TypeError. 0 crash-triad patterns.
+- API log scan (24h): 0 ERROR/CRITICAL/Traceback/TypeError (all clear — no stale-ticker hits either in this window).
+- Prometheus: 2/2 targets up (apis, prometheus). No errors.
+- Alertmanager: 0 active alerts.
+- Resource usage: worker 861.6 MiB / 0.00% CPU, api 933.4 MiB / 0.10% CPU, postgres 171.6 MiB, redis 8.0 MiB, control-plane 1.41 GiB / 10.84% CPU — all well under threshold. DB 302 MB (unchanged vs 10:15 probe).
+
+### §2 Execution + Data Audit
+- Paper cycles Jun 3: c1–c6 completed (6/6 expected cycles through 18:30 UTC ✅); c7 at 19:30 UTC not yet fired at probe time. Jun 2: 7 cycles + EOD eval 21:00 UTC status=complete ✅. Phase 82 dedup confirmed: worker logged `phase82_paper_cycle_skipped_other_process` at c1/c2 (API won lock), then worker won from c3 onwards.
+- Portfolio trend: Jun3 c6 18:30 UTC → cash=$67,164.05, equity=$123,065.03 (vs 10:15 probe c2 equity=$125,882.74; ~$2.8k drop, normal mid-session MTM). cash≥0 ✅. No phantom-ledger regression.
+- Broker↔DB reconciliation: /health broker=ok ✅. DB: 15 OPEN positions (at cap). **Material improvement**: broker_health_position_drift reduced from 9–13 tickers at c1/c2 (API process) to 1 ticker (MS only) at c4/c5/c6 (worker process). MS drift traces directly to MS×2 dup rows (DB qty=39, broker qty mismatch).
+- **R2 PARTIAL MITIGATION (root cause unresolved)**: c1+c2 ran under API process → fill_qty=0 on all orders (as reported at 10:15 probe). c3 (15:30 UTC): worker won Phase 82 lock and executed 5 opens (GS qty=14, QCOM qty=36, FFIV qty=22, ARM qty=22, DELL qty=21) + 2 closes (GOOGL qty=25, GOOG qty=25) all with proper fill_qty > 0 ✅. c4: FFIV/QCOM/GS trims all fill_qty > 0 ✅. c5/c6: clean (worker). **Root cause unfixed** — API process broker adapter still differs; if API wins lock in future cycle, fill_qty=0 returns.
+- **R3 RESOLVED**: GOOG and GOOGL both successfully closed at c3 15:30 UTC (fill_qty=25 each, broker_order_id confirmed) ✅.
+- **R1 CARRY-FORWARD — 4 dup OPEN pairs**: AMD×2 (Apr29+May21), AMZN×2 (Apr29+May21), MU×2 (May1+May21), MS×2 (Jun1+Jun2). Phase 85 fix still pending.
+- New positions today: ARM + DELL opened at c3 15:30 UTC (momentum_v1, fill_qty proper). 2 new today (≤5 daily cap ✅).
+- Origin-strategy stamping: all 5 positions opened in last 30h (ARM, DELL, FFIV, QCOM, MS Jun2) have origin_strategy set ✅.
+- Position caps: 15 OPEN (at cap ≤15 ✅). 2 new today ≤5 ✅.
+- Data freshness: bars=2026-06-02 ✅ FRESH. Signals=2026-06-03 10:30 UTC ✅. Rankings=2026-06-03 10:45 UTC ✅.
+- Stale tickers: known 13 only — no new additions ✅.
+- Kill-switch: `APIS_KILL_SWITCH=false` ✅. Operating mode: `APIS_OPERATING_MODE=paper` ✅.
+- Evaluation history rows: 114 ✅ (>80 floor).
+- Idempotency: 0 duplicate orders by idempotency_key ✅. 4 dup OPEN position tickers (R1 carry-forward — position-level).
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). No pending migrations.
+- Pytest smoke: **360/360 pass** (`tests/unit -k "deep_dive or phase22 or phase57" --no-cov -e APIS_PYTEST_SMOKE=1`) in 36.56s ✅. 0 new failures vs baseline.
+- Git: clean (`outputs/` untracked only). 0 unpushed commits. HEAD=`e43f4a4`. 0 stale feature branches.
+- **GitHub Actions CI:** run `26894348165` sha=`e43f4a4` status=completed conclusion=`success` ✅ — https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/26894348165
+
+### §4 Config + Gate Verification
+- All critical APIS_* flags at expected values ✅:
+  - APIS_OPERATING_MODE=paper ✅
+  - APIS_KILL_SWITCH=false ✅
+  - APIS_MAX_POSITIONS=15 ✅
+  - APIS_MAX_NEW_POSITIONS_PER_DAY=5 ✅
+  - APIS_MAX_THEMATIC_PCT=0.75 ✅
+  - APIS_RANKING_MIN_COMPOSITE_SCORE=0.30 ✅
+  - APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED not set (defaults false) ✅
+  - APIS_INSIDER_FLOW_PROVIDER not set (defaults null) ✅
+  - Deep-Dive Step 6/7/8 flags not set (defaults OFF) ✅
+  - APIS_REDIS_URL=redis://redis:6379/0 ✅
+- Scheduler: worker has been stable for 3 days; cycles firing on schedule confirms APScheduler alive ✅. Phase 82 dedup active ✅.
+
+### Issues Found
+- **[RED R1 CARRY-FORWARD]** 4 dup OPEN ticker pairs: AMD×2, AMZN×2, MU×2, MS×2. Phase 85 `_persist_positions` fix still pending. MS dup drives broker drift at c4–c6.
+- **[RED R2 ROOT CAUSE UNRESOLVED]** API-process Alpaca broker malfunction: when API process wins Phase 82 lock (c1/c2 today), all orders return fill_qty=0. Worker winning lock from c3 onwards is a temporary relief, not a fix. Any future cycle where API wins will revert to fill_qty=0 behavior.
+
+### Fixes Applied
+- None autonomous. All RED items require Aaron's review/approval.
+
+### Action Required from Aaron
+1. **HIGH RED — Fix API-process broker adapter (R2 root cause)**: Worker winning the lock is masking the bug, not fixing it. Investigate why API-process Alpaca adapter returns fill_qty=0 — compare broker adapter init between `apps/api/main.py` lifespan vs `apps/worker/main.py`. Consider forcing worker to always win the Phase 82 lock (e.g., add a small sleep in the API scheduler before attempting to acquire the lock).
+2. **HIGH RED — Phase 85 `_persist_positions` cross-session close-loop fix (R1)**: MS×2 is the 5th dup-pair episode. 4 active dup pairs.
+3. **HIGH RED — DB cleanup SQL**: Close older dup rows: AMD Apr29, AMZN Apr29, MU May1, MS Jun1 (qty=1).
+
+---
+
 ## Health Check — 2026-06-03 15:15 UTC (Wednesday 10:15 AM CT, mid-market)
 
 **Overall Status:** RED — R1 carry-forward (4 dup OPEN pairs: AMD×2, AMZN×2, MU×2 + NEW MS×2); persistent API-process Alpaca broker dysfunction: broker_health_position_drift firing every cycle for 9-13 tickers, fill_qty=0 on all trim/close orders.

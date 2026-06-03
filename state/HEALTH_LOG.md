@@ -2,6 +2,47 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-06-03 19:08 UTC (Wednesday 2:08 PM CT, mid-market)
+
+**Overall Status:** RED — R1 carry-forward (4 dup OPEN pairs: AMD×2, AMZN×2, MU×2, MS×2); R2 root cause unresolved (API-process broker malfunction). **Key improvement since 10:15 UTC probe**: worker process won Phase 82 lock at c3–c6; all orders executing with proper fill_qty; broker drift reduced from 9–13 tickers to 1 (MS, from dup rows). GOOG/GOOGL successfully closed at c3.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy — all `Up 3 days` (since 2026-05-31 17:47 UTC restart). No restart loops. RestartCount=0 core.
+- /health: 7/7 `ok`. mode=paper, timestamp=2026-06-03T19:08:34Z.
+- Worker log scan (24h): 13 stale-ticker yfinance errors only. 0 CRITICAL/Traceback/TypeError. 0 crash-triad.
+- API log scan (24h): 0 errors.
+- Prometheus: 2/2 up. Alertmanager: 0 active. Resources fine. DB 302 MB.
+
+### §2 Execution + Data Audit
+- Paper cycles Jun 3: c1–c6 completed ✅ (c7 not yet fired). Phase 82 dedup: worker won lock c3–c6.
+- Portfolio: Jun3 c6 cash=$67,164.05, equity=$123,065.03. cash≥0 ✅.
+- Broker↔DB: broker drift reduced to 1 ticker (MS only) at c4–c6. R2 partially mitigated — fill_qty=0 only at c1/c2 (API process); c3–c6 proper fill_qty (worker). Root cause unfixed.
+- R3 RESOLVED: GOOG/GOOGL closed at c3 fill_qty=25 ✅. R1 4 dup pairs remain.
+- Origin strategy: all 5 recent positions stamped ✅. Caps: 15 OPEN (≤15 ✅), 2 new today (≤5 ✅).
+- Data: bars=Jun2 ✅, signals/rankings=Jun3 10:30/10:45 ✅. Kill-switch=false, mode=paper ✅. eval_runs=114 ✅.
+- Idempotency: 0 dup orders ✅. 4 dup OPEN tickers (R1).
+
+### §3 Code + Schema
+- Alembic: q7r8s9t0u1v2 single head ✅. Pytest: 360/360 ✅. Git: clean, 0 unpushed, HEAD=e43f4a4.
+- **CI:** run `26894348165` sha=`e43f4a4` conclusion=`success` ✅.
+
+### §4 Config + Gate Verification
+- All APIS_* flags at expected values ✅.
+
+### Issues Found
+- **[RED R1]** 4 dup OPEN pairs: AMD×2, AMZN×2, MU×2, MS×2. Phase 85 fix pending.
+- **[RED R2 root cause]** API-process fill_qty=0 unfixed — worker winning lock is temporary mitigation.
+
+### Fixes Applied
+None.
+
+### Action Required from Aaron
+1. **HIGH RED** — Fix API-process broker adapter (R2 root cause): force worker to always win Phase 82 lock, or fix API lifespan broker init.
+2. **HIGH RED** — Phase 85 `_persist_positions` fix (R1, 5th dup-pair episode).
+3. **HIGH RED** — DB cleanup SQL: close AMD Apr29, AMZN Apr29, MU May1, MS Jun1 (qty=1).
+
+---
+
 ## Health Check — 2026-06-03 15:15 UTC (Wednesday 10:15 AM CT, mid-market)
 
 **Overall Status:** RED — R1 carry-forward (4 dup OPEN pairs: AMD×2, AMZN×2, MU×2 + NEW MS×2); persistent API-process Alpaca broker dysfunction: broker_health_position_drift firing every cycle for 9-13 tickers, fill_qty=0 on all trim/close orders.
