@@ -2,6 +2,53 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-06-03 15:15 UTC (Wednesday 10:15 AM CT, mid-market)
+
+**Overall Status:** RED — R1 carry-forward (4 dup OPEN pairs: AMD×2, AMZN×2, MU×2 + NEW MS×2); persistent API-process Alpaca broker dysfunction: broker_health_position_drift firing every cycle for 9-13 tickers, fill_qty=0 on all trim/close orders.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy — all `Up 2 days` (since 2026-05-31 17:47 UTC restart). No restart loops. RestartCount=0 core.
+- /health: 7/7 `ok`. mode=paper, timestamp=2026-06-03T15:07:37Z.
+- Worker/API log scan (24h): known 13 stale-ticker yfinance errors only. 0 CRITICAL/Traceback/TypeError. 0 crash-triad patterns.
+- Prometheus: 2/2 targets up. Alertmanager: 0 active alerts.
+- Resource usage: worker 860.9 MiB, api 933.3 MiB — all under threshold. DB 302 MB.
+
+### §2 Execution + Data Audit
+- Paper cycles (Jun 2): 7/12 completed (c1–c7) + EOD eval ✅. Jun 3: 2 cycles (c1=13:35, c2=14:30 UTC) ✅.
+- Portfolio trend: Jun 3 c2 → cash=$61,010.84, equity=$125,882.74 (+$1,855 vs Jun 2 c7). cash≥0 ✅.
+- Broker↔DB reconciliation: /health broker=ok ✅ surface. DB 14 OPEN. broker_health_position_drift fires every cycle (13 tickers at c1, 11 at c2). Systemic API-process broker disconnect.
+- **R1 CARRY-FORWARD (modified)**: AMD×2, AMZN×2, MU×2 ongoing + NEW MS×2 (Jun1+Jun2 both momentum_v1). INTC×2 and MRVL×2 from Jun 2 are now RESOLVED.
+- **NEW RED**: fill_qty=0 on ALL trim/close orders in API process (c1: MRVL/AMD/WDC/INTC trims + GOOG/GOOGL rejected; c2: MRVL/AMD/WDC trims). Persistent since Jun 1 c7.
+- Origin-strategy stamping: all 5 positions opened in last 30h have origin_strategy ✅.
+- Position caps: 14 open (≤15 ✅). 0 new positions Jun 3 so far.
+- Data freshness: bars=2026-06-02 ✅, signals=2026-06-03 10:30 ✅, rankings=2026-06-03 10:45 ✅.
+- Kill-switch=false ✅, mode=paper ✅. eval_runs=114 ✅. Idempotency clean ✅.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✅). No pending migrations.
+- Pytest smoke: **360/360 pass** (--no-cov, APIS_PYTEST_SMOKE=1) in 36.39s ✅.
+- Git: clean (1 untracked outputs/), 0 unpushed. HEAD=`2f01fcc`. 0 stale branches.
+- **GitHub Actions CI:** run `26813605938` sha=`2f01fcc` conclusion=`success` ✅
+
+### §4 Config + Gate Verification
+- All critical APIS_* flags at expected values ✅. job_count=36 ✅. Phase 82 dedup firing correctly ✅.
+
+### Issues Found
+- **[RED R1]** 4 dup OPEN pairs: AMD×2, AMZN×2, MU×2 + NEW MS×2 (Jun1+Jun2). Phase 85 still pending.
+- **[RED R2]** Persistent API-process broker malfunction: broker_health_position_drift every cycle (9-13 tickers), fill_qty=0 all orders. Trim corrections silently failing. Broker/DB state diverging each cycle.
+- **[RED R3]** Jun3 c1: GOOG+GOOGL close orders REJECTED by broker. Positions closed via broker-sync.
+
+### Fixes Applied
+- None autonomous.
+
+### Action Required from Aaron
+1. **HIGH** — Root-cause API-process Alpaca broker dysfunction: compare broker adapter init in api/lifespan vs worker/main; consider forcing worker to win Phase 82 lock.
+2. **HIGH** — Phase 85 `_persist_positions` fix (MS×2 is 5th episode).
+3. **HIGH** — DB cleanup SQL: close AMD Apr29, AMZN Apr29, MU May1, MS Jun1-14:30 (qty=1) dup rows.
+4. **MEDIUM** — Investigate MS×2 origin: why did Jun2 cycle not see Jun1 MS as already-held?
+
+---
+
 ## Health Check — 2026-06-02 10:09 UTC (Tuesday 5:09 AM CT, pre-market)
 
 **Overall Status:** RED — R1 carry-forward (5 dup OPEN pairs: AMD×2, AMZN×2, INTC×2, MRVL×2, MU×2) + NEW R2/R3/R4: c7 Alpaca paper broker returned fill_qty=0 for all 4 orders (INTC/BE closes + GOOGL/GOOG opens) → BE and INTC (May21) close-loop gap; NULL-qty orders for GOOGL/GOOG.
