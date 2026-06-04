@@ -2,6 +2,52 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-06-04 15:08 UTC (Thursday 10:08 AM CT, mid-market)
+
+**Overall Status:** RED — R2 API-process fill_qty=0 confirmed again at c1 today (13:35 UTC, all 4 orders returned fill_qty=0 while status=FILLED). R1 partially improved: AMD×2 and AMZN×2 closed by worker at c2; **2 dup OPEN pairs remain** (MS×2, MU×2). Portfolio up from Jun 3: equity=$127,058.06. All infra, tests, and CI GREEN.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy — all `Up 3 days` (since 2026-05-31 17:47 UTC restart). No restart loops. RestartCount=0 core.
+- /health: 7/7 `ok`. mode=paper, timestamp=2026-06-04T15:08:38Z.
+- Worker log scan (24h): 13 stale-ticker yfinance errors only (known list). 0 CRITICAL/Traceback/TypeError. 0 crash-triad.
+- API log scan (24h): 0 ERROR/CRITICAL/Traceback/TypeError.
+- Prometheus: 2/2 targets up. Alertmanager: 0 active alerts.
+- Resource usage: worker 886.8 MiB, api 976.3 MiB, postgres 256.3 MiB — all well under threshold. DB 310 MB.
+
+### §2 Execution + Data Audit
+- Paper cycles Jun 4: c1 (13:35 UTC) API process (fill_qty=0 all orders — R2); c2 (14:30 UTC) worker (AMD close qty=21, AMZN close qty=25, GS open qty=8 ✓). Jun 3: 7 cycles + EOD eval complete ✓.
+- Portfolio trend: Jun 4 c2 → cash=$75,793.56, equity=$127,058.06 (vs Jun 3 c6 $123,065.03; +$3,993). cash≥0 ✓.
+- Broker↔DB reconciliation: /health broker=ok ✓. DB: 12 OPEN. Broker drift at c1: 11 tickers (API process); at c2: 10 tickers (worker — includes INTC ghost). MS drift persists (dup rows).
+- **R2 CONFIRMED**: API process c1 — 4 orders all fill_qty=0 (AMZN close, INTC trim×2, GS open).
+- **R1 PARTIAL IMPROVEMENT**: AMD×2 + AMZN×2 closed at c2. Remaining: MS×2 (Jun1+Jun2), MU×2 (May1+May21).
+- Origin-strategy: all new positions (GS/ARM/DELL) stamped ✓. Position caps: 12 OPEN ≤15 ✓. 1 new today ≤5 ✓.
+- Data freshness: bars=2026-06-03 ✓, signals=2026-06-04 10:30 ✓, rankings=2026-06-04 10:45 ✓.
+- Kill-switch=false ✓, mode=paper ✓. Eval history: 115 rows ✓. Idempotency: 0 dupe orders ✓.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✓). No drift.
+- Pytest smoke: **360/360 pass** (--no-cov) in 35.44s ✓.
+- Git: clean. 0 unpushed. HEAD=`57489fd`. No stale branches.
+- **GitHub Actions CI:** run `26907406846` sha=`57489fd` conclusion=`success` ✓ — https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/26907406846
+
+### §4 Config + Gate Verification
+- All 11 critical APIS_* flags at expected values ✓. job_count=36 ✓. Phase 82 dedup active ✓.
+
+### Issues Found
+- **[RED R2]** API-process fill_qty=0 at c1 Jun 4 — all 4 orders failed silently (AMZN close, INTC trim×2, GS open). Root cause unresolved.
+- **[RED R1]** MS×2 + MU×2 dup OPEN pairs. Phase 85 fix pending.
+- **[YELLOW]** INTC ghost in Alpaca (DB closed, Alpaca open) — secondary; will resolve when R2 fixed.
+
+### Fixes Applied
+None autonomous. All RED items require Aaron's approval.
+
+### Action Required from Aaron
+1. **HIGH RED** — Fix API-process broker adapter (R2): force worker to always win Phase 82 lock OR fix API-process Alpaca init to return actual fill quantities.
+2. **HIGH RED** — Phase 85 `_persist_positions` fix (R1): MS×2 (5th episode), MU×2.
+3. **HIGH RED** — DB cleanup SQL: close MU May1 (qty=2) and MS Jun1 (qty=1). AMD+AMZN closed naturally today — no SQL needed.
+
+---
+
 ## Health Check — 2026-06-03 19:08 UTC (Wednesday 2:08 PM CT, mid-market)
 
 **Overall Status:** RED — R1 carry-forward (4 dup OPEN pairs: AMD×2, AMZN×2, MU×2, MS×2); R2 root cause unresolved (API-process broker malfunction). **Key improvement since 10:15 UTC probe**: worker process won Phase 82 lock at c3–c6; all orders executing with proper fill_qty; broker drift reduced from 9–13 tickers to 1 (MS, from dup rows). GOOG/GOOGL successfully closed at c3.
