@@ -2,6 +2,51 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-06-04 19:08 UTC (Thursday 3:08 PM CT, mid-market)
+
+**Overall Status:** RED — R2 ESCALATED: API process won c1, c4, c6 today (3 of 6 cycles); c6 opened AMD with fill_qty=0 creating a phantom DB position (AMD open qty=15 in DB, broker qty=0), and tried to re-open MRVL/ARM/DELL (Phase 75/79 guards blocked dup rows). Cash drained by ~$32k at c6 from phantom orders ($75,793→$43,742). R1 carry-forward: MS×2 and MU×2 dup pairs. All infra/tests/CI green.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy — all `Up 4 days`. 0 restarts. 0 crash-triad patterns.
+- /health: 7/7 `ok`. mode=paper, timestamp=2026-06-04T19:08:19Z.
+- Worker/API log scan (24h): 0 ERROR/CRITICAL/Traceback/TypeError. 0 crash-triad regressions. Known 13 stale-ticker yfinance errors only.
+- Prometheus: 2/2 targets up. Alertmanager: 0 active alerts.
+- Resource: worker 887 MiB, api 976 MiB, postgres 171 MiB — all well under threshold. DB 310 MB.
+
+### §2 Execution + Data Audit
+- Paper cycles Jun 4 (6/7 at probe time): c1 (API, fill_qty=0×4) → c2 (worker, clean ✓) → c3 (worker, drift=1 ✓) → c4 (API, drift=10, AMD blocked sector limit, AMZN/INTC rejected) → c5 (worker, drift=9) → c6 (API, AMD phantom open fill_qty=0, MRVL/ARM/DELL fill_qty=0 blocked by Phase 75/79).
+- Portfolio: c6 18:30 → cash=$43,742.75, equity=$125,858.11. Cash dropped $32k at c6 from phantom orders.
+- **NEW AMD phantom position**: opened_at=2026-06-04 18:30:00 UTC, qty=15 in DB, fill_qty=0 at broker — not in Alpaca.
+- R1 carry-forward: MS×2 and MU×2 dup pairs unchanged.
+- Origin-strategy: all new rows stamped ✓. Position caps: 14 OPEN ≤15 ✓, 2 new today ≤5 ✓.
+- Data freshness: bars=2026-06-03 ✓, rankings=2026-06-04 10:45 ✓, signals=2026-06-04 10:30 ✓.
+- Kill-switch: false ✓. Mode: paper ✓. Eval history: 115 ✓. Idempotency: 0 dup orders ✓.
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✓). No pending migrations.
+- Pytest smoke: **360/360 pass** in 36.01s ✓.
+- Git: clean, 0 unpushed, HEAD=`9df6c48`, main only.
+- **GitHub Actions CI:** run `26961104651` sha=`9df6c48` conclusion=`success` ✓
+
+### §4 Config + Gate Verification
+- All critical APIS_* flags at expected values ✓. No drift. Scheduler job_count=36 ✓.
+
+### Issues Found
+- **[RED R2 ESCALATED]** API process won c1, c4, c6 today; c6 opened AMD fill_qty=0 creating phantom DB position + cash drain ~$32k.
+- **[RED — NEW] AMD phantom DB position** at opened_at=2026-06-04 18:30:00 UTC (qty=15 in DB, not in Alpaca).
+- **[RED R1 CARRY-FORWARD]** MS×2 and MU×2 dup pairs remain.
+
+### Fixes Applied
+- None autonomous.
+
+### Action Required from Aaron
+1. **HIGH RED — Fix API-process broker (R2)**: Remove paper_trading_cycle scheduler from API process OR fix API broker adapter init.
+2. **HIGH RED — Close AMD phantom position**: UPDATE positions SET status='closed', closed_at=NOW(), realized_pnl=0 WHERE opened_at='2026-06-04 18:30:00.001083' AND security_id=(SELECT id FROM securities WHERE ticker='AMD');
+3. **HIGH RED — Phase 85 R1 dup-pair close SQL**: close MS Jun1 (qty=1) and MU May1 (qty=2).
+4. **MEDIUM — Monitor cash drain**: watch c7 and tomorrow's cycles.
+
+---
+
 ## Health Check — 2026-06-04 15:08 UTC (Thursday 10:08 AM CT, mid-market)
 
 **Overall Status:** RED — R2 API-process fill_qty=0 confirmed again at c1 today (13:35 UTC, all 4 orders returned fill_qty=0 while status=FILLED). R1 partially improved: AMD×2 and AMZN×2 closed by worker at c2; **2 dup OPEN pairs remain** (MS×2, MU×2). Portfolio up from Jun 3: equity=$127,058.06. All infra, tests, and CI GREEN.

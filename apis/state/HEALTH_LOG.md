@@ -2,6 +2,77 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-06-04 19:08 UTC (Thursday 3:08 PM CT, mid-market)
+
+**Overall Status:** RED — R2 ESCALATED: API process won c1, c4, c6 today (3 of 6 cycles); c6 opened AMD with fill_qty=0 creating a phantom DB position (AMD open qty=15 in DB, broker qty=0), and tried to re-open MRVL/ARM/DELL (Phase 75/79 guards blocked dup rows). Cash drained by ~$32k at c6 from phantom orders ($75,793→$43,742). R1 carry-forward: MS×2 and MU×2 dup pairs. All infra/tests/CI green.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy — all `Up 4 days` (since 2026-05-31 17:47 UTC). 0 restarts. 0 crash-triad patterns.
+- /health: 7/7 `ok` (db, broker, scheduler, paper_cycle, broker_auth, system_state_pollution, kill_switch). mode=paper, timestamp=2026-06-04T19:08:19Z.
+- Worker log scan (24h): 0 ERROR/CRITICAL/Traceback/TypeError. 0 crash-triad regressions. Known 13 stale-ticker yfinance errors only.
+- API log scan (24h): 0 ERROR/CRITICAL/Traceback/TypeError. 0 crash-triad regressions.
+- Prometheus: 2/2 targets up (apis, prometheus). 0 dropped. No errors.
+- Alertmanager: 0 active alerts.
+- Resource usage: worker 887 MiB / 0.00% CPU, api 976 MiB / 0.11% CPU, postgres 171 MiB / 1.89%, redis 8.4 MiB — all well under threshold. DB 310 MB (unchanged vs 15:08 probe).
+
+### §2 Execution + Data Audit
+- Paper cycles Jun 4 (6 of ~7 completed at probe time):
+  - c1 13:35 UTC (API won lock): fill_qty=0 all 4 orders (AMZN close, INTC trim×2, GS open) — R2 confirmed.
+  - c2 14:30 UTC (worker won): AMZN close fill_qty=25 ✓, AMD (old) close fill_qty=21 ✓, GS open fill_qty=8 ✓ — clean.
+  - c3 15:30 UTC (worker won): broker_health_position_drift = 1 ticker (MS only) ✓.
+  - c4 16:00 UTC (API won lock): drift 10 tickers (MRVL, FFIV, MU, ARM, MS, QCOM, WDC, DELL, AAPL, GS); AMD blocked by sector_exposure_limit; AMZN/INTC REJECTED.
+  - c5 17:30 UTC (worker won): drift 9 tickers (WDC, DELL, FFIV, MS, STX, QCOM, MRVL, ARM, GS) — elevated from c4 API damage.
+  - c6 18:30 UTC (API won lock): **NEW — AMD phantom position created**: AMD opened fill_qty=0 (phase80_orders_writer_qty_unresolvable logged); MRVL/ARM/DELL also opened fill_qty=0 (Phase 75/79 guards prevented dup rows for those). drift=10 tickers.
+  - c7 (19:50 UTC): not yet fired at probe time.
+- Portfolio trend: c6 18:30 → cash=$43,742.75, equity=$125,858.11. **Cash dropped $32,051 vs c5** ($75,793→$43,742) from phantom orders at c6 (4 orders × ~$8,391 notional = ~$33,564). Equity stable ($127,058→$125,858). cash≥0 ✓ but declining under API-won cycles.
+- Broker↔DB reconciliation: /health broker=ok (surface). DB: 14 OPEN. **R2 ESCALATED**: AMD opened at c6 by API process (fill_qty=0) exists in DB (qty=15) but broker returned qty=0 — phantom position. Broker drift: 10 tickers at API-won cycles (c4, c6), 1 ticker (MS) at worker-won cycles.
+- **NEW — AMD phantom DB position**: opened 2026-06-04 18:30:00 UTC by API process, origin_strategy=momentum_v1, qty=15 in DB, fill_qty=0 from broker. Alpaca does not hold this position. Requires manual DB close or will persist as ghost.
+- **R1 CARRY-FORWARD**: MS×2 (Jun1 qty=1 + Jun2 qty=38) and MU×2 (May1 qty=2 + May21 qty=2) dup pairs. No change.
+- New positions today: GS (c2, worker, qty=7 ✓) + AMD (c6, API, qty=15 phantom). 2 new today ≤5 daily cap ✓.
+- Origin-strategy stamping: all 4 positions opened in last 30h (AMD 18:30, GS 14:30, ARM Jun3, DELL Jun3) have origin_strategy set ✓. No NULLs.
+- Position caps: 14 OPEN (≤15 ✓). 2 new today ≤5 ✓.
+- Data freshness: bars=2026-06-03 (490 securities) ✓ FRESH. Rankings=2026-06-04 10:45 UTC ✓. Signals=2026-06-04 10:30 UTC ✓ (all 5 signal types × 1956 rows).
+- Stale tickers: known 13 only — no new additions ✓.
+- Kill-switch: `APIS_KILL_SWITCH=false` ✓. Operating mode: `APIS_OPERATING_MODE=paper` ✓.
+- Evaluation history rows: 115 ✓ (>80 floor).
+- Idempotency: 0 duplicate orders by idempotency_key ✓. 2 dup OPEN position tickers (MS, MU — R1 carry-forward).
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✓). No pending migrations.
+- Pytest smoke: **360/360 pass** (`tests/unit -k "deep_dive or phase22 or phase57" --no-cov -e APIS_PYTEST_SMOKE=1`) in 36.01s ✓. 0 new failures vs baseline.
+- Git: clean (`outputs/` untracked only). 0 unpushed commits. HEAD=`9df6c48`. 0 stale feature branches.
+- **GitHub Actions CI:** run `26961104651` sha=`9df6c48` status=completed conclusion=`success` ✓ — https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/26961104651
+
+### §4 Config + Gate Verification
+- All critical APIS_* flags at expected values ✓:
+  - APIS_OPERATING_MODE=paper ✓
+  - APIS_KILL_SWITCH=false ✓
+  - APIS_MAX_POSITIONS=15 ✓
+  - APIS_MAX_NEW_POSITIONS_PER_DAY=5 ✓
+  - APIS_MAX_THEMATIC_PCT=0.75 ✓
+  - APIS_RANKING_MIN_COMPOSITE_SCORE=0.30 ✓
+  - APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED not set (defaults false) ✓
+  - APIS_INSIDER_FLOW_PROVIDER not set (defaults null) ✓
+  - Deep-Dive Step 6/7/8 flags not set (defaults OFF) ✓
+  - APIS_REDIS_URL=redis://redis:6379/0 ✓
+- Scheduler: job_count=36 (last startup 2026-05-31T17:47 UTC) ✓. Phase 82 dedup confirmed active: worker/API skipping correctly each cycle.
+
+### Issues Found
+- **[RED R2 ESCALATED]** API process won c1, c4, and c6 today (3/6 cycles). Each API-won cycle: fill_qty=0 on all orders, broker drift spikes to 10 tickers. At c6 (18:30 UTC) API opened AMD/MRVL/ARM/DELL — all fill_qty=0. AMD created as phantom DB position (DB qty=15, broker qty=0); MRVL/ARM/DELL Phase 75/79 guards prevented dup rows. Cash drained ~$32k at c6 from 4 phantom orders.
+- **[RED — NEW] AMD phantom DB position**: opened_at=2026-06-04 18:30:00 UTC, qty=15, origin_strategy=momentum_v1. Not in Alpaca. Will show as ghost position in broker drift indefinitely until manually closed in DB or a worker cycle syncs it out.
+- **[RED R1 CARRY-FORWARD]** MS×2 (Jun1 qty=1 + Jun2 qty=38) and MU×2 (May1 qty=2 + May21 qty=2). Phase 85 `_persist_positions` fix still pending.
+
+### Fixes Applied
+- None autonomous. All RED items require Aaron's review/approval for DB edits and code fix.
+
+### Action Required from Aaron
+1. **HIGH RED — Fix API-process broker adapter (R2 root cause)**: 3 of today's 6 cycles ran under API process, each with fill_qty=0 and phantom cash drain. The Phase 82 lock is working (alternating wins) but both sides need to execute correctly. Immediate options: (a) remove the APScheduler paper_trading_cycle job from the API process entirely (so only the worker runs cycles), or (b) fix API-process broker adapter init so it correctly returns real fill quantities from Alpaca.
+2. **HIGH RED — Close AMD phantom DB position**: `UPDATE positions SET status='closed', closed_at=NOW(), realized_pnl=0 WHERE opened_at='2026-06-04 18:30:00.001083' AND security_id=(SELECT id FROM securities WHERE ticker='AMD');` — or equivalent. AMD is in DB as open with qty=15 but was never filled at the broker.
+3. **HIGH RED — Phase 85 `_persist_positions` cross-session close-loop fix (R1)**: MS×2 and MU×2 dup pairs remain. MS Jun1 (qty=1) and MU May1 (qty=2) should be closed: `UPDATE positions SET status='closed', closed_at=NOW(), realized_pnl=0 WHERE opened_at IN ('2026-06-01 14:30:00.001347', '2026-05-01 13:35:00.000809') AND security_id IN (SELECT id FROM securities WHERE ticker IN ('MS','MU'));`
+4. **MEDIUM — Cash drain monitoring**: At c6 cash dropped to $43,742 from phantom orders. If AMD (next API-won cycle) remains in in-memory state and is not re-opened (Phase 81B stacking guard), cash drain per cycle should stop for AMD. But other stacking opens (MRVL/ARM/DELL) may continue. Watch c7 and tomorrow's cycles.
+
+---
+
 ## Health Check — 2026-06-04 15:08 UTC (Thursday 10:08 AM CT, mid-market)
 
 **Overall Status:** RED — R2 API-process fill_qty=0 confirmed again at c1 today (13:35 UTC, all 4 orders returned fill_qty=0 while status=FILLED). R1 partially improved: AMD×2 and AMZN×2 closed by worker at c2; **2 dup OPEN pairs remain** (MS×2, MU×2). Portfolio up from Jun 3: equity=$127,058.06. All infra, tests, and CI GREEN.
