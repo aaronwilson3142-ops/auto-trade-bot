@@ -62,6 +62,7 @@ Auto-generated daily health check results.
 
 ### Fixes Applied
 - None autonomous. All RED items require Aaron's review/approval.
+- **Email: RED Gmail draft `r-1271673588404500650` created — manual send required.**
 
 ### Action Required from Aaron
 1. **HIGH RED — Phase 85 `_persist_positions` fix (R3, urgent)**: ARM and GS sold/trimmed at broker today but DB not updated. UNH opened at broker, not in DB. Root cause: `_persist_positions` close-loop fails when position was opened by a different process (API phantom, cross-session opened_at mismatch). Fix options: (a) match by security_id + status='open' instead of (security_id, opened_at), or (b) have worker recover opened_at from the DB row rather than in-memory state. This is a 6th recurrence of Phase 85 cross-session close-loop failure.
