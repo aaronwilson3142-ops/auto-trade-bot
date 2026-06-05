@@ -2,6 +2,80 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-06-05 15:05 UTC (Friday 10:05 AM CT, active trading / between c2–c3)
+
+**Overall Status:** RED — NEW R3: Phase 85 close-loop + open-loop failures at c1 today (ARM sold at broker not closed in DB, GS trimmed to zero at broker not closed in DB, UNH opened at broker not in DB). NEW R4: API c2 snapshot grossly wrong (cash=$38,991 vs actual ~$82,609, no orders placed at c2 — API broker reads incorrect Alpaca state). R2 (API-process broker malfunction) and R1 (MS×2, MU×2 dups + AMD phantom) carry forward unchanged.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy — all `Up 4 days` (since 2026-05-31 17:47 UTC). 0 restarts. RestartCount=0 core.
+- /health: 7/7 `ok` (db, broker, scheduler, paper_cycle, broker_auth, system_state_pollution, kill_switch). mode=paper, timestamp=2026-06-05T14:58:00Z.
+- Worker log scan (24h): 0 ERROR/CRITICAL/Traceback/TypeError. 0 crash-triad regressions. Known 13 stale-ticker yfinance errors only (non-blocking).
+- API log scan (24h): 0 ERROR/CRITICAL/Traceback/TypeError.
+- Prometheus: 2/2 targets up (apis, prometheus). 0 dropped. No errors.
+- Alertmanager: 0 active alerts.
+- Resource usage: worker 910 MiB / 0.00% CPU, api 1001 MiB / 0.13% CPU, postgres 170 MiB / 0.01%, redis 8.0 MiB — all well under threshold. DB 318 MB (+8 MB vs Jun 4).
+
+### §2 Execution + Data Audit
+- Paper cycles Jun 5 (2/~12 completed at probe time ~15:05 UTC):
+  - **c1 13:35 UTC (worker won lock)**: broker_health_position_drift=1 ticker (MS only ✓). ARM close fill_qty=22 ✓, GS trim fill_qty=7 ✓, UNH buy fill_qty=22 ✓. paper_trading_cycle_complete executed_count=3 ✓. **NEW R3**: ARM/GS closes + UNH open NOT persisted to DB (see Issues).
+  - **c2 14:30 UTC (API won lock)**: broker_health_position_drift=10 tickers (MRVL, FFIV, UNH, MU, QCOM, MS, WDC, DELL, AAPL, GS). proposed_count=9, approved_count=0, executed_count=0 — ALL proposals rejected by risk engine. 0 orders placed. **NEW R4**: snapshot cash=$38,991.32 vs c1 $82,609.42 (−$43,618 with no trades — API broker wrong state).
+  - c3–c12: not yet fired at probe time.
+- Portfolio trend: c1 snap cash=$82,609.42 equity=$126,532.74. c2 snap cash=$38,991.32 equity=$121,762.08 (API wrong-state snapshot, not representative of actual broker cash).
+- Broker↔DB reconciliation: /health broker=ok (surface). DB: 14 OPEN. broker_health_position_drift at c2 (API): UNH in broker but not DB (open-loop failure), GS in DB but not broker (close-loop failure). ARM in DB as open but sold at broker at c1.
+- **[RED NEW R3] Phase 85 close/open loop failures at c1**: ARM (stop_loss close) and GS (full trim) executed at Alpaca with correct fill quantities but `_persist_positions` did not update DB — both still show OPEN. UNH opened at Alpaca (fill_qty=22) but no DB position row created. Root cause: ARM was reopened by API phantom at Jun 4 18:30 (opened_at mismatch in worker state), GS trim (not close action) may not trigger full close-path. 0 new positions opened today in DB per `opened_at::date = CURRENT_DATE`.
+- **[RED NEW R4] API c2 wrong snapshot**: cash=$38,991 with 0 orders executed — API broker adapter is reading wrong Alpaca state (consistent with R2 broker init bug).
+- **[RED R2 CARRY-FORWARD]** API-process broker malfunction: c2 API won, drift=10 tickers, all 9 proposals rejected. Wrong snapshot written.
+- **[RED R1 CARRY-FORWARD]** MS×2 (Jun1 qty=1 + Jun2 qty=38), MU×2 (May1 qty=2 + May21 qty=2) dup OPEN pairs. AMD phantom (Jun4 18:30, qty=15, broker qty=0) still open in DB.
+- New positions today (DB): 0 opened (UNH not in DB). ≤5 cap ✓ for broker-side.
+- Origin-strategy stamping: all 14 DB-open positions have origin_strategy set ✓. No NULLs.
+- Position caps: 14 OPEN in DB (≤15 ✓). 2 new today broker-side (ARM closed, GS closed, UNH opened) — broker state correct, DB state stale.
+- Data freshness: bars=2026-06-04 (490 securities) ✓ FRESH. Rankings=2026-06-05 10:45 UTC ✓. Signal runs=4 in last 48h ✓.
+- Stale tickers: known 13 only — no new additions ✓.
+- Kill-switch: `APIS_KILL_SWITCH=false` ✓. Operating mode: `APIS_OPERATING_MODE=paper` ✓.
+- Evaluation history rows: 116 ✓ (>80 floor).
+- Idempotency: 0 duplicate orders by idempotency_key ✓. MS×2, MU×2 dup OPEN position pairs (R1 carry-forward).
+
+### §3 Code + Schema
+- Alembic head: `q7r8s9t0u1v2` (single head ✓). Pre-existing cosmetic drift (TIMESTAMP↔DateTime, universe_overrides, index renames) — unchanged from prior runs, non-blocking.
+- Pytest smoke: **360/360 pass** (`tests/unit -k "deep_dive or phase22 or phase57" --no-cov -e APIS_PYTEST_SMOKE=1`) in 40.66s ✓. 0 new failures vs baseline.
+- Git: clean (`outputs/` untracked only). 0 unpushed commits. HEAD=`abd9984`. 0 stale feature branches.
+- **GitHub Actions CI:** run `26974058391` sha=`abd9984` status=completed conclusion=`success` ✓ — https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/26974058391
+
+### §4 Config + Gate Verification
+- All critical APIS_* flags at expected values ✓:
+  - APIS_OPERATING_MODE=paper ✓
+  - APIS_KILL_SWITCH=false ✓
+  - APIS_MAX_POSITIONS=15 ✓
+  - APIS_MAX_NEW_POSITIONS_PER_DAY=5 ✓
+  - APIS_MAX_THEMATIC_PCT=0.75 ✓
+  - APIS_RANKING_MIN_COMPOSITE_SCORE=0.30 ✓
+  - APIS_SELF_IMPROVEMENT_AUTO_EXECUTE_ENABLED not set (defaults false) ✓
+  - APIS_INSIDER_FLOW_PROVIDER not set (defaults null) ✓
+  - Deep-Dive Step 6/7/8 flags not set (defaults OFF) ✓
+- Scheduler: job_count=36 (last startup 2026-05-31T17:47:46 UTC) ✓. Phase 82 dedup confirmed: worker won c1, API won c2 (alternating as expected).
+
+### Issues Found
+- **[RED NEW R3]** Phase 85 close-loop + open-loop failures at c1 Jun 5: ARM close (stop_loss, fill_qty=22 at Alpaca), GS trim (full, fill_qty=7 at Alpaca), UNH open (fill_qty=22 at Alpaca) — all broker-confirmed — but none updated in DB. ARM still OPEN in DB (opened_at=Jun 4 18:30 API phantom, likely opened_at mismatch in worker state). GS still OPEN in DB (opened_at=Jun 4 14:30, trim action may not hit close-path). UNH not in DB at all. broker_health_position_drift at c2 confirms: UNH in broker but not DB, GS in DB but not broker.
+- **[RED NEW R4]** API c2 snapshot wrong: cash=$38,991 with 0 orders (9 proposed, 0 approved by risk engine). API broker adapter reads wrong Alpaca cash state. c3+ worker cycles will overwrite with correct state when worker wins lock.
+- **[RED R2 CARRY-FORWARD]** API-process broker adapter malfunction: drift=10 tickers when API runs, all proposed actions rejected, wrong snapshot written.
+- **[RED R1 CARRY-FORWARD]** MS×2 and MU×2 dup OPEN pairs + AMD phantom DB position (Jun 4 18:30, fill_qty=0).
+
+### Fixes Applied
+- None autonomous. All RED items require Aaron's review/approval.
+
+### Action Required from Aaron
+1. **HIGH RED — Phase 85 `_persist_positions` fix (R3, urgent)**: ARM and GS sold/trimmed at broker today but DB not updated. UNH opened at broker, not in DB. Root cause: `_persist_positions` close-loop fails when position was opened by a different process (API phantom, cross-session opened_at mismatch). Fix options: (a) match by security_id + status='open' instead of (security_id, opened_at), or (b) have worker recover opened_at from the DB row rather than in-memory state. This is a 6th recurrence of Phase 85 cross-session close-loop failure.
+2. **HIGH RED — DB cleanup SQL (needed today before c3–c12 create more drift)**:
+   - Close ARM (Alpaca sold at c1): `UPDATE positions SET status='closed', closed_at='2026-06-05 13:35:01.841757', realized_pnl=-644.16 WHERE opened_at='2026-06-04 18:30:00.001083' AND security_id=(SELECT id FROM securities WHERE ticker='ARM');`
+   - Close GS (Alpaca trimmed to 0 at c1): `UPDATE positions SET status='closed', closed_at='2026-06-05 13:35:01.841923', realized_pnl=99.89 WHERE opened_at='2026-06-04 14:30:00.001491' AND security_id=(SELECT id FROM securities WHERE ticker='GS');`
+   - Close AMD phantom (fill_qty=0, never at Alpaca): `UPDATE positions SET status='closed', closed_at=NOW(), realized_pnl=0 WHERE opened_at='2026-06-04 18:30:00.001083' AND security_id=(SELECT id FROM securities WHERE ticker='AMD');`
+   - Close older MS dup (Jun1 qty=1): `UPDATE positions SET status='closed', closed_at=NOW(), realized_pnl=0 WHERE opened_at='2026-06-01 14:30:00.001347' AND security_id=(SELECT id FROM securities WHERE ticker='MS');`
+   - Close older MU dup (May1 qty=2): `UPDATE positions SET status='closed', closed_at=NOW(), realized_pnl=0 WHERE opened_at='2026-05-01 13:35:00.000809' AND security_id=(SELECT id FROM securities WHERE ticker='MU');`
+   - Insert UNH position (broker-confirmed): `INSERT INTO positions (id, security_id, status, quantity, entry_price, opened_at, origin_strategy, created_at, updated_at) VALUES (gen_random_uuid(), (SELECT id FROM securities WHERE ticker='UNH'), 'open', 22, 403.24, '2026-06-05 13:35:01.809777', 'momentum_v1', NOW(), NOW());`
+3. **HIGH RED — Fix API-process broker adapter (R2 root cause)**: Option (a) recommended: remove APScheduler paper_trading_cycle job from the API process (only worker should run cycles). The Phase 82 Redis lock prevents double-execution but the API cycle still corrupts snapshots and confuses the risk engine.
+
+---
+
 ## Health Check — 2026-06-04 19:08 UTC (Thursday 3:08 PM CT, mid-market)
 
 **Overall Status:** RED — R2 ESCALATED: API process won c1, c4, c6 today (3 of 6 cycles); c6 opened AMD with fill_qty=0 creating a phantom DB position (AMD open qty=15 in DB, broker qty=0), and tried to re-open MRVL/ARM/DELL (Phase 75/79 guards blocked dup rows). Cash drained by ~$32k at c6 from phantom orders ($75,793→$43,742). R1 carry-forward: MS×2 and MU×2 dup pairs. All infra/tests/CI green.

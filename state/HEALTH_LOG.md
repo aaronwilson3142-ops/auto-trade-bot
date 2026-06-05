@@ -2,6 +2,19 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-06-05 15:05 UTC (Friday 10:05 AM CT, active trading / between c2–c3)
+
+**Overall Status:** RED — NEW R3: Phase 85 close/open loop failures at c1 (ARM sold, GS trimmed, UNH opened at broker — none updated in DB). NEW R4: API c2 wrong snapshot cash=$38,991 vs actual ~$82,609 with 0 orders (API broker wrong state). R2 (API-process broker malfunction) + R1 (MS×2, MU×2, AMD phantom) carry forward.
+
+- **§1 Infra GREEN**: 8/8 containers Up 4 days healthy. /health 7/7 ok mode=paper. 0 crash-triad. Prom 2/2 up. AM 0 active. Resources fine. DB 318 MB.
+- **§2 Execution+Data RED**: c1 worker won (3 trades ARM close/GS trim/UNH buy, all broker-filled ✓) but `_persist_positions` failed all 3 (R3 NEW). c2 API won (0 orders/9 rejected), wrong snapshot cash −$43k (R4 NEW). R2+R1 carry forward.
+- **§3 Code+Schema GREEN**: Alembic q7r8s9t0u1v2 single head. Pytest 360/360 ✓. Git clean 0 unpushed HEAD=abd9984. CI 26974058391 on abd9984 conclusion=success ✓.
+- **§4 Config+Gates GREEN**: all APIS_* flags correct ✓. job_count=36. Phase 82 alternating lock ✓.
+- **Autonomous fixes: NONE**. All REDs require Aaron approval (code fix + DB cleanup).
+- **Action required from Aaron**: (1) HIGH RED — Phase 85 fix: `_persist_positions` close-loop fails on cross-session opened_at mismatch (ARM+GS not closed in DB, UNH not created); (2) HIGH RED — DB cleanup SQL (close ARM/GS/AMD phantom, close MS Jun1/MU May1 dup rows, insert UNH position); (3) HIGH RED — Remove paper_trading_cycle from API APScheduler (R2 root cause, recommended option a).
+
+---
+
 ## Health Check — 2026-06-04 19:08 UTC (Thursday 3:08 PM CT, mid-market)
 
 **Overall Status:** RED — R2 ESCALATED: API process won c1, c4, c6 today (3 of 6 cycles); c6 opened AMD with fill_qty=0 creating a phantom DB position (AMD open qty=15 in DB, broker qty=0), and tried to re-open MRVL/ARM/DELL (Phase 75/79 guards blocked dup rows). Cash drained by ~$32k at c6 from phantom orders ($75,793→$43,742). R1 carry-forward: MS×2 and MU×2 dup pairs. All infra/tests/CI green.
