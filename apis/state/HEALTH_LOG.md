@@ -2,6 +2,56 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-06-06 19:20 UTC (Saturday 2:20 PM CT, weekend / no trading)
+
+**Overall Status:** RED — Carry-forward only. R1/R2/R3/R4 all persist unchanged from the 10:15 UTC Saturday probe. Zero new issues. Weekend: 0 paper cycles expected and confirmed. Stack/code/config fully GREEN. **One refinement to the cleanup SQL**: the UNH Jun 5 row EXISTS in DB (id `edce5125-d2d7-4e61-b9c0-79b8cb4d5042`, qty=22, entry=403.24, opened_at=2026-06-05 13:35:00.001044) but was phantom-CLOSED at c2 14:30 (realized_pnl=-4.51) — the fix is an UPDATE to reopen that row, NOT the previously recommended INSERT (an INSERT would create a near-duplicate).
+
+### §1 Infrastructure
+- Containers: 8/8 Up 6 days (healthy): worker, api, postgres, redis, grafana, prometheus, alertmanager, apis-control-plane.
+- /health: 7/7 `ok` (db, broker, scheduler, paper_cycle, broker_auth, system_state_pollution, kill_switch). Mode=paper. Timestamp 2026-06-06T19:08:13Z.
+- Worker/API log scan (24h): zero ERROR/CRITICAL/Traceback/TypeError. Zero crash-triad patterns. Only event in window: known `broker_health_position_drift` (12 tickers) at Jun 5 19:30 UTC c6 — R2 carry-forward.
+- Prometheus: 2/2 targets up (apis, prometheus).
+- Alertmanager: 0 active alerts.
+- Resource usage: all containers nominal (api 1.0 GiB, worker 910 MiB, control-plane 1.9 GiB / CPU 9.9% — fine). Postgres DB 318 MB.
+
+### §2 Execution + Data Audit
+- Paper cycles today: 0 (Saturday — expected). Fri Jun 5 daily evaluation 21:00 UTC `complete` ✓.
+- Portfolio trend: last snapshot Jun 5 19:30 UTC cash=$38,991.32 / equity=$119,212.99. Cash flat across all six Fri snapshots (≥0 ✓); equity drift intraday only.
+- Broker↔DB reconciliation: `/api/v1/broker/positions` 404s in this build (known); R2/R4 drift carry-forward — Jun 5 19:30 drift event lists 12 tickers (AMD, MRVL, FFIV, MU, ARM, MS, QCOM, WDC, DELL, STX, AAPL, GS).
+- Origin-strategy stamping: only row opened in window = UNH Jun 5 13:35 with `rebalance` ✓ (no NULLs).
+- Position caps: 14 DB-OPEN ≤ 15 ✓; 0 new today ≤ 5 ✓.
+- Data freshness: bars=2026-06-04 (490 securities — within 2 business days ✓; Fri Jun 5 bars land at next weekday 06:00 ET ingestion), rankings=Jun 5 10:45 UTC ✓, signals=Jun 5 10:30 UTC ✓.
+- Stale tickers: known-13 only (IPG/DFS/PKI/MMC/PXD/ANSS/MRO/WRK/K/CTLT… at Fri 10:00 UTC ingestion). No new additions.
+- Kill-switch + mode: APIS_KILL_SWITCH=false ✓, APIS_OPERATING_MODE=paper ✓.
+- Evaluation history rows: 117 ✓ (≥80 floor).
+- Idempotency: 0 duplicate orders by idempotency_key ✓. Dup OPEN positions: MS×2 + MU×2 — R1 carry-forward (no change).
+
+### §3 Code + Schema
+- Alembic: `q7r8s9t0u1v2` single head ✓. `alembic check`: pre-existing ORM drift (universe_overrides + timestamp-type diffs) — known non-blocking since 2026-05-25, unchanged.
+- Pytest smoke: **370 passed / 0 failed** (deep_dive/phase22/phase57/phase82 subset, --no-cov, APIS_PYTEST_SMOKE=1, 41.8s) — matches baseline ✓.
+- Git: clean except untracked `outputs/` dir (scratch). 0 unpushed commits. No stale branches. HEAD `f5bd0e9`.
+- **GitHub Actions CI:** run 27059581032 `f5bd0e9` conclusion=success — https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/27059581032 ✓.
+
+### §4 Config + Gate Verification
+- All critical APIS_* flags at expected values: mode=paper, kill_switch=false, max_positions=15, max_new_per_day=5, max_thematic_pct=0.75, ranking_min_composite_score=0.30, self-improvement/insider-flow/Step-6/7/8 flags unset (defaults OFF) ✓.
+- Scheduler: `apis_worker_started` job_count=36 (May 31 17:47 UTC restart) ✓.
+
+### Issues Found
+- **[RED carry-forward R1]** Dup OPEN rows: MS×2 (Jun 1 qty=1 + Jun 2 qty=38), MU×2 (May 1 qty=2 + May 21 qty=2).
+- **[RED carry-forward R2]** API-process Alpaca broker malfunction — phantom fills/cash, drift fires every API-won cycle. Root-cause fix (remove paper_trading_cycle from API APScheduler or fix broker init) awaiting Aaron.
+- **[RED carry-forward R3]** Phase 85 `_persist_positions` cross-session failures: ARM (sold at broker Jun 5, still DB-OPEN), GS (fully trimmed at broker, still DB-OPEN), AMD phantom DB-OPEN (Jun 4 18:30 API c6), UNH (held at broker, DB row phantom-closed at c2 — see refinement above).
+- **[RED carry-forward R4]** API broker adapter wrote wrong cash ($38,991 vs worker's $82,609) from c2 Jun 5 onward.
+
+### Fixes Applied
+- None possible autonomously — all four RED items are DB-write / code-architecture changes that are Aaron-approval-gated. No env drift, no container restarts needed.
+
+### Action Required from Aaron (unchanged priority, ONE refinement)
+0. **Open Gmail Drafts and send the RED alert** — draft `r-8584373506264976523` created (Gmail MCP in this session exposes create_draft only; no direct-send).
+1. **HIGH RED** — Phase 85 `_persist_positions` fix (6th episode; cross-session opened_at mismatch breaks close-loop AND open-loop).
+2. **HIGH RED** — DB cleanup SQL, **revised UNH step**: close ARM/GS/AMD phantom rows; close MS Jun 1 qty=1 + MU May 1 qty=2 dup rows; **UPDATE positions SET status='open', closed_at=NULL, realized_pnl=NULL WHERE id='edce5125-d2d7-4e61-b9c0-79b8cb4d5042'** (UNH row exists — do NOT INSERT as previously written, that would create a near-dup).
+3. **HIGH RED** — Remove paper_trading_cycle from API-process APScheduler (R2 root cause, recommended option a).
+All three before Monday Jun 8 13:35 UTC first cycle.
+
 ## Health Check — 2026-06-06 10:15 UTC (Saturday 5:15 AM CT, weekend / no trading)
 
 **Overall Status:** RED — All four carry-forward RED findings (R1/R2/R3/R4) persist unchanged. No new issues detected today. Weekend: 0 paper cycles expected and confirmed. Infrastructure, code, and config fully GREEN. All RED items require Aaron's explicit approval to resolve.

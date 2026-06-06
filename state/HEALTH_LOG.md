@@ -2,6 +2,10 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-06-06 19:20 UTC (Saturday 2:20 PM CT, weekend / no trading)
+
+**Overall Status:** RED — Carry-forward only. R1/R2/R3/R4 unchanged from 10:15 UTC Saturday probe. Zero new issues; weekend 0 cycles confirmed. Stack/code/config fully GREEN (8/8 containers Up 6d, /health 7/7 ok, pytest 370p/0f, CI 27059581032 f5bd0e9 success, all APIS_* flags correct, job_count=36, eval_runs=117, Alertmanager 0). Last snapshot Jun 5 19:30 UTC cash=$38,991.32 / equity=$119,212.99; 14 DB-OPEN / 233 closed. Data fresh: bars=Jun 4 (490), rankings/signals=Jun 5. **Cleanup-SQL refinement**: UNH Jun 5 row EXISTS (id `edce5125-d2d7-4e61-b9c0-79b8cb4d5042`, qty=22, entry=403.24) but was phantom-CLOSED at c2 14:30 (realized_pnl=-4.51) — fix is `UPDATE ... SET status='open', closed_at=NULL, realized_pnl=NULL`, NOT the previously recommended INSERT (would create a near-dup). Action required from Aaron before Monday 13:35 UTC: (1) Phase 85 `_persist_positions` fix; (2) DB cleanup SQL with revised UNH step; (3) remove paper_trading_cycle from API APScheduler. Full detail in `apis/state/HEALTH_LOG.md` 19:20 UTC entry.
+
 ## Health Check — 2026-06-06 10:15 UTC (Saturday 5:15 AM CT, weekend / no trading)
 
 **Overall Status:** RED — All four carry-forward RED findings (R1/R2/R3/R4) persist unchanged. No new issues detected today. Weekend: 0 paper cycles expected and confirmed. Infrastructure, code, and config fully GREEN. All RED items require Aaron's explicit approval to resolve.
