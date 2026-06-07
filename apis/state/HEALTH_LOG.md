@@ -2,6 +2,51 @@
 
 Auto-generated daily health check results.
 
+## Health Check — 2026-06-07 15:15 UTC (Sunday 10:15 AM CT, weekend / no trading)
+
+**Overall Status:** GREEN — Second consecutive GREEN. Phase 86 (`670936c`) remains verified live ~12.5h post-deploy: worker job_count=36 ✅, API job_count=29 `paper_trading_jobs: false` ✅ (R2 root cause stays removed). DB state unchanged and clean: exactly 10 OPEN positions, one row per ticker (AAPL/DELL/FFIV/MRVL/MS/MU/QCOM/STX/UNH/WDC), 237 closed, 0 dup idempotency keys. Weekend: 0 paper cycles in 30h window (expected). CI GREEN on the 5 AM probe's state commit `5d86259`. No new issues, no fixes needed. **Monday 2026-06-08 13:35 UTC c1 remains the Phase 86 validation window** — expect worker-won cycle, sane worker-written snapshot cash (replacing Fri's residual API-written $38,991.32), zero new dup/phantom rows.
+
+### §1 Infrastructure
+- Containers: 8/8 healthy — worker+api Up 12h (since Phase 86 restart 02:39 UTC), postgres/redis/grafana/prometheus/alertmanager/control-plane Up 6 days. No restarts.
+- /health: 7/7 `ok` (db, broker, scheduler, paper_cycle, broker_auth, system_state_pollution, kill_switch). Mode=paper. 2026-06-07T15:08:15Z.
+- Worker/API log scan (24h): worker 0 ERROR/CRITICAL/Traceback/TypeError; API 2 = only the known startup-restore warnings from the 02:39 UTC restart (`regime_result_restore_failed`, `readiness_report_restore_failed`) — documented non-blocking (project_api_startup_restore_warnings_2026-05-17). 0 crash-triad hits on all 5 patterns, both containers.
+- Prometheus: 2/2 targets up (apis, prometheus), no lastError.
+- Alertmanager: 0 active alerts.
+- Resource usage: all tiny (worker 69 MiB, api 133 MiB, postgres 184 MiB; control-plane 2.0 GiB / 10% CPU — normal). Postgres DB size 318 MB.
+
+### §2 Execution + Data Audit
+- Paper cycles (30h window): 0 — weekend, expected. evaluation_runs total=117 ✅ (≥80 floor, unchanged).
+- Portfolio trend: last snapshot still Fri 2026-06-05 19:30 UTC cash=$38,991.32 equity=$119,212.99 (residual API-written value; self-corrects at Mon c1 under worker-only Phase 86). cash ≥ 0 ✅.
+- Broker↔DB reconciliation: `/api/v1/broker/positions` 404s in this build (known); fallback per 2026-04-19 precedent — /health broker=ok ✅ + 0 `broker_health_position_drift` log lines in 48h ✅.
+- Positions: 10 OPEN (one per ticker — Phase 86 cleanup holding), 237 closed. 0 dup-OPEN tickers ✅.
+- Origin-strategy stamping: 0 rows opened in last 30h → nothing to check; 0 NULLs.
+- Position caps: 10/15 OPEN ✅; 0 new today ✅.
+- Data freshness: bars=2026-06-04 (490 securities) — Fri Jun 5 bars arrive with Mon AM/EOD jobs, consistent with prior weekend probes; signal_runs=2026-06-05 10:30 UTC ✅; ranking_runs=2026-06-05 10:45 UTC ✅.
+- Stale tickers: no new delisted-ticker errors (worker log clean in 24h; no weekend ingestion).
+- Kill-switch + mode: APIS_KILL_SWITCH=false ✅, APIS_OPERATING_MODE=paper ✅.
+- Idempotency: 0 dup idempotency_keys in orders ✅; 0 dup open tickers ✅.
+
+### §3 Code + Schema
+- Alembic: `q7r8s9t0u1v2` current = single head ✅. `alembic check`: pre-existing cosmetic ORM drift only (TIMESTAMP-tz vs DateTime, comments, universe_overrides ORM metadata) — same known non-blocking diff as 2026-05-25 probe; no new operations.
+- Pytest smoke: **370 passed / 0 failed** (deep_dive + phase22 + phase57 + phase82 + phase86 filter, --no-cov, APIS_PYTEST_SMOKE=1, 40.1s) ✅ matches baseline.
+- Git: tree clean (only untracked `outputs/`), HEAD `5d86259`, 0 unpushed, no stray branches.
+- **GitHub Actions CI:** run 27089622903 `5d86259` conclusion=success — https://github.com/aaronwilson3142-ops/auto-trade-bot/actions/runs/27089622903 ✅.
+
+### §4 Config + Gate Verification
+- All critical APIS_* env flags at expected values: mode=paper, kill_switch=false, max_positions=15, max_new_positions_per_day=5, max_thematic_pct=0.75, ranking_min_composite_score=0.30 ✅. Self-improvement auto-execute + insider-flow provider + Step 6/7/8 flags not in env → governed by settings.py defaults (OFF) ✅.
+- Scheduler sanity: worker `apis_worker_started job_count=36` ✅; API `apis_scheduler_started_in_api_process job_count=29 paper_trading_jobs=false` ✅ (Phase 86 invariant intact).
+
+### Issues Found
+- None new. Informational carry-forward: Fri's residual API-written snapshot cash ($38,991.32) persists until Mon c1; known cosmetic alembic-check ORM drift.
+
+### Fixes Applied
+- None required.
+
+### Action Required from Aaron
+- None. Next material checkpoint: **Mon 2026-06-08 13:35 UTC c1** — Phase 86 first live trading validation (worker-won cycle, correct snapshot cash, no new dup/phantom rows). Captured automatically by Monday's scheduled probes.
+
+---
+
 ## Health Check — 2026-06-07 10:12 UTC (Sunday 5:12 AM CT, weekend / no trading)
 
 **Overall Status:** GREEN — First GREEN since the R1–R4 cluster began. Phase 86 (`670936c`, deployed Sat night with worker+api restart 02:39 UTC Sun) is verified live: API-process APScheduler now runs job_count=29 with `paper_trading_jobs: false` (R2 root cause removed); DB cleanup verified — exactly 10 OPEN positions, one row per ticker (AAPL, DELL, FFIV, MRVL, MS, MU, QCOM, STX, UNH, WDC), ARM/GS/AMD phantom rows closed, UNH row reopened, MS/MU dups gone (R1/R3/R4 cleanup confirmed). Weekend: 0 paper cycles expected and confirmed. **Monday Jun 8 13:35 UTC c1 is the Phase 86 validation window** — worker must win every cycle; expect a worker-written snapshot with correct cash (last snapshot still carries Fri's API-written $38,991.32 phantom-cash value, which is residual data, not an active writer).
