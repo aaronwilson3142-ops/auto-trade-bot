@@ -82,6 +82,9 @@ class _FakeDB:
             # matching in _open_positions (by sec_id) or None. The final
             # "close" query is driven by _all_open_pairs.
             result.scalar_one_or_none.return_value = None
+            # Phase 86 (2026-06-06): the open-rows dedup query calls
+            # .scalars().all() — model "no open rows" by default.
+            result.scalars.return_value.all.return_value = []
             result.all.return_value = list(getattr(self, "_all_open_pairs", []))
         return result
 
@@ -295,6 +298,9 @@ class TestPhase75ReopenIdempotency:
                 elif self._query_counter == 2:
                     # Phase 75 same_episode lookup: returns the closed row
                     result.scalar_one_or_none.return_value = closed_row
+                elif self._query_counter == 3:
+                    # Phase 86 open-rows dedup query: no open rows
+                    result.scalars.return_value.all.return_value = []
                 else:
                     # Final close-scan: only the just-reopened row, ticker
                     # is in held_tickers so it stays open.
@@ -356,8 +362,14 @@ class TestPhase75ReopenIdempotency:
                 result = MagicMock()
                 if self._query_counter == 1:
                     result.scalars.return_value.all.return_value = self._securities
-                elif self._query_counter in (2, 3):
-                    # Both same_episode + legacy fallback return None → INSERT
+                elif self._query_counter == 2:
+                    # same_episode lookup returns None
+                    result.scalar_one_or_none.return_value = None
+                elif self._query_counter == 3:
+                    # Phase 86 open-rows dedup query: no open rows
+                    result.scalars.return_value.all.return_value = []
+                elif self._query_counter == 4:
+                    # Phase 86 phantom-closed recovery lookup: None → INSERT
                     result.scalar_one_or_none.return_value = None
                 else:
                     # Final close-scan: pretend the just-inserted CSCO row

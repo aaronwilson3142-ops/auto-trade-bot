@@ -114,6 +114,10 @@ class _FakeDB:
             result.scalars.return_value.all.return_value = self._securities
         else:
             result.scalar_one_or_none.return_value = self._existing_scalar
+            # Phase 86 (2026-06-06): the open-rows dedup query in
+            # _persist_positions calls .scalars().all() — model "no open
+            # rows" so the matching ladder falls through to insert.
+            result.scalars.return_value.all.return_value = []
             result.all.return_value = list(self._all_open_pairs)
         return result
 

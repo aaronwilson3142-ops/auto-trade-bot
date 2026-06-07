@@ -558,11 +558,19 @@ def _job_scheduler_heartbeat() -> None:
 # Scheduler factory
 # ---------------------------------------------------------------------------
 
-def build_scheduler() -> BackgroundScheduler:
+def build_scheduler(include_paper_trading: bool = True) -> BackgroundScheduler:
     """Create and configure the APScheduler BackgroundScheduler.
 
     Returns a configured (but not yet started) scheduler so it can be
     inspected or started by the caller.
+
+    Phase 86 (2026-06-06): ``include_paper_trading=False`` omits the
+    paper_trading_cycle jobs entirely.  The API process passes False —
+    its broker adapter is malfunctioning when it wins the Phase 82 lock
+    (fill_qty=0, phantom cash drain, position drift on every API-won
+    cycle; see R2 in the 2026-06-01→06 health probes).  The worker is
+    the sole executor of trading cycles; the Phase 82 Redis lock remains
+    in place as defence-in-depth for all other duplicated jobs.
     """
     scheduler = BackgroundScheduler(timezone=_ET)
 
@@ -821,14 +829,20 @@ def build_scheduler() -> BackgroundScheduler:
         (14, 30, "afternoon",        "Afternoon"),
         (15, 30, "close",            "Pre-Close"),
     ]
-    for _hour, _minute, _id_suffix, _label in _paper_cycle_schedule:
-        scheduler.add_job(
-            _job_paper_trading_cycle,
-            CronTrigger(day_of_week=_weekday, hour=_hour, minute=_minute, timezone=_ET),
-            id=f"paper_trading_cycle_{_id_suffix}",
-            name=f"Paper Trading Cycle ({_label})",
-            replace_existing=True,
-            misfire_grace_time=300,
+    if include_paper_trading:
+        for _hour, _minute, _id_suffix, _label in _paper_cycle_schedule:
+            scheduler.add_job(
+                _job_paper_trading_cycle,
+                CronTrigger(day_of_week=_weekday, hour=_hour, minute=_minute, timezone=_ET),
+                id=f"paper_trading_cycle_{_id_suffix}",
+                name=f"Paper Trading Cycle ({_label})",
+                replace_existing=True,
+                misfire_grace_time=300,
+            )
+    else:
+        logger.info(
+            "phase86_paper_trading_jobs_excluded",
+            reason="api_process_broker_malfunction_r2",
         )
 
     return scheduler

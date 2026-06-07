@@ -750,11 +750,16 @@ async def lifespan(app: FastAPI):  # noqa: ARG001
         )
         _restore_evaluation_history_from_db()
         _setup_alert_service()
-        scheduler = build_scheduler()
+        # Phase 86 (2026-06-06): the API process must NOT run paper trading
+        # cycles. Its broker adapter malfunctions on API-won cycles
+        # (fill_qty=0, phantom cash drain, broker position drift — R2).
+        # The worker process is the sole executor of paper_trading_cycle.
+        scheduler = build_scheduler(include_paper_trading=False)
         scheduler.start()
         logger.info(
             "apis_scheduler_started_in_api_process",
             job_count=len(scheduler.get_jobs()),
+            paper_trading_jobs=False,
         )
     except Exception as exc:  # noqa: BLE001
         logger.error("apis_scheduler_start_failed", error=str(exc))

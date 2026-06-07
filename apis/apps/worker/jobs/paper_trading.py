@@ -462,6 +462,7 @@ def _persist_positions(
     Fire-and-forget: never raises — DB failures are logged at WARNING level.
     """
     try:
+        from datetime import timedelta as _timedelta
         from decimal import Decimal as _Decimal
 
         from sqlalchemy import select as _select
@@ -524,17 +525,31 @@ def _persist_positions(
                     .limit(1)
                 ).scalar_one_or_none()
 
-                # Fall back to the legacy "any open row for this security"
-                # match — this preserves prior behaviour when the in-memory
-                # PortfolioPosition.opened_at was set later than the DB row's
-                # opened_at (e.g. via broker-sync after a restart).
-                existing = same_episode or db.execute(
+                # Phase 86 (2026-06-06): in-memory opened_at drifts across
+                # worker sessions (broker-sync restore stamps a fresh
+                # opened_at), so the (security_id, opened_at) episode key
+                # reliably misses after a restart — 6th such episode (R3,
+                # 2026-06-01→05: ARM/GS/AMD/UNH).  Matching ladder:
+                #   1. exact-episode row, if it is open
+                #   2. any open row for this security (newest opened_at)
+                #   3. exact-episode row even if closed (Phase 75 reopen)
+                #   4. recently-phantom-closed row with matching qty+entry
+                #   5. insert a new row
+                # Fetch ALL open rows so extras can be deduped below —
+                # a security must have at most one open row.
+                _open_rows = db.execute(
                     _select(_DBPosition)
                     .where(_DBPosition.security_id == sec_id)
                     .where(_DBPosition.status == "open")
                     .order_by(_DBPosition.opened_at.desc())
-                    .limit(1)
-                ).scalar_one_or_none()
+                ).scalars().all()
+
+                if same_episode is not None and same_episode.status == "open":
+                    existing = same_episode
+                elif _open_rows:
+                    existing = _open_rows[0]
+                else:
+                    existing = same_episode
 
                 qty = _Decimal(str(pos.quantity)) if pos.quantity else _Decimal("0")
                 entry = _Decimal(str(pos.avg_entry_price)) if pos.avg_entry_price else _Decimal("0")
@@ -542,6 +557,47 @@ def _persist_positions(
                 cost = (entry * qty).quantize(_Decimal("0.0001"))
                 mv = (cur * qty).quantize(_Decimal("0.0001"))
                 upl = (mv - cost).quantize(_Decimal("0.0001"))
+
+                # Phase 86 (2026-06-06): phantom-close recovery — the broker
+                # still holds the position but the DB row was closed by an
+                # errant cycle (e.g. UNH phantom-closed at 2026-06-05 c2 by
+                # the malfunctioning API-process cycle).  Reopen the most
+                # recent closed row when quantity + entry price match and the
+                # close is recent, instead of inserting a near-duplicate.
+                if existing is None:
+                    _recent_closed = db.execute(
+                        _select(_DBPosition)
+                        .where(_DBPosition.security_id == sec_id)
+                        .where(_DBPosition.status == "closed")
+                        .where(_DBPosition.closed_at.is_not(None))
+                        .order_by(_DBPosition.closed_at.desc())
+                        .limit(1)
+                    ).scalar_one_or_none()
+                    if (
+                        _recent_closed is not None
+                        and _recent_closed.quantity is not None
+                        and _recent_closed.entry_price is not None
+                        and _Decimal(str(_recent_closed.quantity)) == qty
+                        and abs(_Decimal(str(_recent_closed.entry_price)) - entry)
+                        <= _Decimal("0.05")
+                    ):
+                        _recent_enough = True
+                        try:
+                            _recent_enough = (
+                                run_at - _recent_closed.closed_at
+                            ) <= _timedelta(days=5)
+                        except Exception:  # noqa: BLE001
+                            # tz-aware vs naive comparison — don't let it
+                            # break the whole persist; treat as recent.
+                            _recent_enough = True
+                        if _recent_enough:
+                            logger.info(
+                                "phase86_phantom_closed_row_reopened",
+                                ticker=ticker,
+                                row_id=str(_recent_closed.id),
+                                prior_closed_at=str(_recent_closed.closed_at),
+                            )
+                            existing = _recent_closed
 
                 # Deep-Dive Step 5 Rec 7 deferred finisher (2026-04-18):
                 # persist origin_strategy when the in-memory PortfolioPosition
@@ -596,6 +652,29 @@ def _persist_positions(
                         existing.origin_strategy = _os
 
                 _persist_touched_sec_ids.add(sec_id)
+
+                # Phase 86 (2026-06-06): a security must have AT MOST one
+                # open row.  Close any extra open rows (duplicate-episode
+                # artifacts, e.g. MS Jun-1 qty=1 + Jun-2 qty=38, MU May-1 +
+                # May-21) with realized_pnl=0 so episode P&L stays on the
+                # kept row and the dup never re-fires the close/reopen loop.
+                for _dup in _open_rows:
+                    if existing is not None and _dup.id == existing.id:
+                        continue
+                    _dup.status = "closed"
+                    _dup.closed_at = run_at
+                    if _dup.exit_price is None:
+                        _dup.exit_price = cur
+                    _dup.realized_pnl = _Decimal("0")
+                    logger.warning(
+                        "phase86_duplicate_open_row_closed",
+                        ticker=ticker,
+                        row_id=str(_dup.id),
+                        dup_opened_at=str(_dup.opened_at),
+                        kept_opened_at=(
+                            str(existing.opened_at) if existing is not None else None
+                        ),
+                    )
 
             # ── Close DB positions that are no longer in portfolio_state ─────
             open_db_rows = db.execute(
