@@ -1913,3 +1913,17 @@ Append one entry per mandatory checkpoint. Never overwrite existing entries.
   - Source tutorial: YouTube `lH5wrfNwL3k` (Samin Yasar). Transcript was pulled via `youtube_transcript_api`. The tutorial's trailing-stop strategy is subsumed by Phase 25/26/42; its copy-trading idea is the basis for this phase; its options-wheel is rejected.
 - **Confidence:** High for Part 1 scaffold. Medium-low on whether Part 2 will actually ship — contingent on provider ToS review and walk-forward backtest results.
 
+
+
+---
+
+## Session Handoff — 2026-06-07 02:50 UTC (Sat evening CT) — Phase 86
+
+- **What was done:** All 3 HIGH actions from the Sat 2 PM CT RED probe, autonomously, commit `670936c` pushed.
+  1. **R2 (option a):** `build_scheduler(include_paper_trading=False)` in the API lifespan — API process no longer schedules paper_trading_cycle. Verified: API job_count=29 + `phase86_paper_trading_jobs_excluded`; worker job_count=36.
+  2. **R3 (Phase 86):** `_persist_positions` matching ladder (exact-episode open → any open row → exact-episode reopen → phantom-close recovery [qty match + entry ±$0.05 + closed ≤5 days] → insert) + at-most-one-open-row-per-security dedup (extras closed realized_pnl=0).
+  3. **DB cleanup:** AMD/ARM phantom opens closed (pnl=0), GS closed (proxy pnl=-102.45), MS Jun1 + MU May1 dups closed (pnl=0), UNH `edce5125` UPDATEd back to open. Result: 10 open positions, no ticker with >1 open row.
+- **Verification:** ruff clean; smoke sweep 377/377 (test fakes in test_phase64 + step5 wiring updated for new query order); api+worker restarted; 8/8 containers up; /health 7/7 ok.
+- **NOT fixed:** API broker-adapter init bug (fill_qty=0 / wrong cash) — defanged, not repaired. Fix init before ever re-enabling API-process trading.
+- **Next session must check (Mon 2026-06-08 13:35 UTC c1):** worker-only execution, fill_qty>0 everywhere, drift shrinking, no new dup/phantom rows, correct cash snapshots. Note job-count expectations changed: worker=36, api=29.
+- **Confidence:** High on R2 (mechanically verified). Medium-high on R3 (unit-tested, needs live-cycle validation Monday).
