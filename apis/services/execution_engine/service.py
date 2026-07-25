@@ -105,6 +105,26 @@ class ExecutionEngineService:
                 error_message="Action was marked BLOCKED by risk engine.",
             )
 
+        # ── Phase 87 (2026-07-25): refuse to execute without a real price ───
+        # The 2026-07-24 incident: after a data-provider outage, CLOSE actions
+        # reached the paper broker with no price ever set for their tickers and
+        # were filled at the adapter's $1.00 default, realizing a -$61.6k
+        # phantom loss across 8 positions.  No order — OPEN, CLOSE, or TRIM —
+        # may ever execute without a positive, real market price.
+        if request.current_price is None or request.current_price <= Decimal("0"):
+            self._log.error(
+                "phase87_execution_blocked_no_price",
+                ticker=action.ticker,
+                action_type=action.action_type.value,
+            )
+            return ExecutionResult(
+                status=ExecutionStatus.REJECTED,
+                action=action,
+                error_message=(
+                    "No valid market price available — order not submitted (Phase 87)."
+                ),
+            )
+
         # ── Inject price into paper broker (paper adapter needs explicit prices) ─
         if hasattr(self._broker, "set_price") and request.current_price > Decimal("0"):
             self._broker.set_price(action.ticker, request.current_price)

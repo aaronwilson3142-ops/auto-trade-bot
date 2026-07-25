@@ -205,7 +205,9 @@ class TestExecuteOpenAction:
         assert result.status == ExecutionStatus.REJECTED
         assert result.fill_quantity is None
 
-    def test_invalid_price_returns_error(self):
+    def test_invalid_price_returns_rejected(self):
+        # Phase 87 (2026-07-25): a non-positive price is now REJECTED up front
+        # by the no-price guard (previously fell through to an ERROR result).
         broker = _broker(prices={"AAPL": Decimal("175.00")})
         svc = ExecutionEngineService(settings=_settings(), broker=broker)
 
@@ -214,7 +216,8 @@ class TestExecuteOpenAction:
             current_price=Decimal("0"),
         )
         result = svc.execute_action(req)
-        assert result.status == ExecutionStatus.ERROR
+        assert result.status == ExecutionStatus.REJECTED
+        assert "Phase 87" in (result.error_message or "")
 
     def test_insufficient_cash_returns_rejected(self):
         """Broker has only $100 cash; notional $17500 → InsufficientFundsError → REJECTED."""

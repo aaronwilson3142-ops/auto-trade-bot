@@ -2017,6 +2017,20 @@ def run_paper_trading_cycle(
                 f"mtm_stale_prices: {len(_mtm_stale)} ticker(s) preserved prior-close"
             )
 
+        # ── Phase 87 (2026-07-25): degraded-data cycle gate ──────────────────
+        # When the data provider has no fresh price for at least 3 held tickers
+        # AND at least half the book, the cycle's strategy output is garbage:
+        # rankings are empty/stale, so the rebalancer proposes "not_in_buy_set"
+        # closes of healthy positions (the 2026-07-24 incident closed 8).  In
+        # that state NO strategy action may execute this cycle.  MTM snapshots
+        # (with preserved prices) still run so observability is unaffected.
+        _open_ct = len(portfolio_state.positions)
+        _phase87_degraded_data = (
+            _open_ct > 0
+            and len(_mtm_stale) >= 3
+            and len(_mtm_stale) * 2 >= _open_ct
+        )
+
         ranked_scores = {
             r.ticker: (r.composite_score or Decimal("0")) for r in rankings
         }
@@ -2440,6 +2454,29 @@ def run_paper_trading_cycle(
                     error=str(_p81b_exc),
                 )
 
+        # ── Phase 87 (2026-07-25): drop ALL actions on degraded market data ────
+        # See the _phase87_degraded_data computation after the phantom-equity
+        # guard above.  Placed after every action source (portfolio engine,
+        # exit evaluation, trims, rebalance, phase81b) so nothing slips past.
+        if _phase87_degraded_data and proposed_actions:
+            logger.warning(
+                "phase87_cycle_degraded_stale_data",
+                cycle_id=cycle_id,
+                stale_count=len(_mtm_stale),
+                open_positions=len(portfolio_state.positions),
+                dropped_actions=len(proposed_actions),
+                note=(
+                    "majority of held tickers have no fresh price; all OPEN/"
+                    "CLOSE/TRIM actions dropped this cycle to prevent phantom "
+                    "fills (2026-07-24 $1.00 liquidation incident)"
+                ),
+            )
+            errors.append(
+                f"phase87_degraded_data: dropped {len(proposed_actions)} action(s); "
+                f"{len(_mtm_stale)} stale ticker(s)"
+            )
+            proposed_actions = []
+
         # ── Validate each action + fetch price + build execution requests ──────
         approved_requests: list[ExecutionRequest] = []
         fill_expectations: list[FillExpectation] = []
@@ -2510,8 +2547,25 @@ def run_paper_trading_cycle(
             if action.action_type == ActionType.OPEN:
                 portfolio_state.daily_opens_count += 1
 
-            # Price fetch
-            current_price = _fetch_price(action.ticker, action.target_notional, _market_data_svc, errors)
+            # Price fetch — Phase 87 (2026-07-25): STRICT.  The old
+            # ``_fetch_price`` synthetic fallback (max(notional/100, $1.00))
+            # is what priced the 2026-07-24 phantom liquidation: 8 CLOSE
+            # actions with target_notional=0 fell back to $1.00/share and
+            # realized -$61.6k of fake losses.  If no real price exists the
+            # action is skipped this cycle — never executed at a made-up price.
+            current_price = _fetch_price_strict(action.ticker, _market_data_svc)
+            if current_price is None or current_price <= Decimal("0"):
+                logger.warning(
+                    "phase87_action_skipped_no_price",
+                    ticker=action.ticker,
+                    action_type=action.action_type.value,
+                    reason=getattr(action, "reason", "") or "",
+                )
+                errors.append(f"price_fetch_no_price_{action.ticker} (phase87 skip)")
+                if action.action_type == ActionType.OPEN:
+                    # Undo the approval-time daily_opens_count increment above.
+                    portfolio_state.daily_opens_count -= 1
+                continue
 
             req = ExecutionRequest(action=action, current_price=current_price)
             approved_requests.append(req)
