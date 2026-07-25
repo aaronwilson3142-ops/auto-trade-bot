@@ -2188,3 +2188,7 @@ Full details in `apis/state/HEALTH_LOG.md`.
 - **[YELLOW] HOLX broker rejection — new inactive ticker**: Alpaca rejected order for HOLX ("asset HOLX is not active") on 2026-04-30 19:30 cycle. HOLX should be added to the known-stale/inactive ticker list or removed from the trading universe.
 - **[INFO] 5 modified + 7 untracked files in git tree**: Phase 71 (scheduler liveness probe) changes in api/main.py, worker/main.py, docker-compose.yml deployed to containers via bind mount but not committed. CI cannot validate these changes. 7 scratch _docker_*.txt files cluttering repo root.
 - **[INFO] Signals/rankings stale at 2026-04-29**: Exp
+
+## Health Check — 2026-07-25 16:45 UTC (Saturday) — MANUAL DEEP-DIVE — RED → repaired
+
+Jul 24 phantom liquidation: outage Jul 20-24 + total transient yfinance failure on restart → 8 healthy positions closed "not_in_buy_set" at the $1.00 fallback price → -$61,616 phantom loss, 55% fake drawdown, full risk lockout. REPAIRED: 8 positions reopened, phantom orders/fills/snapshots deleted (14 open, 0 dups, clean Jul 17 snapshot latest). Phase 87 guards committed `80ba345` + pushed + deployed (no-price execution rejection, strict price fetch, degraded-data cycle gate; 0 test regressions). Bars backfilled through Jul 24. Monitoring re-established (`apis-health-check-v3`, 3x/day CT). Full detail: apis/state/HEALTH_LOG.md same date. Validate Mon 2026-07-27 13:35 UTC c1.

@@ -5841,3 +5841,28 @@ The proposed transaction in the prior `2026-05-04 10:10 UTC` entry placed `DELET
 - **Commit Phase 71 changes**: 5 modified source files (api/main.py, worker/main.py, docker-compose.yml, test_phase15, HEALTH_LOG.md) + state docs should be committed and pushed. CI coverage is stale — last CI run tested Phase 70 code, not Phase 71.
 - **Add HOLX to inactive ticker handling**: Either remove HOLX from the trading universe or add it to the known-inactive list so it doesn't generate broker rejections.
 - **Clean up scratch files**: 7 `_docker_*.txt` / `_git_log.txt` files in repo root — safe to delete or .gitignore.
+
+
+## Health Check — 2026-07-25 16:45 UTC (Saturday 11:45 AM CT, market closed) — MANUAL DEEP-DIVE (operator-present session)
+
+**Overall Status:** RED → repaired to GREEN-pending-validation — Jul 24 phantom liquidation found and fully repaired; Phase 87 guards deployed; monitoring re-established.
+
+### Incident: 2026-07-24 $1.00 phantom liquidation (CRITICAL, repaired)
+- Machine outage Sun 2026-07-19 ~04:12 UTC Jul 20 → Fri 2026-07-24 ~16:50 UTC (4 trading days missed; 3rd multi-day outage).
+- On Fri restart, yfinance transiently returned no data for EVERY ticker ("possibly delisted", period=1y) — likely rate-limiting; verified healthy again Sat.
+- Chain: no data → no fresh rankings → rebalancer proposed "not_in_buy_set" CLOSEs of 8 healthy positions (NTRS, MNST, UNH, GL, CVS, DVA, WST, EA) → `_fetch_price` synthetic fallback max(notional/100, $1.00) priced all 8 SELLs at $1.00/share → realized -$61,616 phantom loss → equity $111,627 → $50,011 (drawdown_pct 0.552) → risk engine blocked ALL buys (daily/weekly/monthly drawdown limits). Bot frozen.
+- Prior small-scale occurrences of the same $1.00-fill bug: CSCO+GOOGL 2026-05-18, MRVL qty=1 2026-06-15.
+
+### Repair (all executed this session)
+- DB (transactional): 8 positions reopened (status=open, closed_at=NULL, realized_pnl=NULL); 8 phantom $1.00 orders+fills deleted; 3 corrupted Jul 24 snapshots deleted. Post-repair: 14 open positions, 0 dup tickers, latest snapshot = clean Jul 17 (cash $4,939.88 / equity $111,626.82).
+- Code (Phase 87, commit `80ba345`, pushed): (1) ExecutionEngineService rejects any action with current_price <= 0 (`phase87_execution_blocked_no_price`); (2) approval loop now uses `_fetch_price_strict` and SKIPS no-price actions (`phase87_action_skipped_no_price`) instead of inventing $1.00; (3) degraded-data cycle gate drops ALL strategy actions when >=3 and >=50% of held tickers have no fresh price (`phase87_cycle_degraded_stale_data`).
+- Tests: 5 new Phase 87 tests + 1 upgraded; ruff clean; full tests/unit diff vs HEAD shows ZERO regressions (531 failures pre-exist at HEAD too — full-suite is NOT the smoke baseline; use targeted smoke).
+- Deploy: worker+api restarted 16:29 UTC; /health 7/7 ok; worker job_count=36; api job_count=29 paper_trading_jobs=false (Phase 86 intact).
+- Data: manual ingestion backfill run — bars now current through 2026-07-24 (485/day Jul 17-23, 436 Jul 24); 16 failures = known delisted watchlist.
+- Monitoring: no health-check commits since Jun 8 (schedule had lapsed). New cloud scheduled task `apis-health-check-v3` (trig_01Tm189WCGQosX2yW7AE1HPD) created: 5 AM / 10 AM / 2 PM CT via Desktop Commander headless transport; first run today 2 PM CT.
+
+### Validation window
+- Monday 2026-07-27 13:35 UTC c1: expect correct MTM snapshot (~market value of 14 positions + $4.9k cash), drawdown lockout cleared, no $1.00 fills ever again, no phase87 events (data healthy) — or phase87 skips INSTEAD of trades if data degrades again.
+
+### Action Required from Aaron
+- Keep the machine powered on weeknights: 3rd multi-day outage; each restart lands in the riskiest code path. Consider BIOS auto-power-on + Docker Desktop autostart (known blocker memory).
