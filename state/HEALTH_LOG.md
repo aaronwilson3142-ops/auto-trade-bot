@@ -2192,3 +2192,20 @@ Full details in `apis/state/HEALTH_LOG.md`.
 ## Health Check — 2026-07-25 16:45 UTC (Saturday) — MANUAL DEEP-DIVE — RED → repaired
 
 Jul 24 phantom liquidation: outage Jul 20-24 + total transient yfinance failure on restart → 8 healthy positions closed "not_in_buy_set" at the $1.00 fallback price → -$61,616 phantom loss, 55% fake drawdown, full risk lockout. REPAIRED: 8 positions reopened, phantom orders/fills/snapshots deleted (14 open, 0 dups, clean Jul 17 snapshot latest). Phase 87 guards committed `80ba345` + pushed + deployed (no-price execution rejection, strict price fetch, degraded-data cycle gate; 0 test regressions). Bars backfilled through Jul 24. Monitoring re-established (`apis-health-check-v3`, 3x/day CT). Full detail: apis/state/HEALTH_LOG.md same date. Validate Mon 2026-07-27 13:35 UTC c1.
+
+
+## Health Check — 2026-08-08 23:00 UTC (Saturday) — MANUAL DEEP-DIVE — GREEN (monitoring gap fixed)
+
+Trading system GREEN: Phase 87 validated in production — 0 $1.00 fills in 21 days; guards
+visibly blocked SEE/BK no-price opens every cycle and correctly dropped ALL actions in a
+12/12-stale degraded cycle on Aug 3 (the Jul 24 scenario, zero damage). Jul 27 MTM
+validation confirmed (equity $110,793, lockout cleared). 12 open positions, 0 dups, 0 NULL
+origin_strategy; equity $106,023, dd 4.1%. Alembic single head; git clean; Alertmanager quiet.
+FOUND+FIXED: APIS was unmonitored Jul 25→Aug 8 (cloud trigger can never reach the machine —
+structural). New 2-layer monitoring: Windows Task Scheduler probe scripts/health_probe.ps1
+3x/day committing "state: auto-probe" lines to state/AUTO_PROBE_LOG.md (tested end-to-end),
+plus cloud trigger renamed apis-probe-watchdog that push-notifies on probe RED or >26h
+silence. Also deactivated dead tickers SEE/CTRA/BK (is_active=false; last bars Apr 9 /
+May 7 / Jul 10; SEE was re-proposed every cycle). Noted 4th outage Jul 29–30 (~1.5 days).
+Aaron: create the local AI deep-dive task per state/LOCAL_DEEPDIVE_TASK_SETUP.md; fix
+machine uptime (BIOS auto-power-on + Docker autostart). Full detail: apis/state/HEALTH_LOG.md.

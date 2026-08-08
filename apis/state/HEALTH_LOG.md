@@ -5866,3 +5866,64 @@ The proposed transaction in the prior `2026-05-04 10:10 UTC` entry placed `DELET
 
 ### Action Required from Aaron
 - Keep the machine powered on weeknights: 3rd multi-day outage; each restart lands in the riskiest code path. Consider BIOS auto-power-on + Docker Desktop autostart (known blocker memory).
+
+
+## Health Check — 2026-08-08 23:00 UTC (Saturday 6:00 PM CT, market closed) — MANUAL DEEP-DIVE (operator-present session)
+
+**Overall Status:** GREEN (trading system healthy; Phase 87 validated in production) — with one structural YELLOW found and FIXED: APIS was unmonitored Jul 25→Aug 8.
+
+### §1 Infrastructure
+- Containers: 7/7 APIS + control-plane up 9 days (since ~Jul 30), worker/api/postgres/redis healthy.
+- /health: status ok, 7/7 components ok, mode=paper, kill_switch ok.
+- Alertmanager: 0 firing alerts. Worker logs: no CRITICAL/Traceback, no crash-triad patterns.
+
+### §2 Execution + Data Audit — Phase 87 VALIDATED
+- **Zero $1.00 fills in 21 days** (query returned 0). Guards visibly working in logs:
+  - `phase87_action_skipped_no_price`: SEE proposed for open EVERY cycle Aug 3–7 and
+    blocked each time (BK twice on Aug 4) — instead of $1.00 phantom fills.
+  - `phase87_cycle_degraded_stale_data` 2026-08-03 15:30 UTC: 12/12 held tickers had
+    no fresh price mid-cycle; ALL actions dropped — exactly the Jul 24 scenario, no damage.
+- Jul 27 validation (never verified until now): first snapshot 13:35 UTC equity
+  $110,793 — correct MTM recovery; drawdown lockout cleared; trading resumed.
+- Portfolio: 12 open positions, 0 dup tickers, 0 NULL origin_strategy, 0 dup order
+  idempotency keys. Latest snapshot Aug 7 19:30 UTC: cash $19,603 / equity $106,023 /
+  drawdown 4.1%. Healthy turnover since Jul 28 (opens: JPM, TECH, SNOW, EA, DD, MET,
+  ROST, BRK-B, V, CSCO, MSFT).
+- Cycles: 7/day consistently (13:35–19:30 UTC) — current normal. **Jul 29 zero cycles,
+  Jul 30 only 2 → 4th machine outage (~1.5 days), self-recovered.**
+- Data: bars current through Aug 6 (Fri Aug 7 bars land Monday ~10:00 UTC — normal);
+  rankings + signals last ran Fri Aug 7 10:30/10:45 UTC. evaluation_runs=149 (>80 floor).
+
+### §3 Code + Schema
+- Git: clean tree (untracked `outputs/` only), 0 unpushed at start; HEAD was `a4876c4`.
+- Alembic: `q7r8s9t0u1v2` single head, matches Phase 77.
+
+### Issues Found
+- **[YELLOW→FIXED] APIS unmonitored 2026-07-25 → 2026-08-08**: `apis-health-check-v3`
+  fired 3x/day but cloud scheduled sessions NEVER get the desktop bridge — all ~42
+  firings failed to probe (its own 2026-08-01 firing documented the structural blocker
+  and pushed a phone alert). The Jul 27 Phase 87 validation was never actually verified
+  until today's manual check.
+- **[YELLOW→FIXED] SEE / CTRA / BK dead data feeds still active**: last bars Apr 9 /
+  May 7 / Jul 10; SEE sat in the buy set and was re-proposed every cycle (blocked by
+  Phase 87 each time — noise + wasted buy slot). None were open positions.
+- **[INFO] 4th multi-day outage Jul 29–30** (~1.5 days; Wed cycles missed; recovered).
+
+### Fixes Applied
+1. `UPDATE securities SET is_active=false` for SEE, CTRA, BK (Phase 78 four-layer
+   filter suppresses them from strategies/rankings; still in config watchlist).
+2. **New 2-layer monitoring** (decision: Aaron, this session):
+   - Windows Task Scheduler probe `scripts/health_probe.ps1` 3x/day (05:05/10:05/14:05 CT):
+     checks containers, /health + kill-switch, $1.00 fills (7d), snapshot recency;
+     appends to `state/AUTO_PROBE_LOG.md`, commits + pushes ("state: auto-probe ...").
+     Tested end-to-end incl. a real Task Scheduler run (`c7120a3`, `fbe2589`).
+   - Cloud trigger renamed `apis-probe-watchdog` (same trig id/cron): now only shallow-
+     clones the repo and push-notifies Aaron on probe RED (any firing) or no probe
+     commit >26h (10:00 UTC firing only). No machine probes attempted anymore.
+3. Local AI deep-dive task prompt written to `state/LOCAL_DEEPDIVE_TASK_SETUP.md` —
+   Aaron to create it in the desktop app ("On your computer", daily 5 PM CT).
+
+### Action Required from Aaron
+- Create the local deep-dive scheduled task per `state/LOCAL_DEEPDIVE_TASK_SETUP.md`.
+- Machine uptime remains the root risk (4 outages): consider BIOS auto-power-on +
+  Docker Desktop autostart (known blocker memory).
