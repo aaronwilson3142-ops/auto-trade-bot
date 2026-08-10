@@ -5927,3 +5927,43 @@ The proposed transaction in the prior `2026-05-04 10:10 UTC` entry placed `DELET
 - Create the local deep-dive scheduled task per `state/LOCAL_DEEPDIVE_TASK_SETUP.md`.
 - Machine uptime remains the root risk (4 outages): consider BIOS auto-power-on +
   Docker Desktop autostart (known blocker memory).
+
+
+## Health Check — 2026-08-10 22:30 UTC (Monday 5:30 PM CT, post-close) — LOCAL AI DEEP-DIVE (scheduled, first run)
+
+**Overall Status:** YELLOW — /health returned "degraded" at both the 10:05 and 14:05 CT auto-probes (transient, component not recorded; 7/7 ok at deep-dive time) + one phase87 stale-data cycle at 15:30 UTC (guards held, zero damage). No corruption, no phantom fills, no cap breaches.
+
+### §1 Infrastructure
+- Containers: 8/8 (7 APIS + control-plane) Up 43h, worker/api/postgres/redis healthy. NOTE: stack restarted Sun 2026-08-09 03:21 UTC (weekend, no trading impact).
+- /health 22:11 UTC: status ok, 7/7 components ok, mode=paper. Alertmanager: 0 alerts.
+
+### §2 Trading Integrity + Phase 87
+- **0 $1.00 phantom fills (7d)** ✓. 14 open positions (≤15) ✓, 0 dup tickers ✓, 0 dup idempotency keys ✓.
+- 0 NULL origin_strategy on OPEN rows ✓. (16 NULL rows opened after 2026-04-18 exist but ALL are closed April-era historical rows, pre-2026-04-30 — pre-existing, INFO only.)
+- Latest snapshot Aug 10 19:30 UTC: cash $19,656.65 / equity $106,290.56 / drawdown 0.0% ✓.
+- **phase87_cycle_degraded_stale_data at 15:30 UTC**: 12/12 held tickers had no fresh price mid-cycle; all 5 actions dropped. Guard worked exactly as designed (2nd production firing; same yfinance mid-cycle blackout pattern as Aug 3). Healthy tickers (MSFT/JPM/V/CSCO/BRK-B...) transiently returned "possibly delisted" — provider rate-limiting, self-recovered.
+
+### §3 Cycles + Data
+- 7/7 paper snapshots today ✓ (7/day Mon Aug 3–Fri Aug 7 + today). Bars current through Fri Aug 7 (485 tickers, landed this morning) ✓. Signals 10:30 / rankings 10:45 UTC today ✓. eval_runs=150 ✓.
+- Worker log 24h: 0 CRITICAL/Traceback, 0 crash-triad. 56 ERR lines = known-delisted watchlist (SEE/CTRA/BK/PXD/WRK...) + transient 15:30 blackout + 4 CZR rejections.
+
+### §4 Code/Schema/Config
+- Alembic `q7r8s9t0u1v2` single head ✓. Git clean (untracked outputs/ only), 0 unpushed ✓. Smoke: 28 passed (phase87 + execution_engine) ✓.
+- All APIS_* flags at expected values ✓ (mode=paper, kill_switch=false, max_pos=15, max_new/day=5, thematic 0.75, min_score 0.30; self-improve/insider/Step-6-7-8 unset=OFF).
+
+### §5 Auto-Probe Liveness
+- AUTO_PROBE_LOG: 3 lines last 24h (10:05 GREEN, 15:05 YELLOW health:degraded, 19:05 YELLOW health:degraded) ✓ alive. Task Scheduler jobs 0505/1005/1405 all Ready ✓. Cloud watchdog unchanged.
+
+### Issues Found
+- **[YELLOW] /health "degraded" at 15:05 + 19:05 UTC**: probe records only `health:degraded`, not which component. Degraded-triggering states: broker=error, scheduler=stale/no_heartbeat, paper_cycle=stale, broker_auth=expired, pollution=detected. Most consistent with transient broker-ping error or scheduler-heartbeat staleness during the same data-provider flakiness window. Recovered by 22:11 UTC.
+- **[YELLOW] PLTR/CZR same-day churn**: PLTR bought 13:35→sold 14:30→bought 16:00→sold 17:30; CZR rejected 4x ("Insufficient cash: need ~14,474, have ~4,041" — risk engine approved size exceeding available cash) then bought 18:30→sold 19:30. No integrity breach (cash never negative), but strategy is flip-flopping at the buy-set boundary and burning ~4 trades/day on one name.
+- **[INFO] Stack restart Sun 03:21 UTC** (machine reboot?); recovered cleanly.
+- **[INFO] MEMORY.md project memory index NOT FOUND anywhere on machine** (referenced by past checks; likely lived in a deleted session dir). Recreated minimal `MEMORY.md` at repo root this run so memory is git-versioned going forward.
+
+### Fixes Applied (autonomous)
+- Created repo-root `MEMORY.md` (memory index seed). No container restarts, no DB cleanups needed.
+
+### Recommendations for Aaron
+1. **Extend `scripts/health_probe.ps1`** to append the components JSON when /health != ok (one-line change: `$issues += ('health:' + $h.status + ' ' + ($h.components | ConvertTo-Json -Compress))`) — today's two YELLOWs are undiagnosable retroactively without it. (Code change — left for you or authorize next run.)
+2. **CZR sizing bug**: risk engine approved a $14.5k open with $4k cash 4x today — add available-cash check to sizing/approval (Phase 88 candidate).
+3. **Churn dampener**: consider min-holding-period or hysteresis at the buy-set boundary (PLTR/CZR pattern wastes turnover; cost is real in live mode).

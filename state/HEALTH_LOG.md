@@ -2209,3 +2209,13 @@ silence. Also deactivated dead tickers SEE/CTRA/BK (is_active=false; last bars A
 May 7 / Jul 10; SEE was re-proposed every cycle). Noted 4th outage Jul 29–30 (~1.5 days).
 Aaron: create the local AI deep-dive task per state/LOCAL_DEEPDIVE_TASK_SETUP.md; fix
 machine uptime (BIOS auto-power-on + Docker autostart). Full detail: apis/state/HEALTH_LOG.md.
+
+
+## 2026-08-10 22:30 UTC — LOCAL AI DEEP-DIVE (first scheduled run) — **YELLOW**
+
+Mirror of apis/state/HEALTH_LOG.md entry (primary). Summary:
+- YELLOW: /health "degraded" at 15:05 + 19:05 UTC probes (transient, component unrecorded, 7/7 ok by 22:11) + phase87_cycle_degraded_stale_data at 15:30 UTC (12/12 stale, 5 actions dropped — guard worked, 0 phantom fills).
+- YELLOW: PLTR/CZR same-day churn; CZR rejected 4x with "Insufficient cash need ~14.5k have ~4k" (risk engine sizing ignores available cash).
+- GREEN elsewhere: 8/8 containers (restarted Sun 03:21 UTC, weekend), 0 $1 fills 7d, 14 open/0 dups/0 NULL-origin-open/0 dup keys, snapshot Aug 10 19:30 cash $19,656 equity $106,291 dd 0%, 7/7 cycles today, bars→Aug 7, signals+rankings today, alembic single head, git clean 0 unpushed, smoke 28 passed, all APIS_* flags correct, probes alive + 3 schtasks Ready.
+- Fixes: recreated missing repo-root MEMORY.md (memory index was nowhere on machine).
+- Recs: probe should log failing /health components; fix CZR cash-aware sizing; churn dampener.
