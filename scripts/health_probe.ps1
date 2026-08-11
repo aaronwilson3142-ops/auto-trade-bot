@@ -24,7 +24,7 @@ try {
   $h = Invoke-RestMethod -Uri 'http://localhost:8000/health' -TimeoutSec 15
   if ($h.status -ne 'ok') {
     if ($verdict -ne 'RED') { $verdict = 'YELLOW' }
-    $issues += ('health:' + $h.status)
+    $issues += ('health:' + $h.status + ' components=' + ($h.components | ConvertTo-Json -Compress))
   }
   if ($h.components.kill_switch -ne 'ok') { $verdict = 'RED'; $issues += 'kill_switch_engaged' }
 } catch {

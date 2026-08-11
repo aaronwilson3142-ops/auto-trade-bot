@@ -2219,3 +2219,20 @@ Mirror of apis/state/HEALTH_LOG.md entry (primary). Summary:
 - GREEN elsewhere: 8/8 containers (restarted Sun 03:21 UTC, weekend), 0 $1 fills 7d, 14 open/0 dups/0 NULL-origin-open/0 dup keys, snapshot Aug 10 19:30 cash $19,656 equity $106,291 dd 0%, 7/7 cycles today, bars→Aug 7, signals+rankings today, alembic single head, git clean 0 unpushed, smoke 28 passed, all APIS_* flags correct, probes alive + 3 schtasks Ready.
 - Fixes: recreated missing repo-root MEMORY.md (memory index was nowhere on machine).
 - Recs: probe should log failing /health components; fix CZR cash-aware sizing; churn dampener.
+
+
+
+## 2026-08-11 22:30 UTC — LOCAL AI DEEP-DIVE (scheduled) — **YELLOW**
+
+Mirror of apis/state/HEALTH_LOG.md entry (primary). Summary:
+- YELLOW: /health "degraded" at 15:05 + 19:05 UTC probes — 2nd consecutive day, SAME times,
+  10:05 GREEN both days (systematic, market-hours-only, component unknown). FIXED forward:
+  health_probe.ps1 now appends components JSON on non-ok status, so next occurrence is diagnosable.
+- GREEN elsewhere: 8/8 containers Up 2d, /health 7/7 ok at 22:10, 0 alerts, 0 $1 fills 7d,
+  15 open (=cap)/0 dups/0 NULL-origin-open/0 dup keys, snapshot Aug 11 19:30 cash $12,235
+  equity $106,238 dd 0.05%, 7/7 cycles, bars→Aug 10 (486), signals+rankings today, 0 phase87
+  events (data healthy), 0 CRITICAL/Traceback, alembic single head, git clean 0 unpushed,
+  smoke 28 passed, all APIS_* flags correct, probes alive + 3 schtasks Ready.
+- Aug-10 PLTR/CZR churn did NOT recur (3 orders today: SCHW+TGT buys, V sell).
+- Recs: watch tomorrow's 15:05/19:05 probe lines for components JSON; CZR sizing + churn
+  dampener still open (Phase 88 candidates).

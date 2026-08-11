@@ -31,9 +31,15 @@ git so memory survives session teardown.
 ## Tooling gotchas
 - Desktop Commander + `docker exec -i psql` session DIES on any SQL error — probe column names via information_schema first; one bad statement costs the session.
 - PowerShell `docker logs --since 24h X 2>&1 | Out-File` can yield 0 bytes for the api container; use `--tail N` instead.
-- `health_probe.ps1` records only `health:<status>`, NOT which component degraded — retro-diagnosis impossible (rec to Aaron 2026-08-10 to log components JSON).
+- `health_probe.ps1` logs components JSON on non-ok /health since 2026-08-11 (deep-dive applied the Aug-10 rec); entries before that record only `health:<status>`.
 - Gmail MCP in scheduled sessions exposes create_draft only (no send) — YELLOW/RED notifications = draft + rely on cloud watchdog for push.
 
-## Open questions / watch items (as of 2026-08-10)
-- Cause of /health "degraded" at 15:05 + 19:05 UTC Aug 10 (unrecorded component; suspect broker ping error or scheduler heartbeat staleness during provider flakiness).
-- PLTR/CZR same-day churn + CZR "Insufficient cash" risk-engine sizing bug (Phase 88 candidate).
+## Open questions / watch items (as of 2026-08-11)
+- /health "degraded" at 15:05 + 19:05 UTC probes on BOTH Aug 10 and Aug 11 (same times; 10:05 GREEN both days) — systematic market-hours pattern, component unknown. FIXED FORWARD 2026-08-11: health_probe.ps1 now appends components JSON on non-ok status → check AUTO_PROBE_LOG lines after Aug 12 15:05 UTC to name the component.
+- PLTR/CZR same-day churn + CZR "Insufficient cash" risk-engine sizing bug (Phase 88 candidate). No recurrence Aug 11 (only 3 orders).
+- Open positions hit the 15 cap on Aug 11 (not a breach; watch for cap pressure).
+
+## Tooling gotchas (cont.)
+- Desktop Commander sessions (PowerShell, cmd, python) DIE silently on: `docker logs --since 24h | Select-String`, Select-String over multi-MB files, findstr in cmd, and MULTI-LINE python paste. Reliable pattern: `docker logs --tail N > %TEMP%\file.log`, then `python -i -q` with ONE-LINE commands only.
+- Worker log volume ~1k lines/day; --tail 20000 spans ~1 month.
+- `stress_gate_applied` warnings in worker logs are normal risk-engine behavior (firing since ≥Jul 13), not an incident.

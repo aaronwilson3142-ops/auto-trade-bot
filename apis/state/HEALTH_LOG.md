@@ -5967,3 +5967,62 @@ The proposed transaction in the prior `2026-05-04 10:10 UTC` entry placed `DELET
 1. **Extend `scripts/health_probe.ps1`** to append the components JSON when /health != ok (one-line change: `$issues += ('health:' + $h.status + ' ' + ($h.components | ConvertTo-Json -Compress))`) — today's two YELLOWs are undiagnosable retroactively without it. (Code change — left for you or authorize next run.)
 2. **CZR sizing bug**: risk engine approved a $14.5k open with $4k cash 4x today — add available-cash check to sizing/approval (Phase 88 candidate).
 3. **Churn dampener**: consider min-holding-period or hysteresis at the buy-set boundary (PLTR/CZR pattern wastes turnover; cost is real in live mode).
+
+
+
+## Health Check — 2026-08-11 22:30 UTC (Tuesday 5:30 PM CT, post-close) — LOCAL AI DEEP-DIVE (scheduled)
+
+**Overall Status:** YELLOW — /health "degraded" again at the 15:05 and 19:05 UTC auto-probes
+(2nd consecutive day, SAME two probe times; 7/7 ok at deep-dive 22:10 UTC). Component still
+unrecorded — FIXED this run: probe script now logs components JSON on any non-ok status.
+Everything else nominal; yesterday's PLTR/CZR churn did NOT recur today.
+
+### §1 Infrastructure
+- Containers: 8/8 (7 APIS + control-plane) Up 2 days, worker/api/postgres/redis healthy.
+- /health 22:10 UTC: status ok, 7/7 components ok, mode=paper. Alertmanager: 0 alerts.
+
+### §2 Trading Integrity + Phase 87
+- 0 $1.00 phantom fills (7d) ✓. 15 open positions (= cap 15, not a breach) ✓, 0 dup tickers ✓,
+  0 NULL origin_strategy on OPEN rows ✓, 0 dup order idempotency keys ✓.
+- Latest snapshot Aug 11 19:30 UTC: cash $12,234.71 / equity $106,237.75 / drawdown 0.05% ✓.
+- 0 phase87 events in 24h — data healthy all day (no stale-data cycles, unlike Aug 3 + Aug 10).
+- Turnover today: only 3 orders (SCHW buy, TGT buy, V sell). No same-day churn; the
+  Aug-10 PLTR/CZR flip-flop pattern did not recur. No CZR "Insufficient cash" rejections.
+
+### §3 Cycles + Data
+- 7/7 paper snapshots today (13:35–19:30 UTC) ✓. Bars current through Mon Aug 10
+  (486 tickers, landed this morning) ✓. Signals 10:30 / rankings 10:45 UTC today ✓. eval_runs=151 ✓.
+- Worker log 24h (982 lines): 0 CRITICAL/Traceback, 0 crash-triad, 0 phase87. 74 warn/err
+  lines = known-delisted watchlist noise (404s/possibly-delisted/no-security-id) + 7
+  stress_gate_applied (normal risk-engine gate, firing since ≥Jul 13, not new).
+
+### §4 Code/Schema/Config
+- Alembic `q7r8s9t0u1v2` single head ✓. Git clean (untracked outputs/ only), 0 unpushed at
+  start ✓. Smoke: 28 passed (phase87 + execution_engine) ✓.
+- All APIS_* flags at expected values ✓ (paper, kill_switch=false, max_pos=15, max_new/day=5,
+  thematic 0.75, min_score 0.30; self-improve/insider/Step-6-7-8 unset=OFF).
+
+### §5 Auto-Probe Liveness
+- AUTO_PROBE_LOG: 3 lines last 24h (10:05 GREEN, 15:05 YELLOW health:degraded, 19:05 YELLOW
+  health:degraded) ✓ alive. Schtasks 0505/1005/1405 all Ready, next runs tomorrow ✓.
+
+### Issues Found
+- **[YELLOW] /health "degraded" at 15:05 + 19:05 UTC — 2nd consecutive day, same two probe
+  times, 10:05 GREEN both days.** Pattern is now systematic, not random: degradation occurs
+  during market hours only. Component still unknown (probe didn't record it — now fixed, see
+  below). Working hypothesis: transient broker-ping error or scheduler-heartbeat staleness
+  during provider flakiness windows. api-container log tail shows no "degraded"/error lines;
+  worker log clean. Next occurrence WILL be diagnosable from AUTO_PROBE_LOG components JSON.
+
+### Fixes Applied (autonomous)
+- **`scripts/health_probe.ps1`**: implemented the Aug-10 recommendation — on any /health
+  status != ok the probe line now appends `components=<JSON>` (one-line change, PSParser
+  syntax-verified, committed this run). Authorized by Aaron's standing "no permission needed
+  on this laptop" instruction; monitoring-only change, no strategy/secret impact.
+- No container restarts, no DB cleanups needed.
+
+### Recommendations for Aaron
+1. CZR/PLTR items from Aug 10 remain open (cash-aware sizing = Phase 88 candidate; churn
+   dampener) — no recurrence today, so no urgency escalation.
+2. After tomorrow's 15:05/19:05 UTC probes, check AUTO_PROBE_LOG for the components JSON —
+   that will finally name the degraded component; deep-dive will follow up automatically.
