@@ -6026,3 +6026,71 @@ Everything else nominal; yesterday's PLTR/CZR churn did NOT recur today.
    dampener) — no recurrence today, so no urgency escalation.
 2. After tomorrow's 15:05/19:05 UTC probes, check AUTO_PROBE_LOG for the components JSON —
    that will finally name the degraded component; deep-dive will follow up automatically.
+
+
+
+## Health Check — 2026-08-12 22:15 UTC (Wednesday 5:15 PM CT, post-close) — LOCAL AI DEEP-DIVE (scheduled)
+
+**Overall Status:** YELLOW — machine outage/sleep for most of the trading day (5th multi-hour
+outage; the known recurring risk). Windows booted 04:33 UTC but the stack was down until
+~19:10 UTC: all 3 auto-probes skipped, 6/7 paper cycles missed, morning signals/rankings did
+not run, Aug-11 bars never ingested. The single cycle that ran (19:30 UTC) was clean.
+No integrity issues. The 2-day 15:05/19:05 "degraded" mystery got no new data (probes never ran).
+
+### §1 Infrastructure
+- Containers: 8/8 Up 3 hours (started ~19:10 UTC), worker/api/postgres/redis healthy.
+- /health 22:10 UTC: status ok, 7/7 components ok, mode=paper. Alertmanager: 0 alerts.
+
+### §2 Trading Integrity + Phase 87
+- 0 $1.00 phantom fills (7d) ✓. 11 open positions (≤15) ✓, 0 dup tickers ✓, 0 NULL
+  origin_strategy on open rows ✓, 0 dup order idempotency keys ✓.
+- Latest snapshot Aug 12 19:30 UTC: cash $34,735.20 / equity $106,821.00 / drawdown 0.00% ✓.
+- Today's only cycle sold 4 (CSCO, CZR, MET, BAC) at real prices ($123.89/$29.60/$96.78/$64.80).
+- 0 phase87 events — cycle used live quotes despite bars being stale (Aug 10).
+
+### §3 Cycles + Data — THE YELLOW
+- 1/7 paper snapshots today (19:30 only; 13:35–18:30 all missed — stack down).
+- Bars stale: latest trade_date Aug 10 (Aug-11 bars missed the 10:00 UTC ingest window).
+- Signals/rankings last ran Aug 11 10:30/10:45 UTC — no runs today. eval_runs=152.
+- Worker log since 19:10 start (441 lines today): 0 CRITICAL/Traceback/phase87/warn/err.
+- Self-improvement: proposals job ran 22:00 (grade C, 1 proposal); auto-execute correctly
+  skipped 22:15 with "self_improvement_auto_execute_enabled is False" ✓.
+
+### §4 Code/Schema/Config
+- Alembic `q7r8s9t0u1v2` single head ✓. Git clean (untracked outputs/ only), 0 unpushed ✓.
+- Smoke: 28 passed (phase87 + execution_engine) ✓.
+- All APIS_* flags at expected values ✓ (paper, kill_switch=false, max_pos=15, max_new/day=5,
+  thematic 0.75, min_score 0.30; self-improve/insider/Step-6-7-8 unset=OFF).
+
+### §5 Auto-Probe Liveness — THE OTHER YELLOW
+- AUTO_PROBE_LOG: 0 lines in last 24h (last = Aug 11 19:05 UTC, >27h ago at this writing).
+- Schtasks 0505/1005/1405 all exist, Status Ready, Last Result 0 — but Last Run = Aug 11 for
+  all three and Next Run = Aug 13: machine was asleep at all three trigger times today and
+  the tasks are NOT configured to run missed triggers on wake ("Run task as soon as possible
+  after a scheduled start is missed" appears unset).
+- Cloud watchdog >26h-silence threshold crossed ~21:05 UTC today; Aaron may already have
+  gotten the push.
+
+### Issues Found
+- **[YELLOW] Machine outage/sleep ~04:33→19:10 UTC**: 5th recurrence of the top known risk.
+  Missed: 3/3 probes, 6/7 cycles, signals+rankings, Aug-11 bars. Self-healing expected
+  tomorrow (bars ~10:00, signals 10:30, rankings 10:45 UTC) — verify in next deep-dive.
+- **[YELLOW] Probe tasks don't fire after wake**: outage days = probe silence = cloud
+  watchdog is the only signal, and only after 26h. Fix is one flag on each task (see recs).
+- **[INFO] 15:05/19:05 degraded mystery unresolved** — probes never ran today, so the new
+  components-JSON logging got no chance to fire. Carry watch item to tomorrow.
+- **[INFO] No PLTR/CZR churn recurrence** (CZR sold once at 19:30; only 4 orders today, all sells).
+
+### Fixes Applied (autonomous)
+- None needed beyond report/log/memory updates: containers healthy on arrival, no drift,
+  no DB cleanup targets. Did NOT modify Task Scheduler jobs (host scheduler config is
+  outside documented autonomous authority — flagged as rec #1 instead).
+
+### Recommendations for Aaron
+1. **Enable "Run task as soon as possible after a scheduled start is missed"** on
+   APIS-Health-Probe-0505/1005/1405 (Task Scheduler → task → Settings tab). One checkbox
+   each; converts sleep days from "silent" to "late probe". I can do this next run if you
+   authorize host-scheduler changes in the task instructions.
+2. Consider the same missed-run handling for whatever starts Docker Desktop on login/wake —
+   stack sat down for ~15h after boot today.
+3. CZR cash-aware sizing + churn dampener (Phase 88 candidates) remain open; no recurrence.

@@ -2236,3 +2236,20 @@ Mirror of apis/state/HEALTH_LOG.md entry (primary). Summary:
 - Aug-10 PLTR/CZR churn did NOT recur (3 orders today: SCHW+TGT buys, V sell).
 - Recs: watch tomorrow's 15:05/19:05 probe lines for components JSON; CZR sizing + churn
   dampener still open (Phase 88 candidates).
+
+
+
+## 2026-08-12 22:15 UTC — LOCAL AI DEEP-DIVE (scheduled) — **YELLOW**
+
+Mirror of apis/state/HEALTH_LOG.md entry (primary). Summary:
+- YELLOW: machine asleep/stack down ~04:33→19:10 UTC (5th outage recurrence). Missed all 3
+  auto-probes (schtasks skipped, no missed-run flag), 6/7 paper cycles, today's signals/
+  rankings, and Aug-11 bars (latest bars = Aug 10). Only the 19:30 UTC cycle ran: clean,
+  4 sells (CSCO/CZR/MET/BAC) at real prices, 0 phase87 events.
+- GREEN elsewhere: 8/8 containers healthy (up since ~19:10), /health 7/7 ok at 22:10,
+  0 alerts, 0 $1 fills 7d, 11 open/0 dups/0 NULL-origin-open/0 dup keys, snapshot Aug 12
+  19:30 cash $34,735 equity $106,821 dd 0%, worker log clean, auto-execute correctly
+  skipped (disabled), alembic single head, git clean, smoke 28 passed, all APIS_* flags correct.
+- 15:05/19:05 "degraded" mystery: no new data (probes never ran) — watch tomorrow.
+- Recs: enable "run missed task after wake" on the 3 probe schtasks; auto-start stack after
+  boot/wake; Phase 88 (CZR sizing, churn dampener) still open.

@@ -19,7 +19,7 @@ git so memory survives session teardown.
 - Phase 87 guards (post Jul-24 $1.00 phantom-liquidation incident) validated in production: `phase87_action_skipped_no_price`, `phase87_cycle_degraded_stale_data` (fired Aug 3 + Aug 10 — recurring yfinance mid-cycle blackouts where healthy tickers return "possibly delisted"; guard drops all actions, self-recovers).
 - Monitoring: Task Scheduler probes APIS-Health-Probe-0505/1005/1405 → `state/AUTO_PROBE_LOG.md` + git push; cloud watchdog `apis-probe-watchdog` notifies Aaron on probe RED or >26h silence; local AI deep-dive daily 5 PM CT (this task).
 - Known-dead tickers set is_active=false (SEE/CTRA/BK 2026-08-08); yfinance 404s/possibly-delisted for PXD/WRK/IPG/HES/MRO/MMC/JNPR/K/PKI/DFS/CTLT/ANSS etc. are watchlist noise.
-- Machine outages are the root recurring risk (4 multi-day outages; last Jul 29–30). Stack restarted Sun 2026-08-09 03:21 UTC (weekend, harmless).
+- Machine outages are the root recurring risk (5 outages; last Aug 12 ~04:33→19:10 UTC — asleep through all probes + 6/7 cycles). Stack restarts: Sun 2026-08-09 03:21 UTC (harmless), Wed 2026-08-12 ~19:10 UTC (post-outage).
 
 ## DB schema gotchas (save yourself the errors)
 - `positions` has NO ticker column — join `securities s ON s.id=p.security_id`, use `s.ticker` (NOT s.symbol).
@@ -27,6 +27,7 @@ git so memory survives session teardown.
 - `daily_market_bars`: date column is `trade_date` (not bar_date).
 - Signal/ranking tables: `signal_runs`, `ranking_runs`, `evaluation_runs` (use max(created_at)).
 - 16 closed April-2026 positions have NULL origin_strategy — historical, pre-existing; the 0-NULL invariant applies to OPEN rows.
+- `positions.status` values are LOWERCASE ('open'/'closed') — `WHERE status='OPEN'` silently returns 0 rows.
 
 ## Tooling gotchas
 - Desktop Commander + `docker exec -i psql` session DIES on any SQL error — probe column names via information_schema first; one bad statement costs the session.
@@ -34,12 +35,15 @@ git so memory survives session teardown.
 - `health_probe.ps1` logs components JSON on non-ok /health since 2026-08-11 (deep-dive applied the Aug-10 rec); entries before that record only `health:<status>`.
 - Gmail MCP in scheduled sessions exposes create_draft only (no send) — YELLOW/RED notifications = draft + rely on cloud watchdog for push.
 
-## Open questions / watch items (as of 2026-08-11)
-- /health "degraded" at 15:05 + 19:05 UTC probes on BOTH Aug 10 and Aug 11 (same times; 10:05 GREEN both days) — systematic market-hours pattern, component unknown. FIXED FORWARD 2026-08-11: health_probe.ps1 now appends components JSON on non-ok status → check AUTO_PROBE_LOG lines after Aug 12 15:05 UTC to name the component.
-- PLTR/CZR same-day churn + CZR "Insufficient cash" risk-engine sizing bug (Phase 88 candidate). No recurrence Aug 11 (only 3 orders).
-- Open positions hit the 15 cap on Aug 11 (not a breach; watch for cap pressure).
+## Open questions / watch items (as of 2026-08-12)
+- /health "degraded" at 15:05 + 19:05 UTC on Aug 10 + Aug 11 — component STILL unknown: Aug 12 probes never ran (machine asleep), so the components-JSON logging hasn't fired yet. Check AUTO_PROBE_LOG after Aug 13 15:05 UTC.
+- Aug 12 outage: machine asleep/stack down ~04:33→19:10 UTC (5th outage). Missed 3/3 probes, 6/7 cycles, signals/rankings, Aug-11 bars. VERIFY next run: bars caught up (should include Aug 11 + Aug 12 by Aug 13 ~10:00 UTC), signals/rankings ran Aug 13.
+- Probe schtasks do NOT run missed triggers after wake (Last Run 8/11, Next 8/13, today skipped). Rec to Aaron: enable "run ASAP after missed start" on all 3; deep-dive not authorized to edit host scheduler.
+- PLTR/CZR same-day churn + CZR "Insufficient cash" sizing bug (Phase 88 candidate). No recurrence Aug 11–12.
+- Positions 11/15 after Aug-12's four sells (CSCO/CZR/MET/BAC); cap pressure eased.
 
 ## Tooling gotchas (cont.)
 - Desktop Commander sessions (PowerShell, cmd, python) DIE silently on: `docker logs --since 24h | Select-String`, Select-String over multi-MB files, findstr in cmd, and MULTI-LINE python paste. Reliable pattern: `docker logs --tail N > %TEMP%\file.log`, then `python -i -q` with ONE-LINE commands only.
 - Worker log volume ~1k lines/day; --tail 20000 spans ~1 month.
 - `stress_gate_applied` warnings in worker logs are normal risk-engine behavior (firing since ≥Jul 13), not an incident.
+- PowerShell `>` redirection writes UTF-16: read the temp log in python with encoding='utf-16' (utf-8 gives mojibake doubling apparent line count).
