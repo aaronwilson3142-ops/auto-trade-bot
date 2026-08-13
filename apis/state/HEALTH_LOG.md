@@ -6094,3 +6094,69 @@ No integrity issues. The 2-day 15:05/19:05 "degraded" mystery got no new data (p
 2. Consider the same missed-run handling for whatever starts Docker Desktop on login/wake —
    stack sat down for ~15h after boot today.
 3. CZR cash-aware sizing + churn dampener (Phase 88 candidates) remain open; no recurrence.
+
+
+
+## Health Check — 2026-08-13 22:18 UTC (Thursday 5:18 PM CT, post-close) — LOCAL AI DEEP-DIVE (scheduled)
+
+**Overall Status:** GREEN — full recovery from the Aug-12 outage confirmed (bars caught up,
+signals/rankings ran, 7/7 cycles, all 3 probes fired). And the 15:05/19:05 "degraded"
+mystery is SOLVED: components JSON (logged for the first time today by the Aug-11 probe fix)
+shows `paper_cycle: "stale"` — a benign staleness-threshold artifact, not a real failure.
+
+### §1 Infrastructure
+- Containers: 8/8 Up 27 hours (since Aug-12 ~19:10 UTC restart), worker/api/postgres/redis healthy.
+- /health 22:10 UTC: status ok, 7/7 components ok, mode=paper. Alertmanager: 0 alerts.
+
+### §2 Trading Integrity + Phase 87
+- 0 $1.00 phantom fills (7d) ✓. 15 open positions (= cap, not a breach) ✓, 0 dup tickers ✓,
+  0 NULL origin_strategy on open rows ✓, 0 dup order idempotency keys ✓.
+- Latest snapshot Aug 13 19:30 UTC: cash $6,437.71 / equity $106,806.47 / drawdown 0.01% ✓.
+- 0 phase87 events in 24h — data healthy all day.
+- Turnover: 4 buys at 13:35 (PFE, BAC, V, PANW), all filled, ≤5/day cap ✓. No same-day churn.
+  [INFO] BAC (sold Aug 12) and V (sold Aug 11) were rebought today — cross-day churn;
+  strengthens the Phase-88 churn-dampener case but is not an integrity issue.
+
+### §3 Cycles + Data — outage recovery VERIFIED
+- 7/7 paper snapshots today (13:35–19:30 UTC) ✓.
+- Bars caught up: Aug 11 (485) + Aug 12 (485) both ingested; latest trade_date Aug 12 ✓
+  (Aug-13 bars land tomorrow ~10:00 UTC as normal).
+- Signals 10:30 / rankings 10:45 UTC ran today ✓. eval_runs=153 (+1) ✓.
+- Worker log 24h (889 lines today): 0 CRITICAL/Traceback, 0 crash-triad, 0 phase87.
+  78 warn/err lines = known delisted-ticker noise (39), 7 stress_gate_applied (normal),
+  1 transient yfinance 401 "Invalid Crumb", rest = known Empty-DataFrame/no-security-id set.
+
+### §4 Code/Schema/Config
+- Alembic `q7r8s9t0u1v2` single head ✓. Git clean (untracked outputs/ only), 0 unpushed at start ✓.
+- Smoke: 28 passed, 2 warnings (phase87 + execution_engine) ✓.
+- All APIS_* flags at expected values ✓ (paper, kill_switch=false, max_pos=15, max_new/day=5,
+  thematic 0.75, min_score 0.30; self-improve/insider/Step-6-7-8 unset=OFF).
+
+### §5 Auto-Probe Liveness
+- AUTO_PROBE_LOG: 3 lines last 24h (10:05 GREEN, 15:05 YELLOW, 19:05 YELLOW) ✓ alive.
+- Schtasks 0505/1005/1405 all Ready, next runs 8/14 ✓. (Missed-trigger flag still unset — open rec.)
+
+### Issues Found
+- **[RESOLVED] 15:05/19:05 "degraded" mystery → `paper_cycle: "stale"`.** Today's probes
+  logged components JSON for the first time: at both in-market probe times every component is
+  ok except paper_cycle=stale. Root cause is timing, not failure: probes fire ~35 min after
+  the preceding cycle (15:05 vs 14:30, 19:05 vs 18:30), and the /health paper_cycle staleness
+  threshold is evidently <35 min during market hours. 10:05 probe (pre-market) and post-close
+  checks show ok. All 7 cycles ran on schedule both flagged days — the flag is a monitoring
+  artifact that will recur on EVERY in-market probe until threshold or probe times change.
+- **[INFO] BAC/V cross-day rebuy churn** (see §2). No CZR "Insufficient cash" recurrence.
+
+### Fixes Applied (autonomous)
+- None needed. No restarts, no drift, no DB cleanups. Did not change the paper_cycle
+  threshold (app code = outside documented autonomous authority) or probe times (host
+  scheduler = same) — recs below instead.
+
+### Recommendations for Aaron
+1. **Kill the daily false-YELLOW**: either (a) widen the /health paper_cycle staleness
+   threshold to ~70 min during market hours (covers the 60-min cycle gaps), or (b) shift
+   probe times from :05 to :40 (5 min after cycles). (a) is the better fix — I can implement
+   it next run if you authorize app-code monitoring changes.
+2. Still open: enable "Run task as soon as possible after a scheduled start is missed" on the
+   3 probe schtasks (Aug-12 rec — one checkbox each).
+3. Phase 88 candidates (cash-aware sizing, churn dampener) gain evidence: BAC/V rebought
+   1-2 days after selling.

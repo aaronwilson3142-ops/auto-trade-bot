@@ -35,12 +35,12 @@ git so memory survives session teardown.
 - `health_probe.ps1` logs components JSON on non-ok /health since 2026-08-11 (deep-dive applied the Aug-10 rec); entries before that record only `health:<status>`.
 - Gmail MCP in scheduled sessions exposes create_draft only (no send) — YELLOW/RED notifications = draft + rely on cloud watchdog for push.
 
-## Open questions / watch items (as of 2026-08-12)
-- /health "degraded" at 15:05 + 19:05 UTC on Aug 10 + Aug 11 — component STILL unknown: Aug 12 probes never ran (machine asleep), so the components-JSON logging hasn't fired yet. Check AUTO_PROBE_LOG after Aug 13 15:05 UTC.
-- Aug 12 outage: machine asleep/stack down ~04:33→19:10 UTC (5th outage). Missed 3/3 probes, 6/7 cycles, signals/rankings, Aug-11 bars. VERIFY next run: bars caught up (should include Aug 11 + Aug 12 by Aug 13 ~10:00 UTC), signals/rankings ran Aug 13.
-- Probe schtasks do NOT run missed triggers after wake (Last Run 8/11, Next 8/13, today skipped). Rec to Aaron: enable "run ASAP after missed start" on all 3; deep-dive not authorized to edit host scheduler.
-- PLTR/CZR same-day churn + CZR "Insufficient cash" sizing bug (Phase 88 candidate). No recurrence Aug 11–12.
-- Positions 11/15 after Aug-12's four sells (CSCO/CZR/MET/BAC); cap pressure eased.
+## Open questions / watch items (as of 2026-08-13)
+- **RESOLVED 2026-08-13**: /health "degraded" at 15:05/19:05 UTC = `paper_cycle:"stale"` (components JSON finally logged). Benign timing artifact: in-market probes fire ~35 min after the preceding cycle (15:05 vs 14:30, 19:05 vs 18:30) and the staleness threshold is <35 min. Will recur EVERY in-market probe until fixed. Rec to Aaron: widen threshold to ~70 min (app code — deep-dive can do it if authorized) or move probes to :40. Treat 15:05/19:05 YELLOW health:degraded w/ only paper_cycle stale as known-benign.
+- **RESOLVED 2026-08-13**: Aug-12 outage fully self-healed — bars Aug 11+12 ingested (~485 each), signals/rankings ran 10:30/10:45, 7/7 cycles, 3/3 probes fired.
+- Probe schtasks still do NOT run missed triggers after wake. Rec to Aaron (open since Aug 12): enable "run ASAP after missed start" on all 3; deep-dive not authorized to edit host scheduler.
+- Churn watch: BAC (sold Aug 12) and V (sold Aug 11) rebought Aug 13 — cross-day churn. Plus earlier PLTR/CZR same-day churn + CZR "Insufficient cash" sizing bug. Phase 88 candidates (cash-aware sizing, churn dampener) gaining evidence.
+- Positions back at 15/15 (cap, not breach) after Aug-13 buys PFE/BAC/V/PANW. Cash $6.4k.
 
 ## Tooling gotchas (cont.)
 - Desktop Commander sessions (PowerShell, cmd, python) DIE silently on: `docker logs --since 24h | Select-String`, Select-String over multi-MB files, findstr in cmd, and MULTI-LINE python paste. Reliable pattern: `docker logs --tail N > %TEMP%\file.log`, then `python -i -q` with ONE-LINE commands only.

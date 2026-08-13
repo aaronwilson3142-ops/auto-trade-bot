@@ -2253,3 +2253,5 @@ Mirror of apis/state/HEALTH_LOG.md entry (primary). Summary:
 - 15:05/19:05 "degraded" mystery: no new data (probes never ran) — watch tomorrow.
 - Recs: enable "run missed task after wake" on the 3 probe schtasks; auto-start stack after
   boot/wake; Phase 88 (CZR sizing, churn dampener) still open.
+
+- 2026-08-13 22:18 UTC | GREEN | deep-dive: full Aug-12 outage recovery (7/7 cycles, bars Aug 11+12 in, signals/rankings ran); degraded-mystery SOLVED = paper_cycle staleness-threshold artifact at in-market probe times (benign, recs filed); 0 phantom fills, 15/15 positions clean, smoke 28 passed, config nominal.
