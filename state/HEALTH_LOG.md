@@ -2255,3 +2255,13 @@ Mirror of apis/state/HEALTH_LOG.md entry (primary). Summary:
   boot/wake; Phase 88 (CZR sizing, churn dampener) still open.
 
 - 2026-08-13 22:18 UTC | GREEN | deep-dive: full Aug-12 outage recovery (7/7 cycles, bars Aug 11+12 in, signals/rankings ran); degraded-mystery SOLVED = paper_cycle staleness-threshold artifact at in-market probe times (benign, recs filed); 0 phantom fills, 15/15 positions clean, smoke 28 passed, config nominal.
+
+
+## 2026-08-14 22:20 UTC — Local AI deep-dive — **GREEN**
+All nominal: 8/8 containers healthy, /health ok 7/7, 0 alerts, 0 phantom fills (7d),
+15/15 positions (cap) with 0 dups / 0 NULL origin / 0 dup idempotency keys, cash $6,117.21,
+drawdown 0.23%, 7/7 cycles, bars current (Aug 13), signals+rankings ran, alembic single head,
+git clean/pushed, smoke 28/28, config flags all correct, 3/3 probes fired (15:05/19:05 YELLOW =
+known-benign paper_cycle staleness artifact). WATCH: churn — PFE/V/PANW 1-day round-trips,
+CZR/CSCO next-day rebuys; Phase-88 dampener evidence now daily. No autonomous fixes needed.
+Full details: apis/state/HEALTH_LOG.md.

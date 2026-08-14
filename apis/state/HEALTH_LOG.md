@@ -6160,3 +6160,63 @@ shows `paper_cycle: "stale"` — a benign staleness-threshold artifact, not a re
    3 probe schtasks (Aug-12 rec — one checkbox each).
 3. Phase 88 candidates (cash-aware sizing, churn dampener) gain evidence: BAC/V rebought
    1-2 days after selling.
+
+
+
+## Health Check — 2026-08-14 22:20 UTC (Friday 5:20 PM CT, post-close) — LOCAL AI DEEP-DIVE (scheduled)
+
+**Overall Status:** GREEN — all nominal. Quiet, fully-scheduled day: 7/7 cycles, bars/signals/
+rankings current, 3/3 probes fired, no phase87 events, no drift. Only watch item: churn
+evidence strengthened again (see §2).
+
+### §1 Infrastructure
+- Containers: 8/8 Up 2 days (since Aug-12 ~19:10 UTC restart), worker/api/postgres/redis healthy.
+- /health 22:10 UTC: status ok, 7/7 components ok, mode=paper. Alertmanager: 0 alerts.
+
+### §2 Trading Integrity + Phase 87
+- 0 $1.00 phantom fills (7d) ✓. 15 open positions (= cap) ✓, 0 dup tickers ✓, 0 NULL
+  origin_strategy on open rows ✓, 0 dup order idempotency keys ✓.
+- Latest snapshot Aug 14 19:30 UTC: cash $6,117.21 / equity $106,578.12 / drawdown 0.23% ✓.
+- 0 phase87 events in 24h — data healthy all day.
+- Turnover: 10 orders today, all filled at real prices — 5 sells (PFE $26.51, V $365.07,
+  BRK-B $508.06, ROST $244.62, PANW $393.08) then 5 buys (CZR, CSCO, NTAP, AMP, MRK),
+  exactly at the 5-new/day cap.
+- **[WATCH] Churn intensifying:** PFE/V/PANW were bought YESTERDAY and sold today (1-day
+  round-trips); CZR and CSCO were sold yesterday and rebought today. That's 5 of today's 10
+  orders reversing decisions ≤1 day old. No integrity violation, but Phase-88
+  churn-dampener evidence is now strong and recurring daily.
+
+### §3 Cycles + Data
+- 7/7 paper snapshots today (13:35–19:30 UTC) ✓.
+- Bars current: latest trade_date Aug 13 (485 bars) ✓ — Aug-14 bars land Monday ~10:00 UTC.
+- Signals 10:30 / rankings 10:45 UTC ran today ✓. eval_runs=154 (+1) ✓.
+- Worker log 24h (871 lines today): 0 CRITICAL/Traceback, 0 crash-triad, 0 phase87.
+  75 warn/err = known noise only: 23 yfinance HTTP 404s, ~14 possibly-delisted watchlist
+  tickers (CTLT/MMC/PXD/JNPR/CTRA/DFS/K/MRO/WRK/SEE...), 7 stress_gate_applied (normal).
+
+### §4 Code/Schema/Config
+- Alembic `q7r8s9t0u1v2` single head ✓. Git clean (untracked outputs/ only), 0 unpushed at start ✓.
+- Smoke: 28 passed, 2 warnings (phase87 + execution_engine) ✓.
+- Container env: all 6 APIS_* flags at expected values ✓ (paper, kill_switch=false, max_pos=15,
+  max_new/day=5, thematic 0.75, min_score 0.30); self-improve/insider/Step-6-7-8 unset=OFF ✓.
+  (Note: no .env at repo root — verified via `docker exec docker-worker-1 env`.)
+
+### §5 Auto-Probe Liveness
+- AUTO_PROBE_LOG: 3 lines last 24h (10:05 GREEN, 15:05 + 19:05 known-benign YELLOW
+  paper_cycle:stale — the documented in-market timing artifact) ✓ alive.
+- Schtasks 0505/1005/1405 all Ready, next runs 8/15 ✓. (Missed-trigger flag still unset — open rec.)
+
+### Issues Found
+- **[WATCH] Daily churn**: 1-day round-trips both directions (see §2). Phase 88 candidates
+  (cash-aware sizing, churn dampener) now have 4 consecutive days of evidence.
+- **[INFO] 15:05/19:05 YELLOW probes** = known-benign paper_cycle staleness artifact
+  (resolved 2026-08-13); will recur until threshold widened or probe times moved.
+
+### Fixes Applied (autonomous)
+- None needed: no restarts, no drift, no DB cleanup targets.
+
+### Recommendations for Aaron (all carried, none new-urgent)
+1. Widen /health paper_cycle staleness threshold to ~70 min (kills the daily false-YELLOW);
+   authorize app-code monitoring changes and I'll do it next run.
+2. Enable "Run task as soon as possible after a scheduled start is missed" on the 3 probe schtasks.
+3. **Phase 88 (churn dampener + cash-aware sizing) — evidence now daily; consider prioritizing.**
