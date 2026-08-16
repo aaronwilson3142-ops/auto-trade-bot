@@ -35,8 +35,8 @@ git so memory survives session teardown.
 - `health_probe.ps1` logs components JSON on non-ok /health since 2026-08-11 (deep-dive applied the Aug-10 rec); entries before that record only `health:<status>`.
 - Gmail MCP in scheduled sessions exposes create_draft only (no send) — YELLOW/RED notifications = draft + rely on cloud watchdog for push.
 
-## Open questions / watch items (as of 2026-08-15)
-- Weekend baseline (verified Sat 2026-08-15): 0 cycles/orders/signals/rankings expected Sat/Sun; latest snapshot stays Friday 19:30; eval_runs +0; all 3 probes GREEN (no in-market staleness artifact) — do not flag any of this as missed/stale on weekend runs.
+## Open questions / watch items (as of 2026-08-16)
+- Weekend baseline (verified Sat 2026-08-15 + Sun 2026-08-16, both fully GREEN): 0 cycles/orders/signals/rankings expected Sat/Sun; latest snapshot stays Friday 19:30; eval_runs +0; all 3 probes GREEN (no in-market staleness artifact) — do not flag any of this as missed/stale on weekend runs.
 - **RESOLVED 2026-08-13**: /health "degraded" at 15:05/19:05 UTC = `paper_cycle:"stale"` (components JSON finally logged). Benign timing artifact: in-market probes fire ~35 min after the preceding cycle (15:05 vs 14:30, 19:05 vs 18:30) and the staleness threshold is <35 min. Will recur EVERY in-market probe until fixed. Rec to Aaron: widen threshold to ~70 min (app code — deep-dive can do it if authorized) or move probes to :40. Treat 15:05/19:05 YELLOW health:degraded w/ only paper_cycle stale as known-benign.
 - **RESOLVED 2026-08-13**: Aug-12 outage fully self-healed — bars Aug 11+12 ingested (~485 each), signals/rankings ran 10:30/10:45, 7/7 cycles, 3/3 probes fired.
 - Probe schtasks still do NOT run missed triggers after wake. Rec to Aaron (open since Aug 12): enable "run ASAP after missed start" on all 3; deep-dive not authorized to edit host scheduler.

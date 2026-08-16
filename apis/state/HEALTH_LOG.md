@@ -6275,3 +6275,57 @@ staleness artifact was identified, confirming it is in-market-only.
    authorize app-code monitoring changes and I'll do it next run.
 2. Enable "Run task as soon as possible after a scheduled start is missed" on the 3 probe schtasks.
 3. Phase 88 (churn dampener + cash-aware sizing) — daily evidence through Friday; consider prioritizing.
+
+
+
+## Health Check — 2026-08-16 22:15 UTC (Sunday 5:15 PM CT, weekend) — LOCAL AI DEEP-DIVE (scheduled)
+
+**Overall Status:** GREEN — all nominal. Quiet Sunday, matches Saturday's weekend baseline
+exactly: market closed, 0 orders/cycles (expected), stack healthy, all 3 probes GREEN.
+
+### §1 Infrastructure
+- Containers: 8/8 Up 4 days (since Aug-12 ~19:10 UTC restart), worker/api/postgres/redis healthy.
+- /health 22:10 UTC: status ok, 7/7 components ok (paper_cycle=ok on weekend), mode=paper.
+- Alertmanager: 0 alerts.
+
+### §2 Trading Integrity + Phase 87
+- 0 $1.00 phantom fills (7d) ✓. 15 open positions (= cap) ✓, 0 dup tickers ✓, 0 NULL
+  origin_strategy on open rows ✓, 0 dup order idempotency keys ✓. 0 orders in 48h
+  (weekend — expected) ✓.
+- Latest snapshot Aug 14 19:30 UTC (correct — no weekend cycles): cash $6,117.21 /
+  equity $106,578.12 / drawdown 0.23% ✓.
+- 0 phase87 events in 24h.
+
+### §3 Cycles + Data
+- 0 paper snapshots today (Sunday — none expected) ✓; Friday Aug 14 remains last cycle day (7/7).
+- Bars current: latest trade_date Aug 13 (485 bars) ✓ — Aug-14 (Friday) bars land Monday ~10:00 UTC.
+- Signals/rankings: last ran Friday 10:30/10:45 UTC ✓ (weekday-only). eval_runs=154 (+0, expected) ✓.
+- Worker log 24h (~630 lines): 0 CRITICAL/Traceback, 0 crash-triad, 0 phase87,
+  0 warning/error lines — second consecutive spotless weekend log.
+
+### §4 Code/Schema/Config
+- Alembic `q7r8s9t0u1v2` single head ✓. Git clean (untracked outputs/ only), 0 unpushed ✓.
+- Smoke: 28 passed, 2 warnings (phase87 + execution_engine) ✓.
+- Container env: all APIS_* flags at expected values ✓ (paper, kill_switch=false, max_pos=15,
+  max_new/day=5, thematic 0.75, min_score 0.30); self-improve/insider/Step-6-7-8 unset=OFF ✓.
+
+### §5 Auto-Probe Liveness
+- AUTO_PROBE_LOG: 3/3 lines today (10:05, 15:05, 19:05 — ALL GREEN, weekend baseline) ✓.
+- Schtasks 0505/1005/1405 all Ready, next runs 8/17 ✓. (Missed-trigger flag still unset — open rec.)
+
+### Issues Found
+- None new. Churn watch dormant (weekend); resumes Monday — watch Aug-17 orders for
+  round-trips/rebuys of Friday's CZR/CSCO/NTAP/AMP/MRK activity.
+
+### Fixes Applied (autonomous)
+- None needed: no restarts, no drift, no DB cleanup targets.
+
+### Recommendations for Aaron (all carried, none new)
+1. Widen /health paper_cycle staleness threshold to ~70 min (weekday false-YELLOWs);
+   authorize app-code monitoring changes and I'll do it next run.
+2. Enable "Run task as soon as possible after a scheduled start is missed" on the 3 probe schtasks.
+3. Phase 88 (churn dampener + cash-aware sizing) — daily evidence through Friday; consider prioritizing.
+
+### Monday watch list (for Aug-17 run)
+- Friday Aug-14 bars ingested ~10:00 UTC; signals 10:30 / rankings 10:45; 7/7 cycles;
+  churn check on new orders; 15:05/19:05 probes back to known-benign YELLOW (in-market artifact).
