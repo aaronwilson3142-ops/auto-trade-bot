@@ -50,3 +50,16 @@ git so memory survives session teardown.
 - PowerShell `>` redirection writes UTF-16: read the temp log in python with encoding='utf-16' (utf-8 gives mojibake doubling apparent line count).
 - Worker log lines are JSON with timestamp mid-line — filter with `'2026-MM-DDT' in line`, NOT `line[:40]` (misses ~97% of lines). Warn/err filter: `'"level": "warning"' or '"level": "error"'`.
 - No `.env` at repo root — verify config flags via `docker exec docker-worker-1 sh -c "env | grep APIS_"` instead.
+
+## Updates 2026-08-17 (deep-dive)
+- yfinance mid-cycle blackouts on healthy tickers: now 3 CONSECUTIVE MONDAYS (Aug 3/10/17).
+  Aug-17 flavor fired `phantom_equity_guard_active` + `mark_to_market_stale_price_preserved`
+  (mark-to-market guard family, apps.worker.jobs.paper_trading) with NO phase87_* events —
+  cycle not degraded, prior-close preserved, self-recovered. Both guard families are normal
+  blackout handling. If Mon Aug-24 repeats, recommend provider fallback/retry layer.
+- Churn (Phase 88 evidence, 3rd consecutive trading day): AMP/CSCO/CZR bought Aug-14 → sold
+  Aug-17; V bought Aug-13 → sold Aug-14 → rebought Aug-17. Rec escalated to #1.
+- Weekday-recovery baseline confirmed Mon Aug-17: Friday bars land ~10:00, signals 10:30,
+  rankings 10:45, 7/7 cycles, probes 10:05 GREEN + 15:05/19:05 benign-YELLOW.
+- Snapshot 8/17 19:30: cash $6,561.80, equity $106,803.27, drawdown 0.02% (near-zero after
+  Friday's 0.23%).

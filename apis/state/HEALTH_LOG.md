@@ -6329,3 +6329,65 @@ exactly: market closed, 0 orders/cycles (expected), stack healthy, all 3 probes 
 ### Monday watch list (for Aug-17 run)
 - Friday Aug-14 bars ingested ~10:00 UTC; signals 10:30 / rankings 10:45; 7/7 cycles;
   churn check on new orders; 15:05/19:05 probes back to known-benign YELLOW (in-market artifact).
+
+
+## Health Check — 2026-08-17 22:15 UTC (Monday 5:15 PM CT) — LOCAL AI DEEP-DIVE (scheduled)
+
+**Overall Status:** GREEN — all nominal. Full weekday recovery from the weekend baseline:
+7/7 cycles, Friday bars ingested, signals/rankings on time, integrity clean. One mid-cycle
+yfinance blackout at 15:30 UTC handled cleanly by the phantom-equity guard (3rd Monday in a
+row — see §3). Churn watch: predicted Fri→Mon round-trips DID occur (see Issues).
+
+### §1 Infrastructure
+- Containers: 8/8 Up 5 days, worker/api/postgres/redis healthy.
+- /health 22:10 UTC: status ok, 7/7 components ok (paper_cycle=ok post-market), mode=paper.
+- Alertmanager: 0 alerts.
+
+### §2 Trading Integrity + Phase 87
+- 0 $1.00 phantom fills (7d) ✓. 15 open positions (= cap) ✓, 0 dup tickers ✓, 0 NULL
+  origin_strategy on open rows ✓, 0 dup order idempotency keys ✓.
+- Latest snapshot TODAY 19:30 UTC: cash $6,561.80 / equity $106,803.27 / drawdown 0.02% ✓.
+- 0 phase87_* events in 24h — but see §3 blackout note (different guard family fired).
+
+### §3 Cycles + Data
+- 7/7 paper snapshots today ✓ (13:35–19:30 UTC).
+- Bars: Friday Aug-14 ingested this morning (485 bars, latest trade_date=2026-08-14) ✓.
+- Signals 10:30 / rankings 10:45 UTC today ✓. eval_runs 155 (+1) ✓.
+- **15:30 UTC yfinance blackout**: 15 HEALTHY tickers (TECH/JPM/SNOW/EA/PLTR/TGT/SCHW/BAC/
+  MRK/NTAP/V/ABT/DELL/PSX/VLO — includes holdings) returned "possibly delisted".
+  `phantom_equity_guard_active` + 15x `mark_to_market_stale_price_preserved` fired —
+  prior-close prices preserved, NO $1 marks, NO phase87 cycle degrade needed, subsequent
+  cycles recovered fully. Guards working as designed. **Pattern: Aug 3, Aug 10, Aug 17 —
+  three consecutive MONDAYS with mid-cycle yfinance blackouts.**
+- Worker log 24h (1,048 lines): 0 CRITICAL/Traceback, 0 crash-triad. 55 error lines = known
+  dead-ticker 404 noise + the 15:30 blackout batch. Warnings: 7 stress_gate_applied (normal),
+  blackout-related guards, rest benign.
+
+### §4 Code/Schema/Config
+- Alembic `q7r8s9t0u1v2` single head ✓. Git clean (untracked outputs/ only), 0 unpushed ✓.
+- Smoke: 28 passed, 2 warnings (phase87 + execution_engine) ✓.
+- Container env: all APIS_* flags at expected values ✓ (paper, kill_switch=false, max_pos=15,
+  max_new/day=5, thematic 0.75, min_score 0.30); self-improve/insider/Step-6-7-8 unset=OFF ✓.
+
+### §5 Auto-Probe Liveness
+- AUTO_PROBE_LOG: 3/3 lines today ✓ (10:05 GREEN; 15:05 + 19:05 YELLOW = known-benign
+  in-market paper_cycle staleness artifact, exactly as predicted — only paper_cycle stale).
+- Schtasks 0505/1005/1405 all Ready, next runs 8/18 ✓. (Missed-trigger flag still unset — open rec.)
+
+### Issues Found
+- **Churn CONFIRMED continuing (predicted in Sunday's Monday-watch)**: AMP/CSCO/CZR bought
+  Fri Aug-14 → sold Mon Aug-17 (1-trading-day round-trips); V bought Aug-13 → sold Aug-14 →
+  REBOUGHT Aug-17. Today's 10 filled orders: buys ABT/DELL/PSX/V/VLO, sells AMP/CSCO/CZR/DD/MSFT.
+  Phase 88 evidence now spans 3 consecutive trading days.
+- [NEW PATTERN] yfinance mid-cycle blackouts have hit 3 consecutive Mondays (Aug 3/10/17).
+  Guards handle it; if it recurs Mon Aug-24, consider a data-provider fallback or retry layer.
+
+### Fixes Applied (autonomous)
+- None needed: no restarts, no drift, no DB cleanup targets.
+
+### Recommendations for Aaron
+1. **Phase 88 (churn dampener + cash-aware sizing) — evidence now daily across 3 trading days;
+   prioritize.**
+2. Widen /health paper_cycle staleness threshold to ~70 min (kills the weekday false-YELLOWs);
+   authorize app-code monitoring changes and I'll do it next run.
+3. Enable "Run task as soon as possible after a scheduled start is missed" on the 3 probe schtasks.

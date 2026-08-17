@@ -2287,3 +2287,12 @@ All nominal (quiet Sunday, matches Saturday baseline): 8/8 containers healthy (u
 rankings last ran Friday, worker log spotless (0 warn/err), alembic single head, git
 clean/pushed, smoke 28/28, config flags all correct, 3/3 probes ALL GREEN (weekend).
 No autonomous fixes needed. Full details: apis/state/HEALTH_LOG.md.
+
+## 2026-08-17 22:15 UTC — Deep-dive: GREEN
+All nominal on full weekday: 8/8 containers (Up 5d), /health 7/7 ok, 0 alerts, 0 phantom
+fills, 15/15 positions clean (0 dups/NULLs/dup-keys), 7/7 cycles, Fri bars + signals/rankings
+on time, snapshot 19:30 (cash $6,561.80, dd 0.02%), alembic single head, smoke 28 passed,
+env flags nominal, 3/3 probes (2 known-benign YELLOWs). Notes: (1) 15:30 UTC yfinance
+blackout on 15 healthy tickers — phantom-equity guard preserved prior-close prices, full
+recovery; 3rd consecutive MONDAY blackout (Aug 3/10/17). (2) Churn continues as predicted:
+AMP/CSCO/CZR Fri→Mon round-trips, V rebought — Phase 88 rec escalated.
