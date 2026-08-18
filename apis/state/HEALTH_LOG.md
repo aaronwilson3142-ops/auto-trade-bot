@@ -6391,3 +6391,79 @@ row — see §3). Churn watch: predicted Fri→Mon round-trips DID occur (see Is
 2. Widen /health paper_cycle staleness threshold to ~70 min (kills the weekday false-YELLOWs);
    authorize app-code monitoring changes and I'll do it next run.
 3. Enable "Run task as soon as possible after a scheduled start is missed" on the 3 probe schtasks.
+
+
+
+## Health Check — 2026-08-18 22:15 UTC (Tuesday 5:15 PM CT) — LOCAL AI DEEP-DIVE (scheduled)
+
+**Overall Status:** YELLOW — SILENT PARTIAL BAR INGESTION. Monday Aug-17 daily bars landed for
+only 2/485 tickers (MNST, HUBB) at today's 10:00 UTC ingestion. The job logged
+"Ingestion complete: 502 tickers, 120519 bars persisted, status=IngestionStatus.PARTIAL"
+at INFO level with ZERO error/warning lines beyond known dead-ticker noise — the gap is only
+visible via SQL (count per trade_date). Latest complete bar day is still Friday Aug-14, so
+today's 10:30 signals / 10:45 rankings ran on 4-day-old bars for ~99.6% of the universe.
+Everything else nominal.
+
+### §1 Infrastructure
+- Containers: 8/8 Up 6 days, worker/api/postgres/redis healthy.
+- /health 22:10 UTC: status ok, 7/7 components ok, mode=paper. Alertmanager: 0 alerts.
+
+### §2 Trading Integrity + Phase 87
+- 0 $1.00 phantom fills (7d) ✓. 15 open positions (= cap) ✓, 0 dup tickers ✓, 0 NULL
+  origin_strategy (open rows) ✓, 0 dup idempotency keys ✓.
+- Latest snapshot TODAY 19:30 UTC: cash $7,403.10 / equity $106,934.71 / drawdown 0.00% ✓.
+- 0 phase87_* events, 0 phantom-equity/stale-price guard events in 24h (intraday pricing
+  was healthy — no Monday-style mid-cycle blackout today).
+
+### §3 Cycles + Data — THE ISSUE
+- 7/7 paper snapshots today ✓ (13:35–19:30 UTC). eval_runs 156 (+1) ✓.
+- **daily_market_bars STALE**: trade_date 2026-08-17 has only 2 rows (MNST, HUBB,
+  created 10:00:14 UTC); Aug-11→14 all have 485. Ingestion self-reported PARTIAL but
+  persisted ~120k rows (1y-period upserts of existing history) — yfinance apparently
+  returned data ending Fri Aug-14 for ~483 tickers. Extends the 3-consecutive-Mondays
+  yfinance blackout pattern (Aug 3/10/17) into Tuesday-morning ingestion of Monday bars.
+- Signals 10:30 / rankings 10:45 ran on time ✓ but on stale bars (quality caveat for
+  today's buys: MU/STX/TRV).
+- Worker log 24h (880 lines today): 0 CRITICAL/Traceback, 0 crash-triad, 0 phase87.
+  40 errors = known dead-ticker 404/delisted noise; 35 warnings = 7 stress_gate_applied
+  (normal) + empty-DataFrame skips for known-dead tickers.
+
+### §4 Code/Schema/Config
+- Alembic `q7r8s9t0u1v2` single head ✓. Git clean (untracked outputs/ only), 0 unpushed ✓.
+- Smoke: 28 passed, 2 warnings ✓.
+- Container env: all APIS_* flags at expected values ✓ (paper, kill_switch=false, max_pos=15,
+  max_new/day=5, thematic 0.75, min_score 0.30); self-improve/insider/Step-6-7-8 unset=OFF ✓.
+
+### §5 Auto-Probe Liveness
+- AUTO_PROBE_LOG: 3/3 today ✓ (10:05 GREEN; 15:05/19:05 known-benign in-market YELLOW).
+- Schtasks 0505/1005/1405 all Ready, next runs 8/19 ✓. NOTE: probes did NOT catch the bar
+  gap (they don't check bar freshness) — deep-dive SQL was the only detector.
+
+### Issues Found
+1. **[YELLOW] Aug-17 bars missing for 483/485 tickers** (see §3). Expected self-heal:
+   tomorrow's 10:00 UTC ingestion fetches period=1y per ticker and should backfill Aug-17
+   if yfinance has it by then. **Wednesday run MUST verify**: if Aug-17 is still ~2 rows
+   AND Aug-18 also fails to land → escalate RED (data pipeline broken, not provider lag).
+2. **Churn day 4 (consecutive)**: V bought 8/13 → sold 8/14 → rebought 8/17 → SOLD 8/18
+   (second full round-trip in 4 sessions); VLO bought 8/17 → sold 8/18; MRK sold 8/18.
+   Buys: MU/STX/TRV. Phase 88 evidence keeps compounding.
+3. Ingestion PARTIAL status is logged at INFO only — silent failure mode, no alert.
+
+### Fixes Applied (autonomous)
+- None. Re-triggering the ingestion job is not in documented autonomous authority, and
+  the likely root cause is provider-side (yfinance lag), which a re-run at 22:00 UTC may
+  or may not fix. Chose to let tomorrow's scheduled ingestion backfill; flagged for
+  Wednesday verification instead.
+
+### Notification
+- YELLOW per protocol requires notifying Aaron, but no email/push tool is available in
+  this session (Gmail MCP absent; cloud watchdog won't fire — probes are GREEN/benign).
+  Relying on this log + commit message. Aaron: see Issue 1.
+
+### Recommendations for Aaron
+1. **Phase 88 (churn dampener + cash-aware sizing)** — 4th consecutive trading day of churn.
+2. **Alert on PARTIAL ingestion / stale bars**: promote IngestionStatus.PARTIAL with
+   low new-bar count to warning+alert, or add a bar-freshness check to health_probe.ps1.
+3. yfinance reliability (Mondays + now Monday-bar lag): provider fallback/retry layer.
+4. Widen /health paper_cycle staleness threshold to ~70 min (carried).
+5. Enable "run ASAP after missed start" on the 3 probe schtasks (carried).

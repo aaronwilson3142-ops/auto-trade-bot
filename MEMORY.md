@@ -63,3 +63,20 @@ git so memory survives session teardown.
   rankings 10:45, 7/7 cycles, probes 10:05 GREEN + 15:05/19:05 benign-YELLOW.
 - Snapshot 8/17 19:30: cash $6,561.80, equity $106,803.27, drawdown 0.02% (near-zero after
   Friday's 0.23%).
+
+
+## Updates 2026-08-18 (deep-dive) — YELLOW
+- NEW FAILURE MODE: silent partial bar ingestion. Tue 10:00 UTC job upserted ~120k
+  history rows, logged "status=PARTIAL" at INFO with zero errors, but Monday Aug-17
+  bars landed for only 2/485 tickers (MNST, HUBB) — yfinance returned data ending
+  Fri Aug-14 for the rest. ONLY detectable via SQL: count(*) per trade_date. The
+  Monday-blackout pattern (Aug 3/10/17) now also contaminates Tuesday ingestion.
+- Verification duty for Wed Aug-19 run: Aug-17 should backfill to ~485 via the daily
+  period=1y fetch; if still ~2 rows AND Aug-18 bars also missing → RED.
+- Signals/rankings ran on stale (Aug-14) bars today; buys MU/STX/TRV carry that caveat.
+- Churn day 4: V 2nd full round-trip (8/13 buy→8/14 sell→8/17 rebuy→8/18 sell);
+  VLO 8/17→8/18 flip. Phase 88 remains rec #1.
+- Notification gap confirmed: scheduled session had NO email/push tools at all (not
+  even create_draft); cloud watchdog blind to bar staleness (probes GREEN). YELLOW
+  notifications currently reach Aaron only via HEALTH_LOG + commit message.
+- Snapshot 8/18 19:30: cash $7,403.10, equity $106,934.71, drawdown 0.00%.

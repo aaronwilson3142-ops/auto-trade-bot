@@ -2296,3 +2296,17 @@ env flags nominal, 3/3 probes (2 known-benign YELLOWs). Notes: (1) 15:30 UTC yfi
 blackout on 15 healthy tickers — phantom-equity guard preserved prior-close prices, full
 recovery; 3rd consecutive MONDAY blackout (Aug 3/10/17). (2) Churn continues as predicted:
 AMP/CSCO/CZR Fri→Mon round-trips, V rebought — Phase 88 rec escalated.
+
+
+## 2026-08-18 22:15 UTC — Deep-dive: YELLOW
+**Aug-17 daily bars missing for 483/485 tickers** — today's 10:00 UTC ingestion persisted
+Aug-17 rows only for MNST+HUBB while self-reporting "PARTIAL, 120519 bars" at INFO level
+(silent failure; probes don't check bar freshness). Latest complete bar day = Fri Aug-14,
+so today's signals/rankings ran on 4-day-old bars. Expected self-heal via tomorrow's
+period=1y backfill — Wednesday run must verify, escalate RED if gap persists.
+Everything else nominal: 8/8 containers (Up 6d), /health 7/7 ok, 0 alerts, 0 phantom fills,
+15/15 positions clean, 7/7 cycles, snapshot 19:30 (cash $7,403.10, dd 0.00%), 0 guard
+events (intraday pricing healthy), alembic single head, git clean, smoke 28/28, env flags
+nominal, 3/3 probes (2 known-benign YELLOWs). Churn day 4: V 2nd round-trip (rebought 8/17
+→ sold 8/18), VLO 1-day flip; buys MU/STX/TRV — Phase 88 rec #1. No email/push tool in
+session; notification via this log + commit. Full details: apis/state/HEALTH_LOG.md.
