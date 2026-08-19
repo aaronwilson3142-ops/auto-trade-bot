@@ -6467,3 +6467,66 @@ Everything else nominal.
 3. yfinance reliability (Mondays + now Monday-bar lag): provider fallback/retry layer.
 4. Widen /health paper_cycle staleness threshold to ~70 min (carried).
 5. Enable "run ASAP after missed start" on the 3 probe schtasks (carried).
+
+
+
+## Health Check — 2026-08-19 22:15 UTC (Wednesday 5:15 PM CT) — LOCAL AI DEEP-DIVE (scheduled)
+
+**Overall Status:** GREEN — Yesterday's YELLOW resolved as predicted. Today's 10:00 UTC
+ingestion backfilled Mon Aug-17 bars 2→484 (only AVB still missing — negligible) and
+landed Tue Aug-18 at 485/485. Everything nominal. Churn continues (day 5, new same-day
+sell→rebuy flavor) — strategy-quality watch item, Phase 88 rec unchanged.
+
+### §1 Infrastructure
+- Containers: 8/8 Up 7 days, worker/api/postgres/redis healthy.
+- /health 22:10 UTC: status ok, 7/7 components ok, mode=paper. Alertmanager: 0 alerts.
+
+### §2 Trading Integrity + Phase 87
+- 0 $1.00 phantom fills (7d) ✓. 15 open positions (= cap) ✓, 0 dup tickers ✓,
+  0 NULL origin_strategy (open rows) ✓, 0 dup idempotency keys ✓.
+- Latest snapshot TODAY 19:30 UTC: cash $7,059.45 / equity $106,410.16 / drawdown 0.49% ✓.
+- 0 phase87_* events, 0 phantom-equity/stale-price guard events since last run
+  (intraday pricing healthy all day).
+
+### §3 Cycles + Data — YESTERDAY'S ISSUE RESOLVED
+- 7/7 paper snapshots today ✓ (13:35–19:30 UTC). eval_runs 157 (+1) ✓.
+- **Bar backfill VERIFIED**: Aug-17 now 484 rows (was 2), Aug-18 landed 485, Aug-11→14
+  all 485. Only AVB missing for Aug-17. The period=1y daily fetch self-healed the gap
+  exactly as predicted — no RED escalation. yfinance Monday-blackout lag was provider-side.
+- Ingestion 10:00 UTC still self-reported "status=PARTIAL, 120966 bars" at INFO (dead-ticker
+  noise + AVB) — PARTIAL-at-INFO silent-failure mode still unfixed (carried rec).
+- Signals 10:30 / rankings 10:45 UTC ran on time ✓, on FRESH (Aug-18) bars today.
+- Worker log since last run (949 lines): 0 CRITICAL/Traceback, 0 crash-triad, 0 phase87.
+  40 errors = known dead-ticker 404/delisted noise; 35 warnings = 7 stress_gate_applied
+  (normal) + empty-DataFrame skips for known-dead tickers.
+
+### §4 Code/Schema/Config
+- Alembic `q7r8s9t0u1v2` single head ✓. Git clean (untracked outputs/ only), 0 unpushed ✓.
+- Smoke: 28 passed, 2 warnings ✓.
+- Container env: all APIS_* flags at expected values ✓ (paper, kill_switch=false, max_pos=15,
+  max_new/day=5, thematic 0.75, min_score 0.30); self-improve/insider/Step-6-7-8 unset=OFF ✓.
+
+### §5 Auto-Probe Liveness
+- AUTO_PROBE_LOG: 3/3 today ✓ (10:05 GREEN; 15:05/19:05 known-benign in-market YELLOW).
+- Schtasks 0505/1005/1405 all Ready, next runs 8/20 ✓. (Missed-trigger flag still unset.)
+
+### Issues Found
+- **Churn day 5 — NEW FLAVOR: same-day sell→rebuy round-trips.** Today's 6 filled orders
+  were all intraday churn: SNOW sold 13:35 → rebought 14:30; DELL sold 14:30 → rebought
+  15:30; STX (bought only yesterday) sold 14:30 → rebought 15:30. Zero net position change,
+  pure turnover. Worst flavor yet — Phase 88 (churn dampener) evidence now spans 5
+  consecutive trading days and includes 1–2 hour round-trips.
+- AVB missing Aug-17 bar (1/485) — watch, likely fills on a later fetch; harmless.
+
+### Fixes Applied (autonomous)
+- None needed: no restarts, no drift, no DB cleanup targets.
+
+### Recommendations for Aaron
+1. **Phase 88 (churn dampener + cash-aware sizing)** — now 5 consecutive days, escalating
+   to intraday round-trips. This is burning turnover for zero position change.
+2. Alert on PARTIAL ingestion / stale bars (bar-freshness check in probe) — yesterday's
+   gap was only detectable via SQL; this run confirms probes stayed GREEN through it.
+3. yfinance reliability: 3-Monday blackout pattern + Monday-bar lag → provider
+   fallback/retry layer. Watch Mon Aug-24.
+4. Widen /health paper_cycle staleness threshold to ~70 min (carried).
+5. Enable "run ASAP after missed start" on the 3 probe schtasks (carried).

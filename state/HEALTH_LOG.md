@@ -2310,3 +2310,16 @@ events (intraday pricing healthy), alembic single head, git clean, smoke 28/28, 
 nominal, 3/3 probes (2 known-benign YELLOWs). Churn day 4: V 2nd round-trip (rebought 8/17
 → sold 8/18), VLO 1-day flip; buys MU/STX/TRV — Phase 88 rec #1. No email/push tool in
 session; notification via this log + commit. Full details: apis/state/HEALTH_LOG.md.
+
+
+
+## 2026-08-19 22:15 UTC — Deep-dive: GREEN
+**Yesterday's bar-gap YELLOW resolved**: 10:00 UTC ingestion backfilled Aug-17 bars 2→484
+(only AVB missing) and landed Aug-18 at 485/485 — self-heal verified, no RED escalation.
+All nominal: 8/8 containers (Up 7d), /health 7/7 ok, 0 alerts, 0 phantom fills, 15/15
+positions clean, 7/7 cycles, signals/rankings on FRESH bars, snapshot 19:30 (cash
+$7,059.45, dd 0.49%), 0 guard/phase87 events, alembic single head, git clean, smoke
+28/28, env flags nominal, 3/3 probes (2 known-benign YELLOWs).
+**Churn day 5, new flavor**: all 6 of today's orders were SAME-DAY sell→rebuy round-trips
+(SNOW 13:35→14:30, DELL 14:30→15:30, STX 14:30→15:30) — zero net change, pure turnover.
+Phase 88 remains rec #1. Full details: apis/state/HEALTH_LOG.md.

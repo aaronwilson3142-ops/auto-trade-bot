@@ -80,3 +80,19 @@ git so memory survives session teardown.
   even create_draft); cloud watchdog blind to bar staleness (probes GREEN). YELLOW
   notifications currently reach Aaron only via HEALTH_LOG + commit message.
 - Snapshot 8/18 19:30: cash $7,403.10, equity $106,934.71, drawdown 0.00%.
+
+
+## Updates 2026-08-19 (deep-dive) — GREEN
+- Aug-18 silent-partial-ingestion YELLOW SELF-HEALED as predicted: Wed 10:00 UTC period=1y
+  fetch backfilled Aug-17 to 484/485 (only AVB missing) and landed Aug-18 at 485/485.
+  Confirms the failure mode is provider-side lag (yfinance serves Monday bars ~2 days late),
+  not a pipeline break. Ingestion STILL logs "status=PARTIAL" at INFO with healthy data
+  (dead tickers inflate it) — PARTIAL alone is not a signal; SQL count-per-trade_date is
+  the only reliable freshness check.
+- Churn day 5 — ESCALATION: all 6 of today's orders were same-day sell→rebuy round-trips
+  (SNOW 13:35 sell→14:30 rebuy; DELL and STX 14:30 sell→15:30 rebuy; STX had been bought
+  8/18). Zero net position change. Churn has progressed from cross-day to 1–2 hour
+  intraday round-trips. Phase 88 rec #1, evidence now 5 consecutive trading days.
+- Snapshot 8/19 19:30: cash $7,059.45, equity $106,410.16, drawdown 0.49%.
+- Watch items for next runs: AVB Aug-17 bar (harmless, should backfill); Mon Aug-24
+  yfinance blackout pattern (would be 4th consecutive Monday).
