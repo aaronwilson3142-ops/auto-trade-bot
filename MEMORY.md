@@ -96,3 +96,14 @@ git so memory survives session teardown.
 - Snapshot 8/19 19:30: cash $7,059.45, equity $106,410.16, drawdown 0.49%.
 - Watch items for next runs: AVB Aug-17 bar (harmless, should backfill); Mon Aug-24
   yfinance blackout pattern (would be 4th consecutive Monday).
+
+
+## Updates 2026-08-20 (deep-dive) — GREEN
+- Fully nominal day: bars current (Aug-19 485/485 landed on time), 7/7 cycles, clean
+  logs, no guard events, smoke 28/28, probes 3/3. No fixes needed.
+- Churn day 6, milder flavor: no same-day round-trips; instead 13:35 sell block
+  (TRV/STX/TGT) → 14:30 buy block of NEW names (MRK/AMGN/GE). STX totals 4 trades in
+  3 days (8/18 buy→8/19 sell→8/19 rebuy→8/20 sell); TRV 2-day hold. Phase 88 still #1.
+- Snapshot 8/20 19:30: cash $7,062.70, equity $106,477.95, drawdown 0.43%.
+- Watch: AVB Aug-17 bar (still 484/485, harmless); Mon Aug-24 yfinance blackout
+  (would be 4th consecutive Monday).

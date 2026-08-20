@@ -2323,3 +2323,14 @@ $7,059.45, dd 0.49%), 0 guard/phase87 events, alembic single head, git clean, sm
 **Churn day 5, new flavor**: all 6 of today's orders were SAME-DAY sell→rebuy round-trips
 (SNOW 13:35→14:30, DELL 14:30→15:30, STX 14:30→15:30) — zero net change, pure turnover.
 Phase 88 remains rec #1. Full details: apis/state/HEALTH_LOG.md.
+
+
+
+## 2026-08-20 22:15 UTC — Deep-dive: GREEN
+All nominal: 8/8 containers (Up 8d), /health 7/7 ok, 0 alerts, 0 phantom fills, 15/15
+positions clean, 7/7 cycles, bars fresh through Aug-19 (485), signals/rankings on time,
+snapshot 19:30 (cash $7,062.70, equity $106,477.95, dd 0.43%), 0 guard/phase87 events,
+alembic single head, git clean, smoke 28/28, env flags nominal, 3/3 probes (2 known-
+benign YELLOWs). **Churn day 6 (milder)**: 3 sells 13:35 (TRV/STX/TGT) → 3 new buys
+14:30 (MRK/AMGN/GE); STX 4th trade in 3 days. Phase 88 remains rec #1. AVB Aug-17 bar
+still missing (harmless). Full details: apis/state/HEALTH_LOG.md.

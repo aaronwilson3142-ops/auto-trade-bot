@@ -6530,3 +6530,62 @@ sell→rebuy flavor) — strategy-quality watch item, Phase 88 rec unchanged.
    fallback/retry layer. Watch Mon Aug-24.
 4. Widen /health paper_cycle staleness threshold to ~70 min (carried).
 5. Enable "run ASAP after missed start" on the 3 probe schtasks (carried).
+
+
+
+## Health Check — 2026-08-20 22:15 UTC (Thursday 5:15 PM CT) — LOCAL AI DEEP-DIVE (scheduled)
+
+**Overall Status:** GREEN — All nominal. Bars fresh through Aug-19, 7/7 cycles, clean
+logs, smoke passing, config nominal, all probes fired. Churn continues in a milder
+cross-day flavor (day 6) — Phase 88 rec unchanged.
+
+### §1 Infrastructure
+- Containers: 8/8 Up 8 days, worker/api/postgres/redis healthy.
+- /health 22:10 UTC: status ok, 7/7 components ok, mode=paper. Alertmanager: 0 alerts.
+
+### §2 Trading Integrity + Phase 87
+- 0 $1.00 phantom fills (7d) ✓. 15 open positions (= cap) ✓, 0 dup tickers ✓,
+  0 NULL origin_strategy (open rows) ✓, 0 dup idempotency keys ✓.
+- Latest snapshot TODAY 19:30 UTC: cash $7,062.70 / equity $106,477.95 / drawdown 0.43% ✓.
+- 0 phase87_* events, 0 phantom-equity/stale-price guard events — intraday pricing
+  healthy all day.
+
+### §3 Cycles + Data
+- 7/7 paper snapshots today ✓ (13:35–19:30 UTC). eval_runs 158 (+1) ✓.
+- Bars: Aug-18 485, Aug-19 485 (landed today ~10:00 UTC) ✓ — fully current. Aug-17
+  still 484 (AVB only — carried watch item, harmless).
+- Signals 10:30 / rankings 10:45 UTC ran on time ✓ on fresh (Aug-19) bars.
+- Worker log (~1000 lines since last run): 0 CRITICAL/Traceback, 0 crash-triad,
+  0 phase87, 0 guard events. 40 errors + 36 warnings = known dead-ticker 404/delisted
+  noise + 7 stress_gate_applied (normal).
+
+### §4 Code/Schema/Config
+- Alembic `q7r8s9t0u1v2` single head ✓. Git clean (untracked outputs/ only), 0 unpushed ✓.
+- Smoke: 28/28 passed ✓.
+- Container env: all APIS_* flags at expected values ✓ (paper, kill_switch=false,
+  max_pos=15, max_new/day=5, thematic 0.75, min_score 0.30); self-improve/insider/
+  Step-6-7-8 unset=OFF ✓.
+
+### §5 Auto-Probe Liveness
+- AUTO_PROBE_LOG: 3/3 today ✓ (10:05 GREEN; 15:05/19:05 known-benign in-market YELLOW).
+- Schtasks 0505/1005/1405 all present, next runs 8/21 ✓.
+
+### Issues Found
+- **Churn day 6 (milder flavor)**: today's 6 fills = 3 sells at 13:35 (TRV, STX, TGT)
+  then 3 new buys at 14:30 (MRK, AMGN, GE). No same-day round-trips, but STX completed
+  its 4th trade in 3 days (8/18 buy → 8/19 sell → 8/19 rebuy → 8/20 sell) and TRV was
+  a 2-day hold (8/18 buy on stale bars → 8/20 sell). Short-hold turnover persists —
+  Phase 88 evidence now 6 consecutive trading days.
+- AVB Aug-17 bar still missing (484/485) — harmless, keep on watch.
+
+### Fixes Applied (autonomous)
+- None needed: no restarts, no drift, no DB cleanup targets.
+
+### Recommendations for Aaron
+1. **Phase 88 (churn dampener + cash-aware sizing)** — 6 consecutive trading days of
+   short-hold churn; STX alone traded 4x in 3 days.
+2. Alert on PARTIAL ingestion / stale bars (bar-freshness SQL check in probe) (carried).
+3. yfinance reliability: provider fallback/retry layer — watch Mon Aug-24 for a 4th
+   consecutive Monday blackout (carried).
+4. Widen /health paper_cycle staleness threshold to ~70 min (carried).
+5. Enable "run ASAP after missed start" on the 3 probe schtasks (carried).
