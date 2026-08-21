@@ -107,3 +107,20 @@ git so memory survives session teardown.
 - Snapshot 8/20 19:30: cash $7,062.70, equity $106,477.95, drawdown 0.43%.
 - Watch: AVB Aug-17 bar (still 484/485, harmless); Mon Aug-24 yfinance blackout
   (would be 4th consecutive Monday).
+
+
+
+## Updates 2026-08-21 (deep-dive) — GREEN
+- Fully nominal day. AVB Aug-17 bar BACKFILLED (485/485) — watch item closed; all bars
+  current through Aug-20.
+- Churn day 7 — FIRST REALIZED COST: MRNA bought 14:30 @ $156.88 → sold same day 18:30
+  @ $140.80 (-10.2%, ≈-$723), drove drawdown 0.43%→1.39%. Also MRK/GE 1-day round-trips
+  (bought 8/20, sold 8/21), V 3rd rebuy since 8/13, TGT 8/20 sell→8/21 rebuy. Churn is
+  no longer cost-free turnover — Phase 88 rec strengthened.
+- Positions 14/15 (first day below cap since Aug 14); cash $12,969.64.
+- Schema note: fills quantity column is `fill_quantity` (NOT fill_qty) — a wrong guess
+  killed a psql session this run; probe information_schema first (standing gotcha).
+- `phase82_daily_evaluation_skipped_other_process` warning seen in worker log — benign
+  duplicate-process skip, not an incident.
+- Watch for Mon Aug-24: 4th consecutive Monday yfinance blackout would confirm pattern →
+  escalate provider-fallback rec.

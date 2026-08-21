@@ -2334,3 +2334,15 @@ alembic single head, git clean, smoke 28/28, env flags nominal, 3/3 probes (2 kn
 benign YELLOWs). **Churn day 6 (milder)**: 3 sells 13:35 (TRV/STX/TGT) → 3 new buys
 14:30 (MRK/AMGN/GE); STX 4th trade in 3 days. Phase 88 remains rec #1. AVB Aug-17 bar
 still missing (harmless). Full details: apis/state/HEALTH_LOG.md.
+
+
+
+## 2026-08-21 22:15 UTC — Deep-dive: GREEN
+All nominal: 8/8 containers (Up 9d), /health 7/7 ok, 0 alerts, 0 phantom fills, 14/15
+positions clean, 7/7 cycles, bars fully current (AVB Aug-17 backfilled — watch closed),
+signals/rankings on time, snapshot 19:30 (cash $12,969.64, equity $105,451.81, dd 1.39%),
+0 guard/phase87 events, alembic single head, git clean, smoke 28/28, env flags nominal,
+3/3 probes (2 known-benign YELLOWs). **Churn day 7 — first realized cost**: MRK/GE 1-day
+round-trips; V 3rd rebuy; MRNA bought 14:30 @ $156.88 → sold 18:30 @ $140.80 (-10.2%,
+≈-$723) — drove dd 0.43%→1.39%. Phase 88 remains rec #1. Full details:
+apis/state/HEALTH_LOG.md.

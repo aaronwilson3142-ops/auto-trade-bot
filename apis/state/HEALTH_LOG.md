@@ -6589,3 +6589,64 @@ cross-day flavor (day 6) — Phase 88 rec unchanged.
    consecutive Monday blackout (carried).
 4. Widen /health paper_cycle staleness threshold to ~70 min (carried).
 5. Enable "run ASAP after missed start" on the 3 probe schtasks (carried).
+
+
+
+## Health Check — 2026-08-21 22:15 UTC (Friday 5:15 PM CT) — LOCAL AI DEEP-DIVE (scheduled)
+
+**Overall Status:** GREEN — All nominal. Bars fully current (AVB Aug-17 gap backfilled),
+7/7 cycles, clean logs, smoke passing, config nominal, all probes fired. Churn day 7
+with the worst single trade yet: MRNA same-day round-trip at a ~10% loss.
+
+### §1 Infrastructure
+- Containers: 8/8 Up 9 days, worker/api/postgres/redis healthy.
+- /health 22:10 UTC: status ok, 7/7 components ok, mode=paper. Alertmanager: 0 alerts.
+
+### §2 Trading Integrity + Phase 87
+- 0 $1.00 phantom fills (7d) ✓. 14 open positions (≤15 cap) ✓, 0 dup tickers ✓,
+  0 NULL origin_strategy (open rows) ✓, 0 dup idempotency keys ✓.
+- Latest snapshot TODAY 19:30 UTC: cash $12,969.64 / equity $105,451.81 / drawdown 1.39% ✓
+  (rise from 0.43% explained by real losses — see MRNA below; well under 0.15 limit).
+- 0 phase87_* events, 0 phantom-equity/stale-price guard events — pricing healthy all day.
+
+### §3 Cycles + Data
+- 7/7 paper snapshots today ✓ (13:35–19:30 UTC). eval_runs 159 (+1) ✓.
+- Bars: Aug-17 485 (**AVB backfilled** — carried watch item CLOSED), Aug-18/19/20 all 485 ✓.
+- Signals 10:30 / rankings 10:45 UTC ran on time ✓ on fresh (Aug-20) bars.
+- Worker log (~1053 lines since last run): 0 CRITICAL/Traceback, 0 crash-triad, 0 phase87,
+  0 guard events. 40 errors + 36 warnings = known dead-ticker 404/delisted noise,
+  stress_gate_applied (normal), phase82_daily_evaluation_skipped_other_process (benign).
+
+### §4 Code/Schema/Config
+- Alembic `q7r8s9t0u1v2` single head ✓. Git clean (untracked outputs/ only), 0 unpushed ✓.
+- Smoke: 28/28 passed ✓.
+- Container env: all APIS_* flags at expected values ✓ (paper, kill_switch=false,
+  max_pos=15, max_new/day=5, thematic 0.75, min_score 0.30); self-improve/insider/
+  Step-6-7-8 unset=OFF ✓.
+
+### §5 Auto-Probe Liveness
+- AUTO_PROBE_LOG: 3/3 today ✓ (10:05 GREEN; 15:05/19:05 known-benign in-market YELLOW).
+- Schtasks 0505/1005/1405 all Ready, next runs 8/22 ✓. (Missed-trigger flag still unset.)
+
+### Issues Found
+- **Churn day 7 — 11 fills, incl. a same-day round-trip LOSS.** 13:35 sell block
+  (MRK/DELL/NTAP/GE/MU — MRK and GE bought only YESTERDAY, 1-day round-trips) → 14:30
+  buy block (MRNA/JNJ/MRVL/V/TGT — V is its 3rd rebuy since 8/13; TGT sold 8/20,
+  rebought 8/21) → **MRNA bought 14:30 @ $156.88, sold 18:30 @ $140.80 (-10.2%,
+  ≈-$723)** — first churn round-trip with a material realized loss (drove drawdown
+  0.43%→1.39%). Exit was likely a risk-stop doing its job, but the entry+exit inside
+  4 hours is Phase 88 evidence day 7.
+- Positions now 14/15 (first day below cap since Aug 14) — cash $12,969 uninvested.
+
+### Fixes Applied (autonomous)
+- None needed: no restarts, no drift, no DB cleanup targets.
+
+### Recommendations for Aaron
+1. **Phase 88 (churn dampener + cash-aware sizing)** — 7 consecutive trading days;
+   churn now has a realized cost (MRNA -$723 same-day round-trip), no longer just
+   turnover noise.
+2. Alert on PARTIAL ingestion / stale bars (bar-freshness SQL check in probe) (carried).
+3. yfinance reliability: provider fallback/retry layer — Mon Aug-24 is the next
+   Monday-blackout watch (would be 4th consecutive) (carried).
+4. Widen /health paper_cycle staleness threshold to ~70 min (carried).
+5. Enable "run ASAP after missed start" on the 3 probe schtasks (carried).
