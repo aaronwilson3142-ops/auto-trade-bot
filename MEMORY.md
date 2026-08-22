@@ -124,3 +124,15 @@ git so memory survives session teardown.
   duplicate-process skip, not an incident.
 - Watch for Mon Aug-24: 4th consecutive Monday yfinance blackout would confirm pattern →
   escalate provider-fallback rec.
+
+
+
+## Updates 2026-08-22 (deep-dive) — GREEN
+- Saturday run, 3rd fully-GREEN weekend day (after Aug 15/16) — weekend baseline holds:
+  0 snapshots/fills/signals/rankings, eval_runs +0, snapshot stays Friday 19:30, bars
+  through Aug-20 (Friday's bars due Monday), all 3 probes GREEN, worker log 24h window
+  had ZERO warnings/errors (fully quiet weekend log is itself normal).
+- No fixes needed; no drift; smoke 28/28; git clean.
+- Standing watch for Mon Aug-24 run: (a) 4th consecutive Monday yfinance blackout →
+  escalate provider-fallback rec; (b) churn evidence day 8 (Phase 88 rec #1);
+  (c) Friday Aug-21 bars should land ~10:00 UTC + Tue silent-partial-ingestion risk.
