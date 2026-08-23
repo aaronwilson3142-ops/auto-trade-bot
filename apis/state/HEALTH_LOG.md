@@ -6705,3 +6705,58 @@ baseline (Aug 15/16). No trading activity expected or observed; all systems nomi
    a 4th consecutive Monday blackout would confirm the pattern (carried).
 4. Widen /health paper_cycle staleness threshold to ~70 min (carried).
 5. Enable "run ASAP after missed start" on the 3 probe schtasks (carried).
+
+
+
+## Health Check — 2026-08-23 22:15 UTC (Sunday 5:15 PM CT) — LOCAL AI DEEP-DIVE (scheduled)
+
+**Overall Status:** GREEN — 4th fully-GREEN weekend day (after Aug 15/16/22). Quiet
+Sunday matching the verified weekend baseline exactly; all systems nominal, zero
+warnings/errors in the 24h worker log window.
+
+### §1 Infrastructure
+- Containers: 8/8 Up 11 days, worker/api/postgres/redis healthy.
+- /health 22:10 UTC: status ok, 7/7 components ok (paper_cycle ok — no weekend
+  staleness artifact), mode=paper. Alertmanager: 0 alerts.
+
+### §2 Trading Integrity + Phase 87
+- 0 $1.00 phantom fills (7d) ✓. 14 open positions (≤15 cap) ✓, 0 dup tickers ✓,
+  0 NULL origin_strategy (open rows) ✓, 0 dup idempotency keys ✓.
+- Latest snapshot Friday 2026-08-21 19:30 UTC (weekend-correct): cash $12,969.64 /
+  equity $105,451.81 / drawdown 1.39% ✓ (unchanged since Friday; MRNA loss explains it).
+- Worker log 24h window: 0 phase87_*, 0 phantom-equity/stale-price guard events.
+
+### §3 Cycles + Data (weekend baseline)
+- 0 snapshots / 0 fills today ✓ (Sunday — expected). eval_runs 159 (+0) ✓.
+- Bars current through Aug-20 (485/485 for Aug 17–20) ✓; Friday Aug-21 bars expected
+  Monday ~10:00 UTC — not stale.
+- Signals/rankings last ran Friday 10:30/10:45 UTC ✓ (none expected Sun).
+- Worker log window (Sat 22:00 → Sun 22:00 UTC, 582 lines): 0 CRITICAL, 0 Traceback,
+  0 crash-triad, 0 phase87/guard events, 0 warnings/errors at all — fully quiet.
+
+### §4 Code/Schema/Config
+- Alembic `q7r8s9t0u1v2` single head ✓. Git clean (untracked outputs/ only), 0 unpushed ✓.
+- Smoke: 28/28 passed ✓.
+- Container env: all APIS_* flags nominal ✓ (paper, kill_switch=false, max_pos=15,
+  max_new/day=5, thematic 0.75, min_score 0.30); self-improve/insider/Step-6-7-8
+  unset=OFF ✓.
+
+### §5 Auto-Probe Liveness
+- AUTO_PROBE_LOG: 3/3 today, ALL GREEN ✓ (10:05/15:05/19:05 — weekend baseline again:
+  no in-market staleness YELLOWs).
+- Schtasks 0505/1005/1405 all Ready, next runs 8/24 ✓. (Missed-trigger flag still unset.)
+
+### Issues Found
+- None. Fourth fully-GREEN weekend day observed.
+
+### Fixes Applied (autonomous)
+- None needed: no restarts, no drift, no DB cleanup targets.
+
+### Recommendations for Aaron
+1. **Phase 88 (churn dampener + cash-aware sizing)** — 7 consecutive trading days of
+   churn through Friday incl. MRNA -$723 round-trip (carried; next evidence Monday).
+2. Alert on PARTIAL ingestion / stale bars (bar-freshness SQL check in probe) (carried).
+3. yfinance reliability: provider fallback/retry layer — **TOMORROW (Mon Aug-24) is the
+   key watch**: a 4th consecutive Monday blackout would confirm the pattern (carried).
+4. Widen /health paper_cycle staleness threshold to ~70 min (carried).
+5. Enable "run ASAP after missed start" on the 3 probe schtasks (carried).

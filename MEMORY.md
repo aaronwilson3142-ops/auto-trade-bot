@@ -136,3 +136,15 @@ git so memory survives session teardown.
 - Standing watch for Mon Aug-24 run: (a) 4th consecutive Monday yfinance blackout →
   escalate provider-fallback rec; (b) churn evidence day 8 (Phase 88 rec #1);
   (c) Friday Aug-21 bars should land ~10:00 UTC + Tue silent-partial-ingestion risk.
+
+
+
+## Updates 2026-08-23 (deep-dive) — GREEN
+- Sunday run, 4th fully-GREEN weekend day (Aug 15/16/22/23) — weekend baseline is now
+  well-established across both Sat and Sun; nothing new learned, no anomalies, worker
+  log 24h window had zero warnings/errors (normal for weekend).
+- No fixes needed; no drift; smoke 28/28; git clean; probes 3/3 GREEN, schtasks Ready.
+- Snapshot unchanged: Friday 8/21 19:30, cash $12,969.64, equity $105,451.81, dd 1.39%.
+- Standing watch for Mon Aug-24 run (unchanged from Aug-22 entry): (a) 4th consecutive
+  Monday yfinance blackout → escalate provider-fallback rec; (b) churn evidence day 8
+  (Phase 88 rec #1); (c) Friday Aug-21 bars ~10:00 UTC + Tue silent-partial risk.
