@@ -148,3 +148,28 @@ git so memory survives session teardown.
 - Standing watch for Mon Aug-24 run (unchanged from Aug-22 entry): (a) 4th consecutive
   Monday yfinance blackout → escalate provider-fallback rec; (b) churn evidence day 8
   (Phase 88 rec #1); (c) Friday Aug-21 bars ~10:00 UTC + Tue silent-partial risk.
+
+
+
+## Updates 2026-08-24 (deep-dive) — RED
+- **FIRST HARD CAP BREACH: 16 open > APIS_MAX_POSITIONS=15.** Mechanism: 13:35 cycle,
+  portfolio engine planned opens:1/closes:4; rebalance merge grew opens to 4
+  (TMO/DGX/A/MRNA); phase65/65b suppressed exits + converted PSX close→trim; only
+  JPM/JNJ closed → 16. risk_validate_action passed every open (violation_count=0) and
+  factor_exposure logged position_count:16 — max-position check validates PLANNED
+  closes, not post-suppression reality. NEW BUG CLASS: phase65 exit-suppression ×
+  cap validation. Rec #1 to Aaron (deep-dive can fix if authorized).
+  NEXT-RUN DUTY: verify open_pos ≤15 (cap should block new opens while ≥15); a 17th
+  position = escalate hard.
+- Monday yfinance blackout now 4 CONSECUTIVE (Aug 3/10/17/24) — pattern CONFIRMED,
+  provider-fallback rec escalated to firm. Aug-24 flavor = Aug-17 (mark-to-market
+  guard family, no phase87, cycle not degraded, equity frozen 14:30→19:30).
+- Trim leftovers create dust positions that still count as open rows: PSX 1 sh,
+  TECH 4 sh (TECH sector-trim 99 sh at 14:30, healthcare 46.8% > 40%,
+  "closed_trade_recorded" fires even for partial trim — realized_pnl on trimmed lot).
+- Churn day 8: MRNA sold 8/21 @140.80 (−10.2%) → rebought 8/24 @133.43 (sell-low-
+  rebuy-lower round trip). JPM/JNJ age-expiry closes (age 20d cap works).
+- Gmail MCP in THIS scheduled session DID expose send_message (not just create_draft)
+  — notification gap note from 8/18 is session-dependent, check tool list each run.
+- Snapshot 8/24 19:30: cash $13,501.89, equity $105,537.78 (frozen from 14:30 by
+  stale-price preservation), drawdown 1.31%.

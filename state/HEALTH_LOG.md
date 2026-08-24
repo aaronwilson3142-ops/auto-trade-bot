@@ -2367,3 +2367,20 @@ today (expected), bars current through Aug-20, worker log fully quiet (0 warn/er
 Alembic head ok, git clean/pushed, smoke 28/28, env flags nominal, probes 3/3 GREEN,
 schtasks Ready. No fixes needed. Watch Mon Aug-24: 4th-Monday yfinance blackout +
 Friday bars landing + churn day 8 (Phase 88 rec #1).
+
+
+
+## 2026-08-24 22:17 UTC — Deep-dive daily check — RED
+- **RED: POSITION CAP BREACH — 16 open positions vs APIS_MAX_POSITIONS=15.** 13:35 cycle
+  opened 4 (TMO/DGX/A/MRNA) while phase65/65b rebalance-protection suppressed planned
+  exits (PSX close→trim); only JPM/JNJ closed → 14−2+4=16. Risk engine passed all opens
+  (validates against planned closes, not post-suppression reality). No manual fix taken
+  (not authorized to place/cancel orders); expect cap to block new opens tomorrow —
+  verify open_pos ≤15 on next run.
+- 4th consecutive Monday yfinance blackout (Aug 3/10/17/24) — CONFIRMED pattern; guards
+  handled it (stale-price preserved ×32, phantom-equity guard ×2, 0 phase87, cycle ok).
+- Otherwise nominal: 8/8 containers, /health ok 7/7, 0 alerts, 0 phantom fills, 0 dups,
+  bars current through Aug-21 (485/485 on time), 7/7 snapshots, signals/rankings ran,
+  smoke 28/28, alembic head ok, git clean, config nominal, probes 3/3 (2 benign YELLOW).
+- Churn day 8: MRNA −10.2% sell Fri → rebuy Mon. Full details: apis/state/HEALTH_LOG.md.
+- Notified Aaron by email (RED).

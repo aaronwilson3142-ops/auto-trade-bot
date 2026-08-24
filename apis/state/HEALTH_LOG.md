@@ -6760,3 +6760,79 @@ warnings/errors in the 24h worker log window.
    key watch**: a 4th consecutive Monday blackout would confirm the pattern (carried).
 4. Widen /health paper_cycle staleness threshold to ~70 min (carried).
 5. Enable "run ASAP after missed start" on the 3 probe schtasks (carried).
+
+
+
+## Health Check — 2026-08-24 22:17 UTC (Monday 5:17 PM CT) — LOCAL AI DEEP-DIVE (scheduled)
+
+**Overall Status:** RED — POSITION CAP BREACH: 16 open positions vs APIS_MAX_POSITIONS=15.
+Everything else nominal. Also: 4th consecutive Monday yfinance blackout CONFIRMED
+(guards handled it correctly, prices frozen after 14:30).
+
+### §1 Infrastructure
+- Containers: 8/8 Up 12 days, worker/api/postgres/redis healthy.
+- /health 22:10 UTC: status ok, 7/7 components ok, mode=paper. Alertmanager: 0 alerts.
+
+### §2 Trading Integrity + Phase 87
+- 0 $1.00 phantom fills (7d) ✓. 0 dup tickers ✓, 0 NULL origin_strategy (open) ✓,
+  0 dup idempotency keys ✓. Cash $13,501.89 ✓, drawdown 1.31% (sane; MRNA legacy) ✓.
+- **RED: 16 OPEN POSITIONS (> cap 15).** Root cause reconstructed from 13:35 cycle log:
+  portfolio engine planned opens:1/closes:4 (apply_ranked_opportunities_complete), then
+  rebalance merge grew opens to 4 (TMO/DGX/A/MRNA) while phase65/65b rebalance-protection
+  suppressed exits and converted the PSX close→trim (29 of 30 sold, 1 sh left open).
+  Only JPM+JNJ fully closed → 14 − 2 + 4 = 16. Every open passed risk_validate_action
+  with violation_count=0, and factor_exposure logs report position_count:16 without
+  complaint — the max-position check appears to validate against PLANNED closes, not
+  post-suppression reality. New failure mode: phase65 exit-suppression × cap validation.
+- No manual intervention taken (deep-dive is not authorized to place/cancel orders).
+  Cap enforcement should block new opens tomorrow while ≥15; expect self-correction on
+  next exit. VERIFY TOMORROW: open_pos ≤15 and no new opens while ≥15 (if a 17th
+  appears → escalate).
+
+### §3 Cycles + Data
+- 7/7 snapshots ✓ (13:35–19:30). Friday Aug-21 bars landed on time: 485/485, current
+  through last trading day ✓. Signals 10:30 / rankings 10:45 ✓. eval_runs 160 (+1) ✓.
+- **4th consecutive Monday yfinance blackout (Aug 3/10/17/24) — pattern CONFIRMED.**
+  All 16 open tickers returned "possibly delisted" mid-day (2x each);
+  mark_to_market_stale_price_preserved ×32, phantom_equity_guard_active ×2, 0 phase87_*
+  events, cycle NOT degraded. Equity/drawdown frozen 14:30→19:30 at $105,537.78 / 1.31%
+  (stale-price preservation working as designed — Aug-17 flavor exactly).
+- Log scan (24h, 1153 lines): 0 CRITICAL, 0 Traceback, 0 crash-triad. Warnings/errors
+  fully explained by blackout + known watchlist noise + stress_gate_applied (normal)
+  + phase82 duplicate-process skip (benign).
+- Churn day 8: MRNA sold Fri 8/21 @ $140.80 (−10.2%) → REBOUGHT Mon 8/24 @ $133.43.
+  TECH sector-trim 99 sh (healthcare 46.8% > 40%), JPM/JNJ age-expiry closes.
+
+### §4 Code/Schema/Config
+- Alembic `q7r8s9t0u1v2` single head ✓. Git clean (untracked outputs/ only), 0 unpushed ✓.
+- Smoke: 28/28 passed ✓.
+- Container env: all APIS_* flags nominal ✓ (paper, kill_switch=false, MAX_POSITIONS=15
+  confirmed, max_new/day=5, thematic 0.75, min_score 0.30, sector 0.40); self-improve/
+  insider/Step-6-7-8 unset=OFF ✓.
+
+### §5 Auto-Probe Liveness
+- AUTO_PROBE_LOG: 3/3 today ✓ (10:05 GREEN; 15:05/19:05 known-benign YELLOW
+  paper_cycle:stale timing artifact). Schtasks 0505/1005/1405 Ready, next runs 8/25 ✓.
+
+### Issues Found
+1. **RED — cap breach: 16 open > 15** (phase65 exit-suppression defeats max-position
+   validation; see §2). Positions: TECH, EA, PLTR, SCHW, BAC, ABT, PSX, SNOW, AMGN,
+   TGT, V, MRVL + today's MRNA, TMO, DGX, A.
+2. Monday blackout pattern confirmed at 4 consecutive (provider-fallback rec escalated).
+3. Churn day 8 (MRNA sell-high-rebuy-low round-trip completes the −$723 loss cycle).
+
+### Fixes Applied (autonomous)
+- None possible within authority (no order placement/cancellation; no restart or env
+  drift to fix; not a phantom/duplicate-row cleanup case). Logged, committed, emailed.
+
+### Recommendations for Aaron
+1. **NEW/URGENT: fix max-position validation to count post-suppression reality** (or
+   make phase65 suppression cap-aware). This is the first hard cap breach; in live
+   trading this would be a compliance-grade defect. Deep-dive can implement if authorized.
+2. **Phase 88 (churn dampener + cash-aware sizing)** — 8 consecutive trading days
+   (carried, evidence still accumulating).
+3. yfinance provider fallback/retry layer — **pattern now CONFIRMED (4 Mondays)**;
+   escalated from watch to firm rec (carried).
+4. Alert on PARTIAL ingestion / stale bars (carried).
+5. Widen /health paper_cycle staleness threshold to ~70 min (carried).
+6. Enable "run ASAP after missed start" on the 3 probe schtasks (carried).
