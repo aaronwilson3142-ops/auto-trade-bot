@@ -173,3 +173,20 @@ git so memory survives session teardown.
   — notification gap note from 8/18 is session-dependent, check tool list each run.
 - Snapshot 8/24 19:30: cash $13,501.89, equity $105,537.78 (frozen from 14:30 by
   stale-price preservation), drawdown 1.31%.
+
+
+
+## Updates 2026-08-25 (deep-dive) — GREEN
+- **Aug-24 cap breach SELF-CORRECTED**: 13:35 cycle closed MRVL (29 sh) + trimmed AMGN
+  (15 sh), ZERO opens while ≥15 → cap enforcement blocks new opens correctly once over;
+  16→15. The bug is only in breach CREATION (phase65 suppression × validation counting
+  planned closes) — still unfixed, rec #1. Verification duty discharged.
+- NO Tuesday silent-partial repeat: Mon Aug-24 bars 484/485 despite 4th-Monday blackout.
+  Missing ORGN/EQR/EA (EA = open position) — AVB-style benign gap, watch for backfill.
+- Churn PAUSED (day 9 quiet): 2 sells only, no buys/round-trips. Evidence stays 8 days.
+- Schema gotcha: `side` lives on orders, NOT fills — `f.side` killed a psql session
+  (join orders o and use o.side). Env also confirms APIS_MAX_SINGLE_NAME_PCT=0.20,
+  APIS_MAX_POSITION_AGE_DAYS=20, daily-loss 0.02, weekly-dd 0.05.
+- Cash $27,256.04 (+$13.7k from sells), equity $105,890.04, dd 0.98% (8/25 19:30).
+- Watch next runs: ORGN/EQR/EA Aug-24 bar backfill; churn resumption; whether cap
+  stays ≤15 on next open-eligible cycle.

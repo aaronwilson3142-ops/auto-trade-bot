@@ -6836,3 +6836,65 @@ Everything else nominal. Also: 4th consecutive Monday yfinance blackout CONFIRME
 4. Alert on PARTIAL ingestion / stale bars (carried).
 5. Widen /health paper_cycle staleness threshold to ~70 min (carried).
 6. Enable "run ASAP after missed start" on the 3 probe schtasks (carried).
+
+
+
+## Health Check — 2026-08-25 22:20 UTC (Tuesday 5:20 PM CT) — LOCAL AI DEEP-DIVE (scheduled)
+
+**Overall Status:** GREEN — Aug-24 cap breach SELF-CORRECTED as predicted (15/15 open,
+zero new opens while over cap). All systems nominal. Underlying phase65×cap-validation
+bug remains unfixed — carried as rec #1.
+
+### §1 Infrastructure
+- Containers: 8/8 Up 13 days, worker/api/postgres/redis healthy.
+- /health 22:10 UTC: status ok, 7/7 components ok, mode=paper. Alertmanager: 0 alerts.
+
+### §2 Trading Integrity + Phase 87
+- 0 $1.00 phantom fills (7d) ✓. 0 phase87_* events (24h) ✓. 0 dup tickers ✓,
+  0 NULL origin_strategy (open) ✓, 0 dup idempotency keys ✓.
+- **Cap breach RESOLVED: 15 open (was 16).** Verification duty from 8/24 discharged:
+  13:35 cycle closed MRVL fully (29 sh @ $244.15) and trimmed AMGN (15 sh @ $444.92);
+  ZERO opens executed while positions ≥15 → cap enforcement blocked new opens exactly
+  as expected. 16−1=15. No 17th position ever appeared.
+- Snapshot 19:30: cash $27,256.04 (+$13.7k from the two sells), equity $105,890.04,
+  drawdown 0.98% ✓.
+
+### §3 Cycles + Data
+- 7/7 snapshots ✓ (13:35–19:30). Signals 10:30 / rankings 10:45 ✓. eval_runs 161 (+1) ✓.
+- Monday Aug-24 bars landed 484/485 on Tuesday ingestion — NO silent-partial repeat
+  (the Aug-18 failure mode did not recur despite yesterday's 4th-Monday blackout).
+  Missing active tickers: ORGN, EQR, EA (EA is an open position) — same benign
+  single-day gap pattern as AVB Aug-17 (backfilled in 4 days); WATCH next run.
+- Log scan (24h, 894 lines): 0 CRITICAL, 0 Traceback, 0 crash-triad, 0 guard events
+  (no mark_to_market/phantom_equity today — blackout did not recur intraday). All 75
+  warn/err lines = known dead-ticker watchlist noise (15 possibly-delisted names +
+  404s at 10:00 ingestion) + stress_gate_applied ×7 (normal).
+- Churn: quietest day in 9 — only 2 fills, both sells (MRVL close, AMGN trim), no buys,
+  no round-trips. Phase 88 evidence unchanged (8 prior days).
+
+### §4 Code/Schema/Config
+- Alembic `q7r8s9t0u1v2` single head ✓. Git clean (untracked outputs/ only), 0 unpushed ✓.
+- Smoke: 28/28 passed ✓.
+- Container env: all APIS_* flags nominal ✓ (paper, kill_switch=false, MAX_POSITIONS=15,
+  max_new/day=5, thematic 0.75, min_score 0.30, sector 0.40, single-name 0.20, age 20d);
+  self-improve/insider/Step-6-7-8 unset=OFF ✓.
+
+### §5 Auto-Probe Liveness
+- AUTO_PROBE_LOG: 3/3 today ✓ (10:05 GREEN; 15:05/19:05 known-benign YELLOW
+  paper_cycle:stale timing artifact). Schtasks 0505/1005/1405 Ready, next runs 8/26 ✓.
+
+### Issues Found
+- None new. Cap breach resolved by design behavior; latent bug remains (rec #1).
+
+### Fixes Applied (autonomous)
+- None needed. One psql session lost to a column-name guess (fills has no `side`;
+  it lives on orders) — gotcha noted in memory.
+
+### Recommendations for Aaron (carried)
+1. **Fix max-position validation to count post-suppression reality** (phase65
+   exit-suppression × cap validation; breach self-corrected but bug is live).
+2. Phase 88 churn dampener + cash-aware sizing (8 days of evidence; today quiet).
+3. yfinance provider fallback/retry layer (4 consecutive Mondays confirmed).
+4. Alert on PARTIAL ingestion / stale bars.
+5. Widen /health paper_cycle staleness threshold to ~70 min.
+6. Enable "run ASAP after missed start" on the 3 probe schtasks.

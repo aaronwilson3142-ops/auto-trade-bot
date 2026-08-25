@@ -2384,3 +2384,18 @@ Friday bars landing + churn day 8 (Phase 88 rec #1).
   smoke 28/28, alembic head ok, git clean, config nominal, probes 3/3 (2 benign YELLOW).
 - Churn day 8: MRNA −10.2% sell Fri → rebuy Mon. Full details: apis/state/HEALTH_LOG.md.
 - Notified Aaron by email (RED).
+
+
+
+## 2026-08-25 22:20 UTC — Deep-dive daily check — GREEN
+- **Aug-24 cap breach RESOLVED as predicted: 15/15 open.** 13:35 cycle closed MRVL +
+  trimmed AMGN, zero new opens while over cap (enforcement worked); no 17th position.
+  Underlying phase65×cap-validation bug still unfixed — rec #1 to Aaron.
+- Monday Aug-24 bars landed 484/485 on time — NO Tuesday silent-partial repeat.
+  Missing: ORGN/EQR/EA (EA is an open position) — benign AVB-style gap, watching.
+- Otherwise fully nominal: 8/8 containers, /health 7/7 ok, 0 alerts, 0 phantom fills,
+  0 dups/NULLs, 7/7 snapshots, signals/rankings ran, log clean (0 CRITICAL/guard
+  events), smoke 28/28, alembic head ok, git clean, config nominal, probes 3/3
+  (2 benign YELLOW). Cash $27,256.04, equity $105,890.04, drawdown 0.98%.
+- Churn: quietest day in 9 — 2 sells only, no buys, no round-trips.
+- Full details: apis/state/HEALTH_LOG.md. GREEN = silent (log+commit only).
