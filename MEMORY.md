@@ -190,3 +190,26 @@ git so memory survives session teardown.
 - Cash $27,256.04 (+$13.7k from sells), equity $105,890.04, dd 0.98% (8/25 19:30).
 - Watch next runs: ORGN/EQR/EA Aug-24 bar backfill; churn resumption; whether cap
   stays ≤15 on next open-eligible cycle.
+
+
+
+## Updates 2026-08-26 (deep-dive) — GREEN
+- Fully nominal day; cap stayed 15/15 with normal trading (3 sells 13:35 → 3 buys
+  14:30) — second consecutive day of correct cap behavior after the 8/24 breach.
+- NEW BASELINE FACT: portfolio equity_value freezes to the cent from the last fill
+  (typically 14:30) through 19:30 on quiet days — verified identical on nominal
+  Aug-20. Valuation updates on fills/daily bars, not intraday quotes. NOT staleness;
+  do not confuse with Monday-blackout stale-price preservation (that logs
+  mark_to_market_* events; this logs nothing).
+- Churn resumed (evidence day 9) after 1 quiet day: MRNA same-day sell→rebuy
+  (13:35 sell 53 sh @149.50, 14:30 rebuy 47 sh @149.37); the 8/24 rebuy @133.43
+  realized +12% — first PROFITABLE round-trip in the churn series. A/SNOW closed →
+  DASH/MA opened (sell-block→buy-block flavor).
+- Bar-gap watch: Aug-24 ORGN+EA backfilled (EQR still missing); Aug-25 missing
+  EQR+AVB. EQR now missing 2 consecutive days — if it hits ~4 days without
+  backfill (unlike AVB precedent), consider is_active review.
+- Tooling: `python -i` REPL was BLOCKED by session policy this run; one-shot
+  `python -c "..."` (single line, no `^` chars — cmd mangles regex carets) works
+  for log analysis. psql/powershell sessions unaffected.
+- Snapshot 8/26 19:30: cash $28,463.16, equity $106,656.02, drawdown 0.26%.
+- Watch next runs: EQR/AVB backfill; churn; Mon Aug-31 = 5th-Monday blackout test.

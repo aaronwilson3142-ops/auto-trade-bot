@@ -6898,3 +6898,66 @@ bug remains unfixed — carried as rec #1.
 4. Alert on PARTIAL ingestion / stale bars.
 5. Widen /health paper_cycle staleness threshold to ~70 min.
 6. Enable "run ASAP after missed start" on the 3 probe schtasks.
+
+
+
+## Health Check — 2026-08-26 22:15 UTC (Wednesday 5:15 PM CT) — LOCAL AI DEEP-DIVE (scheduled)
+
+**Overall Status:** GREEN — all systems nominal. Cap holds at 15/15 post-breach. Churn
+resumed after a 1-day pause (MRNA intraday round-trip). No fixes needed.
+
+### §1 Infrastructure
+- Containers: 8/8 Up 2 weeks, worker/api/postgres/redis healthy.
+- /health 22:09 UTC: status ok, 7/7 components ok, mode=paper. Alertmanager: 0 alerts.
+
+### §2 Trading Integrity + Phase 87
+- 0 $1.00 phantom fills (7d) ✓. 0 phase87_* events (24h) ✓. 0 dup open tickers ✓,
+  0 NULL origin_strategy (open) ✓, 0 dup idempotency keys ✓.
+- 15 open positions (= cap, no breach; second day of correct cap behavior post 8/24) ✓.
+- Snapshot 19:30: cash $28,463.16, equity $106,656.02, drawdown 0.26% ✓.
+
+### §3 Cycles + Data
+- 7/7 snapshots ✓ (13:35–19:30). Signals 10:30 / rankings 10:45 ✓. eval_runs 162 (+1) ✓.
+- Bars current through Aug-25 ✓. Aug-24 gap PARTIALLY backfilled: ORGN + EA landed
+  (484/485, only EQR missing); Aug-25 at 483 missing EQR + AVB. Same benign single-name
+  lag pattern as AVB Aug-17 — WATCH for backfill.
+- Log scan (24h, 913 today-lines): 0 CRITICAL, 0 Traceback, 0 crash-triad, 0 guard
+  events (no mark_to_market/phantom_equity — no midweek blackout). All 75 warn/err =
+  known dead-ticker watchlist noise (15 possibly-delisted at 10:00 ingestion) +
+  stress_gate_applied ×7 (normal).
+- NEW BASELINE FACT: equity_value freezing to the cent from 14:30→19:30 is NORMAL on
+  quiet days (verified identical pattern on nominal Aug-20) — positions are valued on
+  fill/daily-bar prices, not intraday quotes. Do not flag as staleness.
+- Churn RESUMED (evidence day 9): MRNA sold 13:35 @ $149.50 (53 sh; bought 8/24
+  @ $133.43 → +12% realized, a rare profitable round-trip) then REBOUGHT 14:30
+  @ $149.37 (47 sh) — same-day sell→rebuy. Also A (46 sh) + SNOW (22 sh) closed 13:35
+  → DASH/MA opened 14:30 (sell-block→buy-block pattern). Phase 88 rec stands.
+
+### §4 Code/Schema/Config
+- Alembic `q7r8s9t0u1v2` single head ✓. Git clean (untracked outputs/ only), 0 unpushed ✓.
+- Smoke: 28/28 passed ✓.
+- Container env: all APIS_* flags nominal ✓ (paper, kill_switch=false, MAX_POSITIONS=15,
+  max_new/day=5, thematic 0.75, min_score 0.30, sector 0.40, single-name 0.20, age 20d,
+  daily-loss 0.02, weekly-dd 0.05); self-improve/insider/Step-6-7-8 unset=OFF ✓.
+
+### §5 Auto-Probe Liveness
+- AUTO_PROBE_LOG: 3/3 today ✓ (10:05 GREEN; 15:05/19:05 known-benign YELLOW
+  paper_cycle:stale timing artifact). Schtasks 0505/1005/1405 Ready, next runs 8/27 ✓.
+
+### Issues Found
+- None new.
+
+### Fixes Applied (autonomous)
+- None needed. Note: `python -i` REPL was blocked by session policy this run; one-shot
+  `python -c` one-liners worked as a substitute for log analysis.
+
+### Recommendations for Aaron (carried)
+1. **Fix max-position validation to count post-suppression reality** (phase65
+   exit-suppression × cap validation; bug live, breach self-corrected 8/25).
+2. Phase 88 churn dampener + cash-aware sizing (evidence day 9: MRNA same-day
+   round-trip resumed after 1 quiet day).
+3. yfinance provider fallback/retry layer (4 consecutive Mondays confirmed; next
+   test Mon Aug-31).
+4. Alert on PARTIAL ingestion / stale bars.
+5. Widen /health paper_cycle staleness threshold to ~70 min.
+6. Enable "run ASAP after missed start" on the 3 probe schtasks.

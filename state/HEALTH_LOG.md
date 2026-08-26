@@ -2399,3 +2399,13 @@ Friday bars landing + churn day 8 (Phase 88 rec #1).
   (2 benign YELLOW). Cash $27,256.04, equity $105,890.04, drawdown 0.98%.
 - Churn: quietest day in 9 — 2 sells only, no buys, no round-trips.
 - Full details: apis/state/HEALTH_LOG.md. GREEN = silent (log+commit only).
+
+
+## 2026-08-26 22:15 UTC — Deep-dive: GREEN
+All nominal: 8/8 containers, /health ok 7/7, 0 alerts, 0 phantom fills, 15/15 open
+(cap holds post-breach), 0 dups/NULLs, 7/7 cycles, signals+rankings on time, bars
+current through Aug-25 (EQR/AVB single-name lag, benign watch), smoke 28/28, git
+clean, env nominal, probes 3/3. Churn resumed day 9: MRNA same-day round-trip
+(sold @149.50/rebought @149.37; the 8/24 buy @133.43 realized +12%), A/SNOW→DASH/MA
+swap. New baseline: intraday equity freeze after last fill is normal (matches 8/20).
+No fixes needed. Full details in apis/state/HEALTH_LOG.md.
