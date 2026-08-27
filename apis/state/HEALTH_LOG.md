@@ -6961,3 +6961,79 @@ resumed after a 1-day pause (MRNA intraday round-trip). No fixes needed.
 4. Alert on PARTIAL ingestion / stale bars.
 5. Widen /health paper_cycle staleness threshold to ~70 min.
 6. Enable "run ASAP after missed start" on the 3 probe schtasks.
+
+
+
+## Health Check — 2026-08-27 22:15 UTC (Thursday 5:15 PM CT) — LOCAL AI DEEP-DIVE (scheduled)
+
+**Overall Status:** RED — **SECOND CAP BREACH: 16 open > APIS_MAX_POSITIONS=15** (first
+was 8/24, self-corrected 8/25). New flavor of the same phase65×validation bug class.
+Everything else nominal.
+
+### §0 Breach Mechanism (from worker log, fully reconstructed)
+- 13:35 cycle (15 open): engine planned opens:0/closes:2; rebalance merge produced
+  KO/WST opens. Risk engine CORRECTLY blocked both (`action_blocked_by_risk`,
+  violations:["max_positions"]) at count 15. TGT close filled (43 sh @ $163.86) → 14 open.
+- 14:30 cycle (14 open): engine planned opens:1/closes:1; rebalance grew opens to 2.
+  The 1 close was phase65-suppressed (`phase65_close_suppressed_rebalance_active`).
+  KO AND WST each validated individually against count 14 → both passed
+  (violation_count=0), both filled (KO 79 sh @ $89.41, WST 20 sh @ $350.41) → **16**.
+- TWO validation gaps confirmed: (a) suppressed closes still counted (known from 8/24);
+  (b) NEW: multiple same-cycle opens each validated against the same starting count —
+  no running total, so N opens can pass at count 14 regardless of cap headroom of 1.
+- phase65b also suppressing age-expiry exits every cycle: TECH (held 30d > 20d max,
+  dust 4 sh) and EA (27d) — "rebalance_protected" since at least today's 7 cycles.
+
+### §1 Infrastructure
+- Containers 8/8 Up 2 weeks, all healthchecked ones healthy. /health 22:09 UTC:
+  status ok, 7/7 components ok, mode=paper. Alertmanager: 0 alerts.
+
+### §2 Trading Integrity + Phase 87
+- 0 $1.00 phantom fills (7d) ✓. 0 phase87_* events (24h) ✓. 0 dup open tickers ✓,
+  0 NULL origin_strategy (open) ✓, 0 dup idempotency keys ✓.
+- **16 open positions > 15 cap ✗ (RED)** — WST/KO opened 14:30 with origin_strategy
+  'rebalance' (first non-momentum_v1 opens observed).
+- Snapshot 19:30: cash $21,437.55, equity $106,709.46, drawdown 0.21% ✓.
+
+### §3 Cycles + Data
+- 7/7 snapshots ✓ (13:35–19:30). Signals 10:30 / rankings 10:45 ✓. eval_runs 163 (+1) ✓.
+- Bars: Aug-26 landed on time at 483; missing AVB/EA/EQR/ORGN. **EQR now missing 3
+  consecutive days (8/24–8/26)** → nearing the ~4-day is_active review threshold.
+  EA (open position) + ORGN backfilled 8/24 but missing again 8/26. AVB missing
+  8/25–26. Benign single-name-lag pattern, but the set is churning daily — WATCH.
+- Log scan (24h, 876 today-lines): 0 CRITICAL, 0 Traceback, 0 crash-triad, 0
+  mark_to_market/phantom_equity (no midweek blackout ✓). All 75 warn/err = known
+  dead-ticker noise (15 possibly-delisted + 404s + no-security_id incl. PARA) +
+  stress_gate_applied ×7 (normal).
+- Churn day 10, mildest flavor: TGT closed after 6-day hold (8/21 rebuy → 8/27 sell);
+  no round-trips, no same-day flips. KO/WST are new names.
+
+### §4 Code/Schema/Config
+- Alembic `q7r8s9t0u1v2` single head ✓. Git clean (untracked outputs/ only), 0 unpushed ✓.
+- Smoke: 28/28 passed ✓.
+- Container env: all APIS_* nominal ✓ (paper, kill_switch=false, MAX_POSITIONS=15,
+  max_new/day=5, thematic 0.75, min_score 0.30, sector 0.40, single-name 0.20, age 20d,
+  daily-loss 0.02, weekly-dd 0.05); self-improve/insider/Step-6-7-8 unset=OFF ✓.
+
+### §5 Auto-Probe Liveness
+- AUTO_PROBE_LOG: 3/3 today ✓ (10:05 GREEN; 15:05/19:05 known-benign YELLOW
+  paper_cycle:stale artifact). Schtasks 0505/1005/1405 Ready, next runs 8/28 ✓.
+
+### Issues Found
+- RED: cap breach #2 (16>15), mechanism §0. Expect self-correction Fri 8/28 13:35
+  per 8/25 precedent (cap blocks opens while ≥15; closes/trims reduce).
+  NEXT-RUN DUTY: verify ≤15; any 17th position or failure to shrink = escalate hard.
+
+### Fixes Applied (autonomous)
+- None possible within authority: correcting the breach means placing a manual close
+  order (forbidden). No container/env/DB-row issues to fix. Notified Aaron (RED).
+
+### Recommendations for Aaron (updated)
+1. **URGENT — fix cap validation**: count post-suppression reality AND keep a running
+   open-count across same-cycle validations (two gaps now proven, breaches 8/24+8/27).
+   Deep-dive can implement if authorized.
+2. Phase 88 churn dampener + cash-aware sizing (day 10; today mild).
+3. yfinance provider fallback/retry (4 consecutive Mondays; next test Mon Aug-31).
+4. Alert on PARTIAL ingestion / stale bars; EQR nearing is_active review (3 days).
+5. Widen /health paper_cycle staleness threshold to ~70 min.
+6. Enable "run ASAP after missed start" on the 3 probe schtasks.

@@ -2409,3 +2409,23 @@ clean, env nominal, probes 3/3. Churn resumed day 9: MRNA same-day round-trip
 (sold @149.50/rebought @149.37; the 8/24 buy @133.43 realized +12%), A/SNOW→DASH/MA
 swap. New baseline: intraday equity freeze after last fill is normal (matches 8/20).
 No fixes needed. Full details in apis/state/HEALTH_LOG.md.
+
+
+
+## 2026-08-27 22:15 UTC — Deep-dive daily check — RED
+- **SECOND CAP BREACH: 16 open > 15.** 14:30 cycle opened KO+WST (origin 'rebalance')
+  while its 1 planned close was phase65-suppressed. NEW validation gap proven: each
+  same-cycle open validated against the same starting count (14) — no running total —
+  on top of the known suppressed-close counting bug from 8/24. 13:35 cycle had
+  correctly blocked both opens at count 15 (enforcement works AT the cap, breaks
+  crossing it via multi-open + suppression).
+- Expect self-correction Fri 13:35 per 8/25 precedent; next-run duty: verify ≤15,
+  a 17th = escalate hard. Fix is rec #1 (URGENT), deep-dive can implement if authorized.
+- Otherwise nominal: 8/8 containers, /health ok 7/7, 0 alerts, 0 phantom fills,
+  0 dups/NULLs, 7/7 snapshots, signals/rankings on time, log clean (0 CRITICAL,
+  0 guard events), smoke 28/28, alembic head ok, git clean, config nominal,
+  probes 3/3 (2 benign YELLOW). Cash $21,437.55, equity $106,709.46, dd 0.21%.
+- Bars through Aug-26 (483); EQR missing 3rd consecutive day (watch, near is_active
+  review); AVB/EA/ORGN single-name gaps churning. Churn day 10 mild: TGT 6-day-hold
+  close, no round-trips.
+- Notified Aaron by email (RED). Full details: apis/state/HEALTH_LOG.md.

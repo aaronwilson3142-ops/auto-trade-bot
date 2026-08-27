@@ -213,3 +213,28 @@ git so memory survives session teardown.
   for log analysis. psql/powershell sessions unaffected.
 - Snapshot 8/26 19:30: cash $28,463.16, equity $106,656.02, drawdown 0.26%.
 - Watch next runs: EQR/AVB backfill; churn; Mon Aug-31 = 5th-Monday blackout test.
+
+
+
+## Updates 2026-08-27 (deep-dive) — RED
+- **CAP BREACH #2: 16 open > 15** (3 days after #1). Mechanism reconstructed: 13:35
+  correctly BLOCKED KO/WST opens at count 15 (action_blocked_by_risk max_positions)
+  and closed TGT → 14. Then 14:30 planned opens:1/closes:1, rebalance merge grew
+  opens to 2 (KO/WST, origin_strategy='rebalance' — first non-momentum_v1 opens seen);
+  the close was phase65-suppressed; BOTH opens validated individually against count
+  14 and passed → 16. **NEW proven gap: no running open-count across same-cycle
+  validations**, in addition to the 8/24 suppressed-close counting gap. Enforcement
+  works AT the cap but breaks CROSSING it. Fix = URGENT rec #1.
+- phase65b suppressing age-expiry exits every cycle: TECH 30d>20d (dust 4 sh, held
+  since 7/28) + EA 27d — "rebalance_protected" indefinitely; contributes to stuck
+  dust/aged rows.
+- EQR bar missing 3rd consecutive day (8/24–26); AVB/EA/ORGN gaps churn daily
+  (backfill then vanish again). If EQR hits ~4 days, review is_active.
+- Churn day 10 mild: TGT closed after 6-day hold; no round-trips.
+- Tooling: PowerShell session DIED on inline `python -c` with escaped quotes —
+  run python one-shots via their own start_process (cmd), not inside the psql/PS
+  session. Also `git rev-list --count origin/main..main` works fine.
+- Gmail MCP this session: send_message available (like 8/24, unlike 8/18).
+- Snapshot 8/27 19:30: cash $21,437.55, equity $106,709.46, dd 0.21%.
+- Watch Fri 8/28: breach must self-correct to ≤15 (17th = hard escalate); EQR bar;
+  churn; then Mon Aug-31 = 5th-Monday blackout test.
