@@ -238,3 +238,27 @@ git so memory survives session teardown.
 - Snapshot 8/27 19:30: cash $21,437.55, equity $106,709.46, dd 0.21%.
 - Watch Fri 8/28: breach must self-correct to ≤15 (17th = hard escalate); EQR bar;
   churn; then Mon Aug-31 = 5th-Monday blackout test.
+
+
+
+## Updates 2026-08-28 (deep-dive, ran 8:35 PM CT on wake) — RED
+- **OUTAGE #6 — full trading day lost**: reboot Thu 8/27 11:39 PM CT, then sleep/
+  Docker-down until ~8:20 PM CT Fri. 0/7 cycles, 0/3 probes (schtasks skip missed
+  triggers — rec open since Aug 12), no Aug-27 bars, no signals/rankings. Cowork
+  scheduled tasks DO fire on wake (this run, 3.5h late); host schtasks do NOT.
+  NEW REC: Docker Desktop auto-start on login (containers did not come up at reboot).
+- **Cap breach #2 UNCORRECTED (16 open)** — mechanically impossible to self-correct
+  with zero cycles; 0 fills so no 17th. Expect correction Mon 8/31 13:35 UTC.
+  MON-RUN DUTY: verify ≤15 AND 5th-Monday blackout test AND Aug-27/28 bar catch-up
+  (may slip to Tue 9/1 given Monday-blackout pattern).
+- **Bar-vanish behavior CONFIRMED via max(trade_date)**: EA (OPEN position) max bar
+  = 8/10 — its "backfilled 8/24" row no longer exists (daily upsert apparently
+  deletes/churns single-name rows). EQR max 8/21, AVB 8/24, ORGN 7/15. Proposed
+  invariant: every open position must have a bar ≤2 trading days old.
+- Post-restart nominal: clean worker startup (36 jobs, 0 errors), /health ok 7/7,
+  smoke 28/28, env nominal, git clean, next market jobs Mon 8/31 (no Friday-night
+  catch-up trading — restart-at-night is safe).
+- Snapshot unchanged (8/27 19:30): cash $21,437.55, equity $106,709.46, dd 0.21%.
+- Tooling: containers "Up 3 minutes" on arrival is itself a finding — always check
+  container uptime FIRST; LastBootUpTime ≠ awake (sleep hides behind old boot time;
+  compare schtasks Last Run Times to detect sleep windows).

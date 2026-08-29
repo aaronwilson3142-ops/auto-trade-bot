@@ -2429,3 +2429,21 @@ No fixes needed. Full details in apis/state/HEALTH_LOG.md.
   review); AVB/EA/ORGN single-name gaps churning. Churn day 10 mild: TGT 6-day-hold
   close, no round-trips.
 - Notified Aaron by email (RED). Full details: apis/state/HEALTH_LOG.md.
+
+
+
+## 2026-08-29 01:35 UTC — Deep-dive (Fri 8/28 run, fired late on wake) — RED
+- **Outage #6**: reboot Thu 11:39 PM CT, then machine slept / Docker down the entire
+  Friday trading day; containers only up ~01:20 UTC 8/29. Lost: 3/3 probes (schtasks
+  skipped their 8/28 triggers), Aug-27 bar ingestion, signals/rankings, all 7 cycles.
+- **Cap breach #2 still standing: 16 open > 15** — could not self-correct with zero
+  cycles; no 17th (0 fills). Correction now expected Mon 8/31 13:35 UTC.
+- Post-restart all nominal: /health ok 7/7, 0 alerts, 0 phantom fills, 0 dups/NULLs,
+  clean startup log, smoke 28/28, alembic head ok, git clean, env nominal.
+- Data: bars end Aug-26; EA (open position) bars stale since 8/10 (backfill vanished);
+  EQR since 8/21. Mon 8/31 doubles as 5th-Monday blackout test — catch-up may slip
+  to Tue.
+- Recs: #1 cap-validation fix (urgent, live breach all weekend); #2 NEW Docker
+  auto-start + schtasks "run after missed start" (2nd full-day loss); churn/provider/
+  threshold recs carried. Notified Aaron by email (RED).
+  Full details: apis/state/HEALTH_LOG.md.

@@ -7037,3 +7037,86 @@ Everything else nominal.
 4. Alert on PARTIAL ingestion / stale bars; EQR nearing is_active review (3 days).
 5. Widen /health paper_cycle staleness threshold to ~70 min.
 6. Enable "run ASAP after missed start" on the 3 probe schtasks.
+
+
+
+## Health Check — 2026-08-29 01:35 UTC (Friday 8:35 PM CT) — LOCAL AI DEEP-DIVE (scheduled, ran late due to outage)
+
+**Overall Status:** RED — **cap breach #2 STILL STANDING (16 open > 15)** because a
+**full-day stack outage (#6)** meant ZERO trading cycles ran Friday to self-correct it.
+No 17th position (0 fills today) — carried RED, not an escalation. Everything that
+could be checked post-restart is nominal.
+
+### §0 Outage #6 (the day's defining event)
+- Machine rebooted Thu 8/27 11:39 PM CT (8/28 04:39 UTC), then evidently slept/Docker
+  never started: containers show "Up 3 minutes" at 01:21 UTC 8/29 (~8:20 PM CT wake).
+  Docker stack DOWN ~21h spanning the entire Friday trading day.
+- Missed: 3/3 host probes (schtasks Last Run 8/27, 8/28 triggers skipped entirely —
+  "run ASAP after missed start" STILL not enabled, rec #6 open since Aug 12),
+  10:00 UTC bar ingestion (Aug-27 bars absent), 10:30/10:45 signals/rankings
+  (max created_at = 8/27), all 7 paper cycles (latest snapshot = 8/27 19:30).
+- This deep-dive itself fired ~3.5h late (5 PM CT schedule → ran on wake ~8:23 PM CT);
+  Cowork scheduled tasks DO run after wake, host schtasks do NOT.
+- Restart clean: worker up 01:20:17 UTC, 36 jobs registered, heartbeat ok, 0 errors/
+  Traceback in startup log; next market jobs correctly queued Mon 8/31 (no weird
+  Friday-night catch-up trading).
+
+### §1 Infrastructure (post-restart)
+- Containers 8/8 Up (healthchecked ones healthy). /health 01:23 UTC: status ok,
+  7/7 components ok (paper_cycle:ok — freshly restarted), mode=paper. Alertmanager: [].
+
+### §2 Trading Integrity + Phase 87
+- 0 $1.00 phantom fills (7d) ✓. 0 dup open tickers ✓, 0 NULL origin_strategy (open) ✓,
+  0 dup idempotency keys ✓. 0 fills 8/28 (outage — market never traded by the bot).
+- **16 open > 15 cap ✗ (carried RED from 8/27)** — self-correction now expected
+  Mon 8/31 13:35 UTC (first cycle to run). NEXT-RUN DUTY unchanged: verify ≤15.
+- Latest snapshot (8/27 19:30): cash $21,437.55, equity $106,709.46, dd 0.21% ✓.
+
+### §3 Cycles + Data
+- 0/7 snapshots Friday ✗ (outage). No signals/rankings 8/28 ✗ (outage).
+- Bars end at Aug-26 (483) — Aug-27 ingestion missed ✗. Monday's period=1y fetch
+  should backfill Aug-27 + land Aug-28... except Mon 8/31 is also the 5th-Monday
+  yfinance-blackout test. Tue 9/1 may be the real catch-up day.
+- **EA (OPEN position) max bar = 2026-08-10** — 18 days stale valuation; prior
+  "backfilled 8/24" row has VANISHED (upsert churn deletes it?). EQR max 8/21
+  (3 missed days + global 8/27 gap); AVB 8/24; ORGN 7/15. The vanish-after-backfill
+  behavior is now confirmed via max(trade_date), not just daily counts.
+- Log scan: only ~5 min of runtime to scan; startup clean (0 CRITICAL/Traceback/
+  crash-triad/guard events). Pre-reboot Thursday logs were covered by the 8/27 run.
+- Churn: no evidence day possible (0 trades). Series pauses at day 10.
+
+### §4 Code/Schema/Config
+- Alembic `q7r8s9t0u1v2` single head ✓. Git clean (untracked outputs/ only), 0 unpushed ✓.
+- Smoke: 28/28 passed ✓. Env: all APIS_* nominal ✓ (paper, kill_switch=false,
+  MAX_POSITIONS=15, max_new/day=5, thematic 0.75, min_score 0.30, sector 0.40,
+  single-name 0.20, age 20d, daily-loss 0.02, weekly-dd 0.05; self-improve/insider/
+  Step-6-7-8 unset=OFF ✓).
+
+### §5 Auto-Probe Liveness
+- AUTO_PROBE_LOG: 0 lines for 8/28 ✗ (YELLOW criterion breached; subsumed by outage).
+  Schtasks 0505/1005/1405 exist, Status Ready, Last Result 0, next runs 8/29 —
+  tasks are alive, they just don't fire missed triggers after wake.
+- Cloud watchdog >26h-silence threshold hit ~8/28 21:05 UTC — Aaron may have already
+  received a push (probe silence began after 8/27 19:05).
+
+### Issues Found
+- RED (carried): cap breach #2 uncorrected — mechanical (no cycles ran), not new.
+- Outage #6: full trading day lost. Docker did not auto-start containers until wake.
+- EA stale-bar valuation (18d) — an open position is being marked on 8/10 prices.
+
+### Fixes Applied (autonomous)
+- None available: containers already up on arrival; no env/DB drift; correcting the
+  breach = manual order (forbidden); host scheduler + Docker autostart settings are
+  outside authority (recs #6/#7). Notified Aaron by email (RED).
+
+### Recommendations for Aaron (updated)
+1. **URGENT — fix cap validation** (two proven gaps, breaches 8/24+8/27; breach live
+   all weekend until Mon 13:35 self-correct). Deep-dive can implement if authorized.
+2. **NEW — make the stack outage-proof**: enable Docker Desktop auto-start on login
+   AND "run ASAP after missed start" on the 3 probe schtasks (rec #6 merged here;
+   6th outage, 2nd full-trading-day loss).
+3. Phase 88 churn dampener + cash-aware sizing (paused at day 10).
+4. yfinance provider fallback/retry + stale-bar alerting; EA open-position bars stale
+   since 8/10 and backfills that vanish — consider is_active review for EQR/ORGN and
+   an invariant: every OPEN position must have a bar ≤2 trading days old.
+5. Widen /health paper_cycle staleness threshold to ~70 min.
