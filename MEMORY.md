@@ -262,3 +262,21 @@ git so memory survives session teardown.
 - Tooling: containers "Up 3 minutes" on arrival is itself a finding — always check
   container uptime FIRST; LastBootUpTime ≠ awake (sleep hides behind old boot time;
   compare schtasks Last Run Times to detect sleep windows).
+
+
+
+## Updates 2026-08-29 (deep-dive, Sat) — RED (carried)
+- Cap breach #2 unchanged (16 open, day 3) — weekend hold, nothing to learn; Mon
+  8/31 13:35 UTC is the correction test (8/25 precedent: closes/trims, zero opens).
+- Outage #6 recovery CONFIRMED: no re-sleep — containers up 21h straight, 3/3 host
+  probes fired (first full probe day since 8/27), all GREEN. Weekend probes show NO
+  paper_cycle:stale artifact (in-market-only, as expected).
+- 5th consecutive GREEN-baseline weekend day (8/15,16,22,23,29): fully quiet worker
+  log (0 warn/err in 616 today-lines), 0 snapshots/fills/signals/rankings, snapshot
+  frozen at 8/27 19:30 (cash $21,437.55 / equity $106,709.46 / dd 0.21%).
+- EA stale-bar now 19 days (last bar 8/10) — worst case yet for an OPEN position;
+  the other 15 opens all have bars ≥8/26. Unchangeable on weekend (no ingestion).
+- Nothing fixed (nothing to fix); no drift; smoke 28/28; git clean.
+- Mon 8/31 TRIPLE DUTY: (a) cap ≤15 else hard escalate; (b) 5th-Monday yfinance
+  blackout test; (c) Aug-27/28 bar catch-up + signals/rankings resumption (Tue 9/1
+  slip acceptable).

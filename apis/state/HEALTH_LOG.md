@@ -7120,3 +7120,73 @@ could be checked post-restart is nominal.
    since 8/10 and backfills that vanish — consider is_active review for EQR/ORGN and
    an invariant: every OPEN position must have a bar ≤2 trading days old.
 5. Widen /health paper_cycle staleness threshold to ~70 min.
+
+
+
+## Health Check — 2026-08-29 22:10 UTC (Saturday 5:10 PM CT) — LOCAL AI DEEP-DIVE (scheduled)
+
+**Overall Status:** RED (carried) — cap breach #2 (16 open > 15) still standing;
+Saturday = zero cycles, so correction remains mechanically impossible until Mon 8/31
+13:35 UTC. No escalation: no 17th position, 0 fills. Everything else fully nominal
+on the 5th consecutive GREEN-baseline weekend day, and the machine has RECOVERED
+from outage #6 (awake all day, 3/3 probes fired).
+
+### §1 Infrastructure
+- Containers 8/8 Up 21 hours (healthchecked ones healthy) — up continuously since
+  Friday-night restart, no re-sleep. /health 22:10 UTC: status ok, 7/7 components ok
+  (paper_cycle:ok — weekend, no staleness artifact), mode=paper. Alertmanager: [].
+
+### §2 Trading Integrity + Phase 87
+- 0 $1.00 phantom fills (7d) ✓. 16 open, 0 dup tickers ✓, 0 NULL origin_strategy
+  (open) ✓, 0 dup idempotency keys ✓, 0 fills 24h ✓ (weekend baseline).
+- **16 open > 15 cap ✗ (carried RED, day 3: 8/27→8/29)**. MON-RUN DUTY unchanged:
+  verify 13:35 cycle closes/trims to ≤15 with zero opens (8/25 precedent); any 17th
+  or failure to shrink = hard escalate.
+- Latest snapshot (8/27 19:30, unchanged as expected): cash $21,437.55,
+  equity $106,709.46, dd 0.21% ✓.
+
+### §3 Cycles + Data
+- 0 snapshots/signals/rankings today ✓ (Saturday baseline; last runs 8/27 10:30/10:45).
+- Bars: 8/21 485, 8/24 484, 8/25 483, 8/26 483; Aug-27+28 missing (outage) —
+  catch-up expected Mon 8/31 ~10:00 UTC, may slip to Tue 9/1 (5th-Monday blackout test).
+- EA (OPEN position) last bar STILL 2026-08-10 (19 days) — only open position with
+  a stale bar; all other 15 have bars ≥8/26. EQR/AVB/ORGN gaps unchanged (no
+  ingestion runs on weekends to change anything).
+- Log scan (24h, 724 lines 8/28–29, 616 today): 0 CRITICAL, 0 Traceback, 0 warn/err
+  AT ALL, 0 phase87/mark_to_market/phantom_equity, 0 crash-triad — fully quiet
+  weekend log (normal per 8/22–23 baseline).
+
+### §4 Code/Schema/Config
+- Alembic q7r8s9t0u1v2 single head ✓. Git clean (untracked outputs/ only), 0 unpushed ✓.
+- Smoke 28/28 ✓. Env: all APIS_* nominal ✓ (paper, kill_switch=false, MAX_POSITIONS=15,
+  max_new/day=5, thematic 0.75, min_score 0.30, sector 0.40, single-name 0.20, age 20d,
+  daily-loss 0.02, weekly-dd 0.05; self-improve/insider/Step-6-7-8 unset=OFF ✓).
+
+### §5 Auto-Probe Liveness
+- AUTO_PROBE_LOG: 3/3 today ✓ — 10:05, 15:05, 19:05 UTC ALL GREEN (weekend = no
+  in-market staleness artifact). First full probe day since the 8/28 outage.
+- Schtasks 0505/1005/1405 Status Ready, next runs 8/30 ✓.
+
+### Issues Found
+- RED (carried, day 3): cap breach #2 — mechanical hold, correction impossible
+  before Mon 8/31 13:35 UTC first cycle.
+- EA stale-bar valuation now 19 days (open position marked on 8/10 prices).
+
+### Fixes Applied (autonomous)
+- None needed/available: infra healthy on arrival, no drift, no bad DB rows;
+  correcting the breach = manual order (forbidden). Notified Aaron by email
+  (carried RED, brief — no new failure).
+
+### Recommendations for Aaron (unchanged from 8/28)
+1. **URGENT — fix cap validation** (post-suppression counting + running same-cycle
+   open-count; breaches 8/24+8/27; live all weekend). Deep-dive can implement if authorized.
+2. Outage-proofing: Docker Desktop auto-start on login + "run ASAP after missed
+   start" on the 3 probe schtasks.
+3. Phase 88 churn dampener + cash-aware sizing (paused at day 10).
+4. yfinance provider fallback (Mon 8/31 = 5th-Monday test) + stale-bar alerting;
+   EA/EQR/ORGN is_active review; open-position bar-freshness invariant.
+5. Widen /health paper_cycle staleness threshold to ~70 min.
+
+### Monday 8/31 run duties (triple)
+(a) cap must shrink to ≤15; (b) 5th-Monday blackout observation; (c) Aug-27/28 bar
+catch-up + signals/rankings resumption (slippage to Tue 9/1 acceptable per pattern).

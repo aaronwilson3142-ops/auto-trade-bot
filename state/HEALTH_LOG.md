@@ -2447,3 +2447,17 @@ No fixes needed. Full details in apis/state/HEALTH_LOG.md.
   auto-start + schtasks "run after missed start" (2nd full-day loss); churn/provider/
   threshold recs carried. Notified Aaron by email (RED).
   Full details: apis/state/HEALTH_LOG.md.
+
+
+
+## 2026-08-29 22:10 UTC — Deep-dive (Sat) — RED (carried)
+- **Cap breach #2 still 16 open > 15** (day 3) — Saturday, zero cycles, correction
+  mechanically impossible before Mon 8/31 13:35 UTC. No 17th, 0 fills.
+- **Machine recovered from outage #6**: containers up 21h continuously, 3/3 probes
+  fired ALL GREEN, /health ok 7/7, 0 alerts.
+- All else nominal (5th GREEN-baseline weekend day): 0 phantom/dup/NULL rows, smoke
+  28/28, alembic head ok, git clean, env nominal, worker log fully quiet (0 warn/err).
+- Data: bars end 8/26 (Aug-27/28 outage gap, Mon/Tue catch-up); EA open-position
+  bars stale 19 days.
+- Mon 8/31 triple duty: cap ≤15 verification + 5th-Monday blackout test + bar catch-up.
+- Notified Aaron by email (carried RED). Full details: apis/state/HEALTH_LOG.md.
