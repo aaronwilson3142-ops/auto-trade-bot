@@ -280,3 +280,20 @@ git so memory survives session teardown.
 - Mon 8/31 TRIPLE DUTY: (a) cap ≤15 else hard escalate; (b) 5th-Monday yfinance
   blackout test; (c) Aug-27/28 bar catch-up + signals/rankings resumption (Tue 9/1
   slip acceptable).
+
+
+
+## Updates 2026-08-30 (deep-dive, Sun) — RED (carried)
+- Cap breach #2 unchanged (16 open, day 4) — final weekend hold day; Mon 8/31
+  13:35 UTC is the correction test. Nothing new learned; no escalation (0 fills).
+- 6th GREEN-baseline weekend day (8/15,16,22,23,29,30): containers up 45h straight
+  (no re-sleep since outage #6 recovery), 3/3 probes GREEN, worker log fully quiet
+  (0 warn/err in 630 lines), 0 snapshots/fills/signals/rankings, snapshot frozen
+  8/27 19:30 (cash $21,437.55 / equity $106,709.46 / dd 0.21%), bars end 8/26.
+- EA stale-bar now 20 days (last bar 8/10). Smoke 28/28, git clean, env nominal,
+  schtasks Ready. Nothing fixed (nothing to fix).
+- Gmail MCP this session: send_message available (deferred list) — 3rd session
+  with send capability (8/24, 8/27, 8/30).
+- Mon 8/31 TRIPLE DUTY carried verbatim: (a) cap ≤15 else hard escalate;
+  (b) 5th-Monday yfinance blackout test; (c) Aug-27/28 bar catch-up +
+  signals/rankings resumption (Tue 9/1 slip acceptable).

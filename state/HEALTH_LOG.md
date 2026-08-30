@@ -2461,3 +2461,19 @@ No fixes needed. Full details in apis/state/HEALTH_LOG.md.
   bars stale 19 days.
 - Mon 8/31 triple duty: cap ≤15 verification + 5th-Monday blackout test + bar catch-up.
 - Notified Aaron by email (carried RED). Full details: apis/state/HEALTH_LOG.md.
+
+
+
+## 2026-08-30 22:15 UTC — Deep-dive (Sun) — RED (carried)
+- **Cap breach #2 still 16 open > 15** (day 4) — Sunday, zero cycles, correction
+  mechanically impossible before Mon 8/31 13:35 UTC. No 17th, 0 fills 24h.
+- Machine stable post-outage: containers up 45h continuous (no re-sleep), 3/3
+  probes fired ALL GREEN, /health ok 7/7, 0 alerts.
+- All else nominal (6th GREEN-baseline weekend day): 0 phantom/dup/NULL rows,
+  smoke 28/28, alembic head ok, git clean, env nominal, worker log fully quiet
+  (0 warn/err in 630-line window).
+- Data: bars end 8/26 (Aug-27/28 outage gap → Mon/Tue catch-up); EA open-position
+  bars stale 20 days.
+- Mon 8/31 triple duty: cap ≤15 verification + 5th-Monday blackout test + bar
+  catch-up. Notified Aaron by email (carried RED). Full details:
+  apis/state/HEALTH_LOG.md.
