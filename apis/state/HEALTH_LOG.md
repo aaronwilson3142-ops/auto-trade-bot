@@ -7265,3 +7265,83 @@ no re-sleep since outage #6 recovery.
 (a) cap must shrink to ≤15 (zero opens while ≥15); (b) 5th-Monday blackout
 observation; (c) Aug-27/28 bar catch-up + signals/rankings resumption (Tue 9/1
 slip acceptable per pattern).
+
+
+
+## Health Check — 2026-09-01 21:50 UTC (Tuesday 4:50 PM CT) — LOCAL AI DEEP-DIVE (scheduled)
+
+**Overall Status:** RED — **OUTAGE #7: machine slept Mon 8/31 ~01:10 UTC → Tue 9/1
+~21:42 UTC (~44.5h), losing BOTH trading days** (Mon 8/31 + Tue 9/1: 0/14 cycles,
+0 signals/rankings, 0/6 host probes, no bar ingestion). Cap breach #2 (16 open > 15)
+now standing DAY 6 — correction mechanically impossible with zero cycles; next
+opportunity Wed 9/2 13:35 UTC. Monday triple duty could NOT be discharged (no cycles
+ran to observe). Infra itself is healthy post-wake; no data corruption.
+
+### §1 Infrastructure
+- Containers 8/8 "Up 3 days" (healthy) — but uptime hides the sleep window; worker
+  log heartbeats stop 8/31 01:10 UTC and resume 9/1 21:42 UTC (the smoking gun).
+- /health 21:42 UTC: status ok, mode=paper, 6/7 components ok — **broker:"degraded"**
+  = missed Broker Token Refresh (cron 05:30 EDT weekdays, slept through; next run
+  Wed 9/2 05:30 EDT should self-heal — WED-RUN DUTY: verify).
+- Alertmanager: [] (0 alerts).
+
+### §2 Trading Integrity + Phase 87
+- 0 $1.00 phantom fills (7d) ✓; 0 dup open tickers ✓; 0 NULL origin_strategy
+  (open, post-4/18) ✓; 0 dup idempotency keys ✓; 0 fills since 8/27 (outage) ✓.
+- **16 open > 15 cap ✗ (carried RED, day 6: 8/27→9/1)** — no 17th (0 fills).
+- Latest snapshot STILL 8/27 19:30 (cash $21,437.55, equity $106,709.46, dd 0.21%).
+
+### §3 Cycles + Data
+- Mon 8/31 + Tue 9/1: 0 snapshots (expected 7+7), 0 signal/ranking runs (last
+  8/27 10:30/10:45). APScheduler on wake logged ~36 "was missed by" warnings and
+  SKIPPED all — no catch-up trading fired (consistent with 8/28 precedent; safe).
+- Bars still end 8/26 — now 4 trading days behind (8/27, 8/28, 8/31 missing +
+  9/1 due tomorrow). Catch-up expected Wed 9/2 ~10:00 UTC via period=1y fetch.
+- 5th-Monday yfinance blackout test: UNOBSERVABLE (no ingestion ran on 8/31).
+- EA (OPEN) last bar 2026-08-10 — 22 days stale; all other 15 opens at 8/26.
+- Log scan: 8/31 pre-sleep window 0 warn/err; 9/1 wake window only the missed-job
+  warnings + clean job runs after. 0 CRITICAL, 0 Traceback, 0 phase87/
+  mark_to_market/phantom_equity, 0 crash-triad.
+
+### §4 Code/Schema/Config
+- Alembic q7r8s9t0u1v2 single head ✓. Git clean (untracked outputs/ only), 0 unpushed ✓.
+- Smoke 28/28 ✓. Env: all APIS_* nominal, no drift ✓ (paper, kill_switch=false,
+  MAX_POSITIONS=15, max_new/day=5, thematic 0.75, min_score 0.30; self-improve/
+  insider/Step-6-7-8 unset=OFF ✓).
+
+### §5 Auto-Probe Liveness
+- **AUTO_PROBE_LOG: 0 lines since 8/30 19:05 UTC ✗** — 6 consecutive probes missed
+  (8/31 + 9/1 × 3). Schtasks all Status Ready / Last Result 0 / Last Run 8/30 /
+  Next Run 9/2 — they skip missed triggers (KNOWN gap, rec open since Aug 12).
+- Cowork deep-dive also missed Mon 8/31 (machine asleep at 5 PM CT); today's run
+  fired on time ~immediately after wake.
+
+### Issues Found
+1. RED: Outage #7 (~44.5h, worst yet — first to span 2 full trading days; #6 was 1).
+   Machine sleep, NOT Docker/app failure — stack was healthy the whole time.
+2. RED (carried, day 6): cap breach #2 — Wed 9/2 13:35 UTC is now the correction
+   test (8/25 precedent: closes/trims, zero opens; any 17th = hard escalate).
+3. broker component degraded (missed token refresh — expect self-heal 9/2 05:30 EDT).
+4. EA stale bar 22 days; bars 4 trading days behind pending Wed catch-up.
+
+### Fixes Applied (autonomous)
+- None available: containers healthy on arrival, no drift, no bad DB rows; sleep is
+  host power-management, outside deep-dive authority. Emailed Aaron (RED).
+
+### Recommendations for Aaron (reordered — outage-proofing now #1)
+1. **URGENT — outage-proofing, now the dominant failure mode (7 outages, 3 full
+   trading days lost in 5 days):** disable sleep while on AC (powercfg), Docker
+   Desktop auto-start, "run ASAP after missed start" on the 3 probe schtasks.
+2. **URGENT — fix cap validation** (post-suppression counting + running same-cycle
+   open-count; breaches 8/24 + 8/27, live 6 days). Deep-dive can implement if authorized.
+3. Phase 88 churn dampener + cash-aware sizing.
+4. yfinance provider fallback + stale-bar alerting; EA/EQR/ORGN is_active review;
+   open-position bar-freshness invariant (EA at 22 days is the poster child).
+5. Widen /health paper_cycle staleness threshold to ~70 min.
+
+### Wednesday 9/2 run duties (quadruple)
+(a) cap must shrink to ≤15 at 13:35 UTC (zero opens while ≥15; 17th = hard escalate);
+(b) bar catch-up for 8/27/28/31 + 9/1 at ~10:00 UTC (silent-partial risk — verify by
+SQL count per trade_date, not job status); (c) broker:degraded must clear after
+05:30 EDT token refresh; (d) probes resume (0505/1005/1405) + signals/rankings
+10:30/10:45 + 7/7 cycles.

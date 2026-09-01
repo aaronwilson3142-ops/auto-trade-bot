@@ -297,3 +297,36 @@ git so memory survives session teardown.
 - Mon 8/31 TRIPLE DUTY carried verbatim: (a) cap ≤15 else hard escalate;
   (b) 5th-Monday yfinance blackout test; (c) Aug-27/28 bar catch-up +
   signals/rankings resumption (Tue 9/1 slip acceptable).
+
+
+
+## Updates 2026-09-01 (deep-dive, Tue) — RED
+- **OUTAGE #7 (worst yet): sleep Mon 8/31 01:10 UTC → Tue 9/1 21:42 UTC (~44.5h),
+  first outage to span TWO full trading days** (8/31 + 9/1 fully lost: 0/14 cycles,
+  0 signals/rankings, 0/6 probes, 0 ingestion). Outages now the dominant failure
+  mode: 7 total, 3 full trading days lost since 8/27. Rec #1 REORDERED to
+  outage-proofing: powercfg disable-sleep-on-AC + Docker auto-start + schtasks
+  run-after-missed. Deep-dive not authorized to change host power settings.
+- DETECTION LESSON (reinforces 8/28): container "Up 3 days" + schtasks "Ready/0x0"
+  both hide sleep. Fastest tell = worker-log heartbeat-per-hour histogram (24
+  lines/hr; gap 8/31T01→9/1T21 was unambiguous). Check that FIRST when probes/
+  MEMORY show missing days.
+- APScheduler wake behavior confirmed again: logs ~36 "was missed by" warnings,
+  skips all, next-runs roll to tomorrow — no catch-up trading (safe), but also
+  no same-day recovery: a wake at 21:42 UTC recovers NOTHING for that day.
+- **Cap breach #2 now day 6 (16 open)** — Wed 9/2 13:35 UTC correction test
+  (zero opens while ≥15 per 8/25 precedent; any 17th = hard escalate).
+- NEW component state: broker:"degraded" in /health after sleeping through the
+  05:30 EDT Broker Token Refresh — benign-if-transient; must clear Wed 9/2 after
+  refresh. First time seen; overall /health status stayed "ok" despite it.
+- paper_cycle:ok at 21:42 UTC despite last cycle 8/27 → staleness check is
+  in-market-window-only (after-hours it reports ok even when days stale).
+- Bars: end 8/26; 8/27/28/31+9/1 all due in Wed ~10:00 UTC period=1y fetch —
+  4-day catch-up is the biggest single fetch yet; silent-partial risk high, verify
+  via SQL count-per-trade_date. EA stale bar 22 days. 5th-Monday blackout test
+  never ran (no ingestion on 8/31) — Mon 9/7 is Labor Day (market closed), so next
+  Monday-blackout observation slips to 9/14.
+- Gmail send_message available this session (4th: 8/24, 8/27, 8/30, 9/1); emailed
+  Aaron the RED summary.
+- Wed 9/2 QUADRUPLE DUTY: (a) cap ≤15; (b) 4-day bar catch-up verified by SQL;
+  (c) broker:degraded cleared; (d) probes 3/3 + signals/rankings + 7/7 cycles.

@@ -2477,3 +2477,21 @@ No fixes needed. Full details in apis/state/HEALTH_LOG.md.
 - Mon 8/31 triple duty: cap ≤15 verification + 5th-Monday blackout test + bar
   catch-up. Notified Aaron by email (carried RED). Full details:
   apis/state/HEALTH_LOG.md.
+
+
+
+## 2026-09-01 21:50 UTC — LOCAL AI DEEP-DIVE — RED
+- **OUTAGE #7 — worst yet: machine slept Mon 8/31 01:10 UTC → Tue 9/1 21:42 UTC
+  (~44.5h), losing BOTH trading days**: 0/14 cycles, 0 signals/rankings, 0/6 host
+  probes, no bar ingestion (bars still end 8/26). Container "Up 3 days" masked the
+  sleep; worker-log heartbeat gap is the proof. No catch-up trading on wake (safe).
+- **Cap breach #2 still 16 open (day 6)** — correction impossible with zero cycles;
+  Wed 9/2 13:35 UTC is now the test. Monday triple duty undischargeable; 5th-Monday
+  blackout test unobservable.
+- broker component "degraded" = missed 05:30 EDT token refresh; expect self-heal
+  Wed 9/2. EA open-position bars now 22 days stale.
+- All integrity checks clean: 0 phantom/dup/NULL rows, smoke 28/28, alembic head
+  ok, git clean, env no drift, alerts empty, logs clean around the gap.
+- Rec #1 to Aaron is now OUTAGE-PROOFING (disable sleep on AC, Docker auto-start,
+  schtasks run-after-missed); cap-validation fix #2. Emailed Aaron (RED). Full
+  details: apis/state/HEALTH_LOG.md.
