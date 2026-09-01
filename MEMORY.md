@@ -337,3 +337,8 @@ git so memory survives session teardown.
   DNS-dead" — check `Resolve-DnsName github.com` early in every post-outage run;
   ping 1.1.1.1 vs nslookup distinguishes it from full network loss. Deep-dive
   authority stops at flushdns/DHCP-renew (adapter restarts = host settings).
+- POSTSCRIPT 2: Gmail MCP send FAILED (ERR_NAME_NOT_RESOLVED ×2) — desktop-app
+  connectors route through the host, so DNS-dead = email-dead too. Only channels
+  tonight: HEALTH_LOG (local commits) + session output + cloud watchdog (its >26h
+  probe-silence threshold crossed ~21:05 UTC today, should push independently).
+  Wed-run duty (e): verify push backlog (3+ local commits) went out once DNS is back.

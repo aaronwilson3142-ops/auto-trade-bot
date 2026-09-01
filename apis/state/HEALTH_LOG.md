@@ -7362,3 +7362,12 @@ SQL count per trade_date, not job status); (c) broker:degraded must clear after
   and confirm `nslookup github.com` works.**
 - Git commit f8fc3f4 is LOCAL-ONLY (push blocked by DNS); will push on next run
   or when DNS returns.
+
+### POSTSCRIPT 2 — 22:15 UTC — notification ALSO blocked
+- Gmail MCP send failed twice (net::ERR_NAME_NOT_RESOLVED) — the desktop app's
+  connectors route through this machine, so the DNS outage blocks email too.
+  First observed case of "DNS-dead = notification-dead": HEALTH_LOG + this
+  session's chat output are the only channels tonight.
+- Mitigation: cloud watchdog >26h-probe-silence threshold was crossed ~21:05 UTC
+  today (last probe 8/30 19:05) — its independent push to Aaron should have fired.
+- Push retried and still blocked; commits f8fc3f4/fd3a618/+this remain local.
