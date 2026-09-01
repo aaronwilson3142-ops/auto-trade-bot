@@ -330,3 +330,10 @@ git so memory survives session teardown.
   Aaron the RED summary.
 - Wed 9/2 QUADRUPLE DUTY: (a) cap ≤15; (b) 4-day bar catch-up verified by SQL;
   (c) broker:degraded cleared; (d) probes 3/3 + signals/rankings + 7/7 cycles.
+- POSTSCRIPT: **machine-wide DNS dead post-wake** (host + containers; DHCP renew
+  times out; raw IP fine — router-path DNS/DHCP unresponsive). Push blocked
+  (commit f8fc3f4 local-only). If unfixed by Wed 05:30 EDT, ALL Wed jobs fail on
+  name resolution. Aaron asked to reboot tonight. NEW OUTAGE SUB-MODE: "awake but
+  DNS-dead" — check `Resolve-DnsName github.com` early in every post-outage run;
+  ping 1.1.1.1 vs nslookup distinguishes it from full network loss. Deep-dive
+  authority stops at flushdns/DHCP-renew (adapter restarts = host settings).

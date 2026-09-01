@@ -7345,3 +7345,20 @@ ran to observe). Infra itself is healthy post-wake; no data corruption.
 SQL count per trade_date, not job status); (c) broker:degraded must clear after
 05:30 EDT token refresh; (d) probes resume (0505/1005/1405) + signals/rankings
 10:30/10:45 + 7/7 cycles.
+
+
+### POSTSCRIPT 22:05 UTC — SECOND RED FINDING: machine-wide DNS dead post-wake
+- Host cannot resolve ANY hostname (github.com, google.com timeout); worker
+  container also fails (socket.gaierror) → Docker inherits the breakage.
+- Raw IP connectivity WORKS (ping 1.1.1.1 fine; 1.1.1.1 resolves github.com fine)
+  → configured DNS/DHCP (router path) unresponsive; `ipconfig /renew` times out
+  ("unable to contact your DHCP server"). flushdns no help.
+- IMPACT IF UNFIXED BY WED ~05:30 EDT: broker token refresh, 10:00 UTC 4-day bar
+  catch-up, signals/rankings, and ALL cycles will fail on name resolution —
+  outage #7 effectively continues at the network layer despite the machine being awake.
+- Deep-dive stopped at flushdns + DHCP renew (benign steps); adapter restart /
+  DNS reconfiguration = host network settings, outside autonomous authority.
+- **AARON ACTION TONIGHT: reboot the machine (or power-cycle router / re-plug NIC)
+  and confirm `nslookup github.com` works.**
+- Git commit f8fc3f4 is LOCAL-ONLY (push blocked by DNS); will push on next run
+  or when DNS returns.
