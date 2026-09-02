@@ -2495,3 +2495,11 @@ No fixes needed. Full details in apis/state/HEALTH_LOG.md.
 - Rec #1 to Aaron is now OUTAGE-PROOFING (disable sleep on AC, Docker auto-start,
   schtasks run-after-missed); cap-validation fix #2. Emailed Aaron (RED). Full
   details: apis/state/HEALTH_LOG.md.
+
+
+- 2026-09-02 22:07 UTC | deep-dive | RED | Cap breach #3: #2 corrected at 13:35
+  (WST/KO sold, 16→14) but 14:30 opened JPM+MRVL vs count 14 → 16 again (same
+  same-cycle validation gap, now hours after correction). Otherwise strong
+  recovery: DNS self-healed (no reboot), push backlog out, broker:ok, 7/7 cycles,
+  signals/rankings ran, probes 3/3, smoke 28/28, no drift. Bars caught up except
+  8/28 silent-partial (47/483); EA bar 23d stale. No 17th position.

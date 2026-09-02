@@ -342,3 +342,34 @@ git so memory survives session teardown.
   tonight: HEALTH_LOG (local commits) + session output + cloud watchdog (its >26h
   probe-silence threshold crossed ~21:05 UTC today, should push independently).
   Wed-run duty (e): verify push backlog (3+ local commits) went out once DNS is back.
+
+
+
+## Updates 2026-09-02 (deep-dive) — RED
+- **CAP BREACH #3 — the bug now recurs within HOURS of correction.** 13:35
+  corrected breach #2 exactly per 8/25 precedent (sold WST+KO, 16→14, zero opens
+  while ≥15). Then 14:30 opened JPM (momentum_v1, TWO orders 18+19sh merged into
+  one position row — new observation: split same-cycle orders per ticker) + MRVL
+  (rebalance) — each validated against count 14 → 16. Gap is strategy-agnostic
+  (momentum AND rebalance opens both slip through). Correction→re-breach cycle
+  means open count will oscillate 16→14→16 daily until fixed; rec #1 escalated
+  to cap fix (deep-dive can implement if authorized). No 17th seen; enforcement
+  still hard-blocks opens while ≥15 (KO/WST-style 13:35 behavior).
+- **Outage #7 aftermath — best-case recovery, all quadruple duties otherwise met:**
+  DNS self-healed WITHOUT reboot (containers Up 4 days; github.com resolves);
+  9/1 commit backlog pushed (0 unpushed); broker:ok again after 05:30 EDT token
+  refresh; 7/7 cycles, signals 10:30/rankings 10:45, 3/3 probes fired (10:05
+  YELLOW snapshot_stale_h:135 = expected first-probe-after-outage artifact —
+  new known-benign flavor to whitelist mentally on post-outage mornings).
+- **Silent-partial instance #2:** 4-day catch-up landed 8/27, 8/31, 9/1 all at
+  483/483 in ONE fetch (biggest catch-up yet worked), but Fri 8/28 = 47/483.
+  Same fingerprint as 8/18 (provider-side lag). Watch Thu for backfill.
+  Note: nominal per-day bar count is now 483 (was ~485; dead tickers pruned).
+- EA (OPEN) last bar 8/10 = 23 days; all other 15 opens at 9/1. EA is_active
+  review escalating — it's been the poster child for 3 weeks.
+- Log noise post-outage: 41 yfinance-404 errors (IPG etc., watchlist noise) +
+  64 APScheduler "Run time of job ... missed" warnings from 21:42 wake = both
+  benign, do not flag.
+- Snapshot 9/2 19:30: cash $20,909.88, equity $106,321.28, dd 0.36%.
+- Thu 9/3 duties: (a) cap correction test #3 (17th = hard escalate);
+  (b) 8/28 backfill; (c) churn watch (JPM 37 buy → 17 trim same day).

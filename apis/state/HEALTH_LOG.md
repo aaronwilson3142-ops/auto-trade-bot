@@ -7371,3 +7371,70 @@ SQL count per trade_date, not job status); (c) broker:degraded must clear after
 - Mitigation: cloud watchdog >26h-probe-silence threshold was crossed ~21:05 UTC
   today (last probe 8/30 19:05) — its independent push to Aaron should have fired.
 - Push retried and still blocked; commits f8fc3f4/fd3a618/+this remain local.
+
+
+---
+
+## 2026-09-02 22:07 UTC — Daily deep-dive — VERDICT: RED
+
+**RED: CAP BREACH #3 (16 open > 15), created TODAY at 14:30 UTC.** Breach #2
+corrected exactly per 8/25 precedent at 13:35 (sold WST 20sh + KO 79sh, the two
+8/27 rebalance opens → 16→14), then the 14:30 cycle opened JPM (momentum_v1,
+2 orders 18+19sh @360.24, merged to one row) AND MRVL (rebalance, 34sh @207.08)
+→ 14→16. Each open validated individually against count 14 → passed. Same
+same-cycle counting gap as 8/27, now proven across BOTH strategy sources
+(momentum + rebalance merge) and now recurring within hours of correction.
+15:30 trimmed JPM 17sh → 20sh held. No 17th position (no hard escalate).
+
+### §1 Infra
+- 8/8 containers Up 4 days (healthy) ✓ — NO reboot happened; DNS recovered
+  WITHOUT it (github.com resolves; push backlog went out — 0 unpushed ✓).
+- /health status ok, 7/7 components ok incl **broker:ok (9/1 degraded CLEARED ✓
+  duty c)**, mode=paper ✓. Alertmanager empty ✓.
+
+### §2 Phase 87 guards
+- 0 fills @ $1.00 (7d) ✓. 0 phase87_*/mark_to_market_*/phantom_equity events ✓.
+
+### §3 Trading integrity
+- **16 open (breach #3, see header)**; 0 dup OPEN rows (JPM 2 fills merged ✓),
+  0 NULL origin_strategy, 0 dup idempotency_keys ✓.
+- Cash $20,909.88 ≥0 ✓; snapshot 19:30: equity $106,321.28, dd 0.36% ✓.
+
+### §4 Cycles + data (outage recovery day)
+- 7/7 snapshots ✓ (duty d); signals 10:30 + rankings 10:45 ✓; 6 fills.
+- **4-day bar catch-up (duty b): 8/27 483 ✓, 8/31 483 ✓, 9/1 483 ✓, but
+  8/28 only 47/483 — silent partial AGAIN (Fri 8/28 bars).** Signals ran on
+  current (9/1) bars so impact low; watch Thu for 8/28 backfill per 8/19
+  precedent. EA (OPEN) still last bar 8/10 = 23 days stale; other 15 opens at 9/1 ✓.
+- Log scan (24h, 1025 lines): 0 CRITICAL/Traceback/crash-triad ✓. 41 errors =
+  known yfinance-404 watchlist noise during 10:00 fetch; 64 warnings = APScheduler
+  missed-run notices from 9/1 21:42 wake + routine jobs. All benign.
+
+### §5 Code/schema/config
+- Alembic q7r8s9t0u1v2 single head ✓; git clean, 0 unpushed (9/1 DNS backlog
+  pushed ✓ duty e); smoke 28/28 ✓; env all nominal, no drift ✓.
+
+### §6 Auto-probe liveness
+- 3/3 probes fired today ✓ (duty d): 10:05 YELLOW snapshot_stale_h:135 (expected,
+  pre-resumption after 2-day outage), 15:05/19:05 known-benign paper_cycle:stale.
+  Schtasks 0505/1005/1405 all Ready ✓.
+
+### Fixes applied (autonomous)
+- None needed: no drift, no bad rows, DNS self-recovered. Cap-validation code fix
+  remains NOT authorized (strategy-adjacent app code) — awaiting Aaron's go-ahead.
+
+### Recommendations (updated)
+1. **URGENT — cap validation fix (breach #3 today proves it recurs within hours
+   of every correction):** add running same-cycle open-count + post-suppression
+   recount. Deep-dive can implement same-day if authorized.
+2. Outage-proofing (7 outages; DNS self-healed this time but sleep risk remains):
+   powercfg AC-sleep off, Docker auto-start, schtasks run-after-missed.
+3. Phase 88 churn dampener + cash-aware sizing.
+4. yfinance fallback + stale-bar alerting (8/28 silent-partial is instance #2;
+   EA 23 days); EA/EQR/ORGN is_active review.
+5. Widen paper_cycle staleness threshold to ~70 min.
+
+### Thu 9/3 duties
+(a) cap correction test #3 — 13:35 should close/trim to ≤15 with zero opens
+(17th = hard escalate); (b) 8/28 bar backfill (47→~483); (c) EA bar/is_active;
+(d) churn watch (JPM same-day 37 buy→17 trim is churn-adjacent).
