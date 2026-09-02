@@ -68,3 +68,4 @@ push-notifies Aaron on RED, or when no probe commit lands for >26h.
 - 2026-08-30 10:05 UTC | GREEN | all nominal (containers 7/7, health ok, 0 dollar-fills 7d, snapshots fresh)
 - 2026-08-30 15:05 UTC | GREEN | all nominal (containers 7/7, health ok, 0 dollar-fills 7d, snapshots fresh)
 - 2026-08-30 19:05 UTC | GREEN | all nominal (containers 7/7, health ok, 0 dollar-fills 7d, snapshots fresh)
+- 2026-09-02 10:05 UTC | YELLOW | snapshot_stale_h:135
