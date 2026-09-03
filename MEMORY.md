@@ -396,3 +396,7 @@ git so memory survives session teardown.
 - Snapshot 9/3 19:30: cash $35,642.75, equity $106,380.14, dd 0.31%.
 - Fri 9/4 duties: (a) cap re-breach watch (latent bug); (b) 9/3 bars ~10:00 UTC;
   (c) EA bar/is_active; (d) churn.
+- Tooling gotcha (found 9/3): in `cmd /c "... git commit -m "msg" ..."` nested
+  quoting, a `->` inside the message escapes quoting and becomes a cmd redirect →
+  bare "Access is denied." with no other output. Avoid `>` `<` `&` in commit
+  messages run through cmd one-liners.
