@@ -7438,3 +7438,66 @@ same-cycle counting gap as 8/27, now proven across BOTH strategy sources
 (a) cap correction test #3 — 13:35 should close/trim to ≤15 with zero opens
 (17th = hard escalate); (b) 8/28 bar backfill (47→~483); (c) EA bar/is_active;
 (d) churn watch (JPM same-day 37 buy→17 trim is churn-adjacent).
+
+
+---
+
+## 2026-09-03 22:15 UTC — Daily deep-dive — VERDICT: GREEN
+
+**Cap breach #3 CORRECTED, no re-breach — first day ending BELOW cap since 8/21.**
+13:35 closed 8 positions (TMO/MA/SCHW/ABT/DGX/MRVL/V/PLTR): 16→8; 14:30 opened 5
+(AAPL/MKTX/MSFT/JNJ/VLO): →13. All 7 planned opens correctly max_positions-blocked
+at 13:35 while 16; from 14:30 onward ADP/CRM blocked EVERY cycle even at count 13 —
+consistent with APIS_MAX_NEW_POSITIONS_PER_DAY=5 enforcing (5 opens today), reported
+under the "max_positions" violation label. No 17th; duty (a) discharged. NOTE: the
+same-cycle counting bug is UNTESTED today (count never approached 15 with >5 planned
+opens) — latent, not fixed.
+
+### §1 Infra
+- 8/8 containers Up 5 days healthy (no re-sleep since outage #7 recovery) ✓;
+  /health status ok, 7/7 components ok incl broker:ok, mode=paper ✓; alertmanager empty ✓.
+
+### §2 Phase 87 guards
+- 0 fills @ $1.00 (7d) ✓; 0 phase87_*/mark_to_market_*/phantom_equity events today ✓.
+
+### §3 Trading integrity
+- 13 open ≤ 15 ✓; 0 dup OPEN rows, 0 NULL origin_strategy (open), 0 dup idempotency_keys ✓.
+- Cash $35,642.75 ≥0 ✓ (+$14.7k, net-sell day); snapshot 19:30: equity $106,380.14, dd 0.31% ✓.
+
+### §4 Cycles + data
+- 7/7 snapshots ✓; signals 10:30 + rankings 10:45 ✓; 13 fills (8 sells 13:35, 5 buys 14:30).
+- **8/28 bars BACKFILLED 47→483 ✓ (duty b — silent-partial instance #2 self-healed,
+  matching 8/19 precedent).** All trade_dates 8/26–9/2 at 483/483 ✓.
+- EA (OPEN) last bar still 8/10 = 24 days (duty c: unchanged; is_active review rec
+  stands); other 12 opens all at 9/2 ✓.
+- Log scan (1005 today-lines): 0 CRITICAL/Traceback/crash-triad ✓; 42 errors + 35
+  warnings ALL known-benign (yfinance-404 watchlist noise ×15 tickers, Empty-DataFrame
+  /no-security_id skips, stress_gate_applied ×7).
+- Churn (duty d, day 11): MRVL 1-day round-trip (9/2 buy @207.08 rebalance → 9/3 sell
+  @202.60, ≈−2.2%, ≈−$150 realized); V sold again; JNJ rebought after its 8/24
+  age-expiry close; TMO/DGX (8/24 opens) closed at 10 days. 13-fill turnover day —
+  Phase 88 rec unchanged.
+
+### §5 Code/schema/config
+- Alembic q7r8s9t0u1v2 single head ✓; git clean (one untracked scratch dir outputs/
+  with old phase76_smoke logs — harmless, left in place), 0 unpushed ✓; smoke 28/28 ✓;
+  env fully nominal, no drift ✓.
+
+### §6 Auto-probe liveness
+- 3/3 probes fired ✓: 10:05 GREEN, 15:05/19:05 known-benign paper_cycle:stale YELLOW.
+  Schtasks 0505/1005/1405 all Ready, next runs 9/4 ✓.
+
+### Fixes applied (autonomous)
+- None needed.
+
+### Recommendations (order unchanged)
+1. Cap validation fix — today was clean only because 5 planned opens ≤ daily-new cap;
+   gap remains latent. Deep-dive can implement if authorized.
+2. Outage-proofing: powercfg AC-sleep off, Docker auto-start, schtasks run-after-missed.
+3. Phase 88 churn dampener + cash-aware sizing (MRVL realized loss today).
+4. yfinance fallback + stale-bar alerting; EA is_active review (24 days).
+5. Widen paper_cycle staleness threshold to ~70 min.
+
+### Fri 9/4 duties
+(a) cap re-breach watch (bug latent — any cycle with ≥6 planned opens near 15);
+(b) 9/3 bars ~10:00 UTC; (c) EA bar/is_active; (d) churn.

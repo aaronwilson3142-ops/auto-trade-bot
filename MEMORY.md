@@ -373,3 +373,26 @@ git so memory survives session teardown.
 - Snapshot 9/2 19:30: cash $20,909.88, equity $106,321.28, dd 0.36%.
 - Thu 9/3 duties: (a) cap correction test #3 (17th = hard escalate);
   (b) 8/28 backfill; (c) churn watch (JPM 37 buy → 17 trim same day).
+
+
+
+## Updates 2026-09-03 (deep-dive) — GREEN
+- **Cap breach #3 corrected cleanly, NO re-breach (first sub-cap day since 8/21):**
+  13:35 closed 8 (TMO/MA/SCHW/ABT/DGX/MRVL/V/PLTR) 16→8; 14:30 opened 5
+  (AAPL/MKTX/MSFT/JNJ/VLO) →13. All 13:35 opens blocked while ≥15 ✓.
+- NEW OBSERVATION: ADP/CRM opens blocked "max_positions" at EVERY cycle 14:30–19:30
+  even at count 13 — the daily-new-positions cap (5/day) appears to report under the
+  max_positions violation label. Today's cleanliness is likely BECAUSE only 5 opens
+  fit the daily cap — the same-cycle counting bug was untested (count never neared 15),
+  so it remains latent, rec #1 unchanged.
+- 8/28 silent-partial (instance #2) SELF-HEALED next day: 47→483, same as 8/19
+  precedent. Provider-lag model holds. All bars 8/26–9/2 at 483/483.
+- EA (OPEN) bar still 8/10 — 24 days. is_active review escalating.
+- Churn day 11: MRVL 1-day round-trip at a loss (9/2 rebalance buy @207.08 → 9/3 sell
+  @202.60, ≈−$150); JNJ rebought after 8/24 age-close; V traded again; TMO/DGX closed
+  at exactly 10 days. High-turnover flavor (13 fills, net −3 positions).
+- Repo note: untracked scratch dir `outputs/` at repo root (phase76_smoke.log/.err,
+  probe_state.py) — appeared by 9/3, harmless, left untracked.
+- Snapshot 9/3 19:30: cash $35,642.75, equity $106,380.14, dd 0.31%.
+- Fri 9/4 duties: (a) cap re-breach watch (latent bug); (b) 9/3 bars ~10:00 UTC;
+  (c) EA bar/is_active; (d) churn.

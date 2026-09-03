@@ -2503,3 +2503,12 @@ No fixes needed. Full details in apis/state/HEALTH_LOG.md.
   recovery: DNS self-healed (no reboot), push backlog out, broker:ok, 7/7 cycles,
   signals/rankings ran, probes 3/3, smoke 28/28, no drift. Bars caught up except
   8/28 silent-partial (47/483); EA bar 23d stale. No 17th position.
+
+
+- 2026-09-03 22:15 UTC | deep-dive | GREEN | Cap breach #3 corrected, no re-breach:
+  13:35 closed 8 (16→8), 14:30 opened 5 (→13) — first day below cap since 8/21;
+  ADP/CRM opens blocked every cycle (daily-new-cap=5 enforcing). 8/28 bars
+  backfilled 47→483. 7/7 cycles, signals/rankings ran, probes 3/3, smoke 28/28,
+  git clean/pushed, no drift, logs benign. Watch: cap bug latent (untested today),
+  EA bar 24d stale, churn day 11 (MRVL 1-day round-trip ≈−$150). Snapshot 19:30:
+  cash $35,642.75, equity $106,380.14, dd 0.31%.
