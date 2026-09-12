@@ -2524,3 +2524,12 @@ No fixes needed. Full details in apis/state/HEALTH_LOG.md.
   blackout test + cap re-breach watch at 15/15. EA bar 33d stale. POSITIVE:
   wake probe at 9:35 CT suggests schtasks run-after-missed now enabled.
   Snapshot 9/4 14:30: cash $21,541.45, equity $105,809.28, dd 0.84%.
+
+
+- 2026-09-12 22:15 UTC | deep-dive (evening) | YELLOW | Outage-#8 aftermath only:
+  bars end 9/3 + snapshot 9/4 14:30 stale (unrecoverable before Mon). Everything
+  live is nominal: health ok 7/7, 15 open =cap, 0 phantom/dup/NULL, smoke 28/28,
+  alembic head, git clean/pushed, env no drift, logs benign (35 APScheduler wake
+  warnings only). POSITIVE: machine stayed awake 14:36→22:10 UTC; all 3 probes
+  fired (wake catch-up + both scheduled slots) — run-after-missed VERIFIED.
+  Mon 9/14: 5-day bar catch-up + Monday-blackout test + cap re-breach watch.

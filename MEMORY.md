@@ -429,3 +429,23 @@ git so memory survives session teardown.
   (c) 7/7 cycles + signals/rankings; (d) cap re-breach watch at 15/15;
   (e) verify Sat 1005/1405 probes fired + run-after-missed; (f) EA is_active;
   (g) churn (paused since 9/3 by outage).
+
+
+
+## Updates 2026-09-12 evening (deep-dive, scheduled 5 PM CT run) — YELLOW
+- Second run today (morning on-wake run = RED for outage #8). Evening verdict
+  YELLOW: only degradation is outage-aftermath staleness (bars end 9/3, snapshot
+  9/4 14:30); all live checks nominal, nothing new broke.
+- **Run-after-missed now VERIFIED (rec open since Aug 12 → CLOSED):** all 3 host
+  probes fired today — 14:35 UTC on-wake catch-up PLUS 15:05 and 19:05 UTC
+  normal scheduled slots. Machine stayed awake 14:36→22:10 UTC, no re-sleep.
+- NEW known-benign probe flavor: post-outage weekend probes log YELLOW
+  snapshot_stale_h:19x until Monday's first snapshot — honest artifact, expect
+  it on Sun 9/13 too, do not re-flag.
+- Log since wake: 219 lines, 0 errors/critical, 35 warnings = all APScheduler
+  missed-run wake notices. 0 phase87/mark_to_market events.
+- Two deep-dive entries in one day is fine (on-wake early fire + normal slot);
+  future double-run days: evening run focuses on delta since morning.
+- Mon 9/14 duties unchanged (see 9/12 morning entry): 5-day bar catch-up SQL
+  check, Monday-blackout #6, cap re-breach watch at 15/15, probes at normal
+  slots, EA is_active (33d), churn.

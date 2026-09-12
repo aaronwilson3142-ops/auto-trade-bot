@@ -7577,3 +7577,72 @@ silent-partial risk high); (b) Monday-blackout test (first since 8/24 — 6th
 observation); (c) 7/7 cycles + signals/rankings resumption; (d) cap re-breach
 watch at 15/15; (e) verify 1005/1405 probes fired Sat + run-after-missed works;
 (f) EA is_active; (g) churn resumption.
+
+
+---
+
+## 2026-09-12 22:15 UTC — Daily deep-dive (scheduled evening run, Sat) — VERDICT: YELLOW
+
+Second run today (morning on-wake run at 14:50 UTC logged RED for outage #8).
+This is the regular 5 PM CT run. YELLOW = outage-aftermath data staleness only
+(bars end 9/3, snapshot 9/4 14:30 — unrecoverable before Mon 9/14); every live
+check is nominal and the day since wake brought only good news.
+
+### §1 Infra
+- 8/8 containers Up (healthy); /health 22:10 UTC: status ok, 7/7 components ok
+  incl broker:ok, mode=paper ✓; alertmanager empty ✓.
+
+### §2 Phase 87 guards
+- 0 fills @ $1.00 (7d) ✓; 0 phase87_*/mark_to_market_*/phantom_equity events in
+  today's 219 worker-log lines ✓.
+
+### §3 Trading integrity
+- 15 open = AT cap (unchanged since 9/4; no weekend fills) ✓; 0 dup OPEN rows,
+  0 NULL origin_strategy (open, post-4/18), 0 dup idempotency_keys ✓.
+- Latest snapshot 9/4 14:30: cash $21,541.45 ≥0 ✓, equity $105,809.28,
+  dd 0.84% sane ✓. 0 snapshots/fills today (Saturday baseline) ✓.
+
+### §4 Cycles + data
+- Saturday: 0 cycles/signals/rankings expected and observed ✓ (last signal
+  9/4 10:30, last ranking 9/4 10:45 — pre-outage, correct).
+- Bars end 9/3 @483/483 (9/2, 9/3 verified by SQL) — STALE vs last trading day
+  9/11, outage-explained; Mon 9/14 10:00 UTC = biggest-ever 5-day catch-up
+  (9/4, 9/8–9/11), silent-partial risk high. EA (OPEN) bar still 8/10 = 33d.
+- Log scan (today, since 14:36 wake): 0 CRITICAL/Traceback/crash-triad, 0 errors;
+  35 warnings all APScheduler "Run time of job ... missed" wake notices (benign).
+
+### §5 Code/schema/config
+- Alembic q7r8s9t0u1v2 single head ✓; git clean (untracked outputs/ scratch only),
+  0 unpushed ✓; smoke 28/28 in 6.9s ✓; env fully nominal — all APIS_* at expected
+  values (mode paper, kill_switch false, caps 15/5/0.75/0.30, sector 0.40,
+  single-name 0.20, age 20d, loss limits 0.02/0.05); self-improvement/insider-flow/
+  Step 6-7-8 flags absent = OFF ✓.
+
+### §6 Auto-probe liveness
+- **3 probe lines in last 24h: 14:35 UTC (on-wake catch-up) + 15:05 UTC (=10:05 CT
+  scheduled slot) + 19:05 UTC (=14:05 CT scheduled slot)** — all YELLOW
+  snapshot_stale_h:192–197, which is the honest outage artifact, not a fault.
+  CONFIRMED: (a) run-after-missed works (morning's hypothesis now proven by a
+  full day), (b) normal scheduled probes fire again, (c) machine stayed awake
+  14:36 → 22:10 UTC with no re-sleep. Schtasks 0505/1005/1405 all Ready,
+  next runs 9/13 ✓.
+
+### Fixes applied (autonomous)
+- None needed. Staleness is outage aftermath (host power settings — outside
+  deep-dive authority); everything actionable is nominal.
+
+### Recommendations (unchanged from morning, priority order)
+1. Outage-proofing: powercfg disable-sleep-on-AC + Docker auto-start (Aaron).
+   Run-after-missed now VERIFIED done — partial credit on this rec.
+2. Cap validation fix (latent; primed at 15/15 for Monday).
+3. Phase 88 churn dampener + cash-aware sizing.
+4. yfinance fallback + stale-bar alerting; EA is_active review (33 days).
+5. Widen paper_cycle staleness threshold to ~70 min.
+
+### Mon 9/14 duties (carried verbatim from morning run)
+(a) 5-day bar catch-up verified by SQL count-per-trade_date; (b) Monday-blackout
+test (6th observation); (c) 7/7 cycles + signals/rankings resumption; (d) cap
+re-breach watch at 15/15; (e) probes 3/3 at normal slots (first full normal probe
+day post-outage); (f) EA is_active; (g) churn resumption. Also: expect Sunday
+9/13 run to be a plain weekend-baseline day (probes will stay YELLOW
+snapshot_stale until Monday's first snapshot — known, do not re-flag).
