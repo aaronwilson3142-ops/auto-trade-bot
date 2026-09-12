@@ -2512,3 +2512,15 @@ No fixes needed. Full details in apis/state/HEALTH_LOG.md.
   git clean/pushed, no drift, logs benign. Watch: cap bug latent (untested today),
   EA bar 24d stale, churn day 11 (MRVL 1-day round-trip ≈−$150). Snapshot 19:30:
   cash $35,642.75, equity $106,380.14, dd 0.31%.
+
+
+
+- 2026-09-12 14:50 UTC | deep-dive (on wake) | RED | OUTAGE #8, worst yet:
+  slept Fri 9/4 15:25 UTC → Sat 9/12 14:36 UTC (~191h), losing 9/8–9/11 fully
+  + 5/7 cycles on 9/4; no probes/deep-dives 9/5–9/11. Post-wake state clean:
+  health ok 7/7, DNS ok, 15 open =cap (no breach), 0 phantom/dup/NULL rows,
+  smoke 28/28, alembic head, git clean/pushed, env no drift. Bars end 9/3;
+  Mon 9/14 faces biggest-ever 5-day catch-up (silent-partial risk) + Monday-
+  blackout test + cap re-breach watch at 15/15. EA bar 33d stale. POSITIVE:
+  wake probe at 9:35 CT suggests schtasks run-after-missed now enabled.
+  Snapshot 9/4 14:30: cash $21,541.45, equity $105,809.28, dd 0.84%.

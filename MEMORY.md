@@ -400,3 +400,32 @@ git so memory survives session teardown.
   quoting, a `->` inside the message escapes quoting and becomes a cmd redirect →
   bare "Access is denied." with no other output. Avoid `>` `<` `&` in commit
   messages run through cmd one-liners.
+
+
+
+## Updates 2026-09-12 (deep-dive, Sat, ran on wake 14:50 UTC) — RED
+- **OUTAGE #8, WORST YET: ~191h asleep, Fri 9/4 15:25 UTC → Sat 9/12 14:36 UTC.**
+  Lost 9/8–9/11 entirely + 5/7 cycles on 9/4 (13:35/14:30 ran, 4 fills, signals/
+  rankings ran; last snapshot 9/4 14:30). NO deep-dive entries 9/4–9/11 — this
+  scheduled task sleeps with the machine; today's run fired on wake ~9:37 AM CT
+  (8h early). Outage-proofing rec now #1 by a wide margin: 7 of the last 30 days
+  dark across outages #6–#8.
+- **Run-after-missed apparently ENABLED (open rec since Aug 12 → likely done):**
+  host probe fired 9/12 14:35 UTC (9:35 AM CT, wake time, not a scheduled slot)
+  and 0505's next-run rolled to 9/13. First-ever host probe on wake. Verify Mon.
+- Post-wake state completely clean (best post-outage arrival yet): health ok 7/7
+  incl broker:ok immediately (no degraded-token flavor), DNS ok, no drift,
+  0 phantom/dup/NULL, smoke 28/28, git clean/pushed, alertmanager empty.
+- **15 open = AT cap (not breach)** — 9/4 morning opened 2 (13→15). Cap bug
+  primed for Mon 9/14: closes + ≥2 planned opens = likely breach #4.
+- Bars end 9/3 (483/483 through 9/3). Mon 9/14 = biggest-ever catch-up: 5 trading
+  days (9/4, 9/8–9/11) in one period=1y fetch + 6th Monday-blackout observation
+  (pattern last confirmed 8/24; 8/31 and 9/7 unobservable). Silent-partial risk
+  very high — SQL count-per-trade_date only reliable check.
+- EA (OPEN) bar 8/10 = 33 days. is_active review overdue.
+- APScheduler wake behavior consistent 3rd time: missed-run warnings, all jobs
+  roll to next trading day, no catch-up trading (safe), nothing recovered same-day.
+- Mon 9/14 duties: (a) 5-day bar catch-up SQL-verified; (b) Monday-blackout test;
+  (c) 7/7 cycles + signals/rankings; (d) cap re-breach watch at 15/15;
+  (e) verify Sat 1005/1405 probes fired + run-after-missed; (f) EA is_active;
+  (g) churn (paused since 9/3 by outage).

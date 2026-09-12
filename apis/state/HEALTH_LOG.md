@@ -7501,3 +7501,79 @@ opens) — latent, not fixed.
 ### Fri 9/4 duties
 (a) cap re-breach watch (bug latent — any cycle with ≥6 planned opens near 15);
 (b) 9/3 bars ~10:00 UTC; (c) EA bar/is_active; (d) churn.
+
+
+---
+
+## 2026-09-12 14:50 UTC — Daily deep-dive (ran on wake, Sat morning) — VERDICT: RED
+
+**OUTAGE #8 — WORST YET: machine slept Fri 9/4 15:25 UTC → Sat 9/12 14:36 UTC
+(~191h / 8 days), losing 4 full trading days (9/8–9/11) + 5/7 cycles on 9/4.**
+(9/5–9/6 weekend, 9/7 Labor Day.) Worker-log day histogram: Sep 3 ✓, Sep 4
+partial (last line 15:25), Sep 5–11 ZERO lines, Sep 12 resumes 14:36. Probe log
+silent 9/4 10:05 → 9/12 14:35 (snapshot_stale_h:192 confirms). No deep-dive runs
+9/4–9/11 (this scheduled task also asleep); this run fired on wake ~8h early.
+Current state post-wake is otherwise fully healthy — nothing recoverable before
+Mon 9/14 (APScheduler rolled all jobs to 9/14, no catch-up trading — safe).
+
+### §1 Infra
+- 8/8 containers "Up 2 weeks" healthy (uptime masks sleep — known) ✓; /health at
+  14:38 UTC: status ok, 7/7 components ok incl broker:ok (no post-wake degraded
+  this time), mode=paper ✓; alertmanager empty ✓; DNS ok (github.com resolves —
+  no 9/1-style DNS-dead sub-mode) ✓.
+
+### §2 Phase 87 guards
+- 0 fills @ $1.00 (7d) ✓; 0 phase87_*/mark_to_market_*/phantom_equity events in
+  9/4+9/12 log lines ✓.
+
+### §3 Trading integrity
+- **15 open = AT cap (13 → 15 via 9/4 morning cycles), NOT a breach** ✓ — but
+  latent same-cycle counting bug is primed for Mon (any closes+≥2 opens can
+  re-breach; watch duty). 0 dup OPEN rows, 0 NULL origin_strategy (open),
+  0 dup idempotency_keys ✓.
+- Cash $21,541.45 ≥0 ✓; last snapshot 9/4 14:30: equity $105,809.28, dd 0.84% ✓.
+
+### §4 Cycles + data
+- 9/4: signals 10:30 + rankings 10:45 ✓, 4 fills, but only 2/7 snapshots (13:35,
+  14:30) — sleep at 15:25 UTC killed the rest. 9/8–9/11: 0 of everything.
+  Today (Sat): 0 expected ✓.
+- Bars end 9/3 @483 ✓ (9/1–9/3 all 483/483). Fri 9/4 bars never ingested; Mon
+  9/14 10:00 UTC faces the BIGGEST catch-up yet: 5 trading days (9/4, 9/8–9/11).
+  Silent-partial risk very high — SQL count-per-trade_date is the only check.
+- EA (OPEN) last bar still 8/10 = 33 days; all other 14 opens at 9/3 ✓.
+- Log scan (9/4 + 9/12 lines): 0 CRITICAL/Traceback/crash-triad ✓; 43 errors +
+  65 warnings = known-benign (yfinance-404 watchlist noise on 9/4 fetch;
+  APScheduler missed-run notices on 9/12 wake, all next-runs → Mon 9/14).
+
+### §5 Code/schema/config
+- Alembic q7r8s9t0u1v2 single head ✓; git clean (untracked outputs/ scratch dir
+  only), 0 unpushed ✓; smoke 28/28 ✓; env fully nominal, no drift (all APIS_*
+  match expected; kill_switch false, mode paper, caps 15/5/0.75/0.30) ✓.
+
+### §6 Auto-probe liveness
+- Only 1 probe line in last 24h (9/12 14:35 YELLOW snapshot_stale_h:192) —
+  outage-explained. **POSITIVE: that probe fired at 9:35 AM CT on wake, not a
+  scheduled time, and 0505's next-run rolled to 9/13 → "run ASAP after missed
+  start" now appears ENABLED (open rec since Aug 12 — apparently applied).**
+  Schtasks 0505/1005/1405 all Ready; 1005/1405 due later today (10:05/14:05 CT)
+  — Mon run should verify they fired.
+
+### Fixes applied (autonomous)
+- None needed: containers/health/DNS fine, no drift, no bad rows. Sleep itself is
+  host power settings — outside deep-dive authority (rec open).
+
+### Recommendations (reordered — outage now catastrophic-scale)
+1. **OUTAGE-PROOFING IS CRITICAL: 8 outages, now 7 of the last 30 days dark.**
+   powercfg disable-sleep-on-AC + Docker auto-start. Run-after-missed appears
+   done (verify). Deep-dive not authorized for host power settings — Aaron must.
+2. Cap validation fix (latent; primed at 15/15 for Monday).
+3. Phase 88 churn dampener + cash-aware sizing.
+4. yfinance fallback + stale-bar alerting; EA is_active review (33 days).
+5. Widen paper_cycle staleness threshold to ~70 min.
+
+### Mon 9/14 duties
+(a) 5-day bar catch-up verified by SQL count-per-trade_date (biggest ever;
+silent-partial risk high); (b) Monday-blackout test (first since 8/24 — 6th
+observation); (c) 7/7 cycles + signals/rankings resumption; (d) cap re-breach
+watch at 15/15; (e) verify 1005/1405 probes fired Sat + run-after-missed works;
+(f) EA is_active; (g) churn resumption.
