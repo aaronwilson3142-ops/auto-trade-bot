@@ -7646,3 +7646,83 @@ re-breach watch at 15/15; (e) probes 3/3 at normal slots (first full normal prob
 day post-outage); (f) EA is_active; (g) churn resumption. Also: expect Sunday
 9/13 run to be a plain weekend-baseline day (probes will stay YELLOW
 snapshot_stale until Monday's first snapshot — known, do not re-flag).
+
+
+---
+
+## 2026-09-13 22:20 UTC — Daily deep-dive (scheduled, Sun) — VERDICT: YELLOW
+
+Expected a quiet weekend-baseline day; instead found a NEW ~14h dark window
+(outage #9, weekend flavor, zero trading impact) and a probe-liveness failure.
+Carried outage-#8 staleness (bars 9/3, snapshot 9/4) remains, as predicted.
+
+### §0 Timeline finding (check-uptime-first rule paid off)
+- Containers only "Up ~1 hour" at 22:10 UTC. Host rebooted Sun 01:46 CT
+  (06:46 UTC); worker-log heartbeats stop exactly at hour 06 (18/24 lines).
+- Machine then asleep/dark (Docker not auto-started — known gap) until
+  ~20:55 UTC (~15:55 CT): startup burst 122 lines in hour 20, normal 24/hr
+  after. Dark 06:46→20:55 UTC ≈ 14.2h spanning all 3 probe slots.
+- **Run-after-missed did NOT fire on wake**: 1005/1405 (15:05/19:05 UTC
+  triggers today) show Last Run 9/12, next runs rolled to 9/14; 0505 shows
+  Last Run 9/4. Yesterday's "VERIFIED" conclusion is now CONTRADICTED —
+  reopening the schtasks rec (and the 9/12 14:35 UTC wake probe line is
+  unexplained: no task's Last Run matches it).
+
+### §1 Infra
+- 8/8 containers Up (healthy) post-restart; /health 22:10 UTC: status ok,
+  7/7 components ok incl broker:ok (token refreshed on startup despite sleeping
+  through 05:30 EDT slot), mode=paper ✓; alertmanager [] ✓; DNS ok
+  (github.com resolves — no repeat of the 9/1 DNS-dead sub-mode) ✓.
+
+### §2 Phase 87 guards
+- 0 fills @ $1.00 (7d) ✓; 0 phase87_*/mark_to_market_*/phantom_equity events
+  in today's 312 worker-log lines ✓.
+
+### §3 Trading integrity
+- 15 open = AT cap (unchanged since 9/4, 0 weekend fills) ✓; 0 dup OPEN rows,
+  0 NULL origin_strategy (open, post-4/18), 0 dup idempotency_keys ✓.
+- Latest snapshot 9/4 14:30: cash $21,541.45 ≥0 ✓, equity $105,809.28,
+  dd 0.84% sane ✓. 0 snapshots/fills today (Sunday baseline) ✓.
+
+### §4 Cycles + data
+- Sunday: 0 cycles/signals/rankings expected and observed ✓ (last signal 9/4
+  10:30, ranking 9/4 10:45). Bars end 9/3 @483/483 — outage-#8 aftermath,
+  unrecoverable before Mon. EA (OPEN) bar 8/10 = 34 days.
+- Log scan (today's 312 lines): 0 errors, 0 warnings, 0 CRITICAL/Traceback ✓.
+  Startup at ~20:55 was clean; NO APScheduler missed-run warnings (Sunday has
+  no market jobs to miss — consistent with weekend baseline).
+
+### §5 Code/schema/config
+- Alembic q7r8s9t0u1v2 single head ✓; git clean (untracked outputs/ scratch
+  only), 0 unpushed ✓; smoke 28/28 in 6.0s ✓; env fully nominal — all APIS_*
+  at expected values (mode paper, kill_switch false, caps 15/5/0.75/0.30,
+  sector 0.40, single-name 0.20, age 20d, loss 0.02/0.05); self-improvement/
+  insider-flow/Step 6-7-8 flags absent = OFF ✓.
+
+### §6 Auto-probe liveness — FAILED (the YELLOW driver)
+- 0 probe lines in last 24h (spec requires ≥2); last line 9/12 19:05 UTC.
+  All 3 schtasks exist and are Ready (next runs 9/14) but none ran today —
+  machine dark at all 3 slots and no catch-up on wake.
+
+### Fixes applied (autonomous)
+- None available: dark window is host power/Docker-autostart (outside deep-dive
+  authority); probes cannot be back-run; staleness resolves Mon by design.
+
+### Recommendations (updated)
+1. OUTAGE-PROOFING (now 9 outages; 3 dark windows in 10 days): powercfg
+   disable-sleep-on-AC + Docker Desktop auto-start + re-check "run ASAP after
+   missed start" on all 3 probe tasks — today PROVES it is not working
+   (yesterday's verification retracted). Aaron must do all three.
+2. Cap validation fix (latent; primed at 15/15 for Monday).
+3. Phase 88 churn dampener + cash-aware sizing.
+4. yfinance fallback + stale-bar alerting; EA is_active review (34 days).
+5. Widen paper_cycle staleness threshold to ~70 min.
+
+### Mon 9/14 duties (carried + updated)
+(a) 5-day bar catch-up SQL-verified (biggest ever; silent-partial risk high);
+(b) Monday-blackout test #6; (c) 7/7 cycles + signals/rankings resumption;
+(d) cap re-breach watch at 15/15; (e) probes: expect 3/3 at normal slots IF
+machine stays awake — re-verify run-after-missed status via schtasks XML if
+possible; (f) EA is_active; (g) churn resumption; (h) check for another
+overnight reboot/sleep (this Sunday's 01:46 reboot cause unknown — possibly
+Windows Update; if Monday shows another dark morning, escalate).

@@ -2533,3 +2533,14 @@ No fixes needed. Full details in apis/state/HEALTH_LOG.md.
   warnings only). POSITIVE: machine stayed awake 14:36→22:10 UTC; all 3 probes
   fired (wake catch-up + both scheduled slots) — run-after-missed VERIFIED.
   Mon 9/14: 5-day bar catch-up + Monday-blackout test + cap re-breach watch.
+
+
+- 2026-09-13 22:20 UTC | deep-dive (Sun) | YELLOW | NEW dark window (outage #9,
+  weekend, zero trading impact): host rebooted 01:46 CT, Docker not auto-started,
+  asleep/dark 06:46→20:55 UTC → 0/3 probes fired AND no catch-up on wake —
+  run-after-missed is NOT working (9/12 "verified" retracted; rec reopened).
+  Everything live nominal post-restart: health ok 7/7 incl broker, 15 open =cap,
+  0 phantom/dup/NULL, smoke 28/28, alembic head, git clean/pushed, env no drift,
+  logs fully clean (0 warn/err). Carried staleness: bars 9/3, snapshot 9/4
+  (cash $21,541.45, equity $105,809.28, dd 0.84%), EA bar 34d. Mon 9/14: 5-day
+  bar catch-up + Monday-blackout #6 + cap re-breach watch + probe/sleep re-check.

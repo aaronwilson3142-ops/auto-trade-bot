@@ -449,3 +449,33 @@ git so memory survives session teardown.
 - Mon 9/14 duties unchanged (see 9/12 morning entry): 5-day bar catch-up SQL
   check, Monday-blackout #6, cap re-breach watch at 15/15, probes at normal
   slots, EA is_active (33d), churn.
+
+
+## Updates 2026-09-13 (deep-dive, Sun) — YELLOW
+- **OUTAGE #9 (weekend flavor, zero trading impact): host REBOOTED Sun 01:46 CT
+  (06:46 UTC — cause unknown, possibly Windows Update), Docker did not auto-start,
+  machine asleep/dark 06:46→20:55 UTC (~14h), containers restarted ~20:55 UTC.**
+  Worker heartbeat histogram again the fastest tell (hour 06 = 18 lines, 07–19
+  empty, hour 20 = 122-line startup burst).
+- **Run-after-missed RETRACTED: it does NOT work.** All 3 probe slots missed
+  today; on wake ~20:55 UTC NO catch-up fired (1005/1405 Last Run stuck at 9/12,
+  0505 at 9/4, next-runs rolled to 9/14). Yesterday's "VERIFIED" was wrong — and
+  the 9/12 14:35 UTC wake-probe line matches NO task's Last Run Time (source
+  unexplained; do not trust probe-log lines alone as proof of schtasks behavior;
+  cross-check schtasks Last Run Time every time). Rec reopened, folded into #1.
+- Curious: 0505 Last Run = 9/4 even though machine was awake Sun 9/13 at 05:05 CT?
+  No — reboot was 01:46 CT and sleep likely followed quickly; also explains 9/12
+  (asleep at 05:05). 0505 has not successfully run since 9/4.
+- Broker token refreshes fine on container startup (broker:ok immediately at
+  22:10 UTC despite sleeping through 05:30 EDT slot) — 9/1 degraded-token flavor
+  is NOT a necessary post-sleep artifact.
+- Sunday post-restart log is FULLY quiet (0 warnings): APScheduler missed-run
+  warnings only appear when market jobs were missed — a weekend restart produces
+  none. Weekend baseline otherwise holds (7th weekend-baseline day).
+- All live checks nominal: health ok 7/7, alertmanager [], DNS ok, 15 open =cap,
+  0 phantom/dup/NULL/dup-idem, smoke 28/28, alembic head, git clean/pushed
+  (outputs/ scratch still untracked), env no drift. Bars 9/3, snapshot 9/4
+  14:30 (cash $21,541.45, equity $105,809.28, dd 0.84%), EA bar 34d.
+- Mon 9/14 duties: the 9/12 list PLUS (h) check for another overnight
+  reboot/dark window — two dark mornings in a row would make Monday's 7 cycles
+  + 5-day bar catch-up fail silently again; uptime check FIRST.
