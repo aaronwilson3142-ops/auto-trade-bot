@@ -78,3 +78,4 @@ push-notifies Aaron on RED, or when no probe commit lands for >26h.
 - 2026-09-12 14:35 UTC | YELLOW | snapshot_stale_h:192
 - 2026-09-12 15:05 UTC | YELLOW | snapshot_stale_h:193
 - 2026-09-12 19:05 UTC | YELLOW | snapshot_stale_h:197
+- 2026-09-14 10:05 UTC | YELLOW | snapshot_stale_h:236
