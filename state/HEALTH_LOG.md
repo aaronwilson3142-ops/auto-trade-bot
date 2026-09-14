@@ -2544,3 +2544,15 @@ No fixes needed. Full details in apis/state/HEALTH_LOG.md.
   logs fully clean (0 warn/err). Carried staleness: bars 9/3, snapshot 9/4
   (cash $21,541.45, equity $105,809.28, dd 0.84%), EA bar 34d. Mon 9/14: 5-day
   bar catch-up + Monday-blackout #6 + cap re-breach watch + probe/sleep re-check.
+
+
+- 2026-09-14 22:20 UTC | deep-dive (Mon) | GREEN | Full recovery day: no new dark
+  window (up 25h), 3/3 probes at normal slots, biggest-ever bar catch-up CLEAN
+  (9/4 + 9/8–9/11 all 483/483, no silent-partial), 7/7 cycles, signals/rankings
+  on time. Monday-blackout #6 confirmed (15:30+16:00 cycles, all 15 held tickers
+  stale) — phase87/phantom-equity/mark-to-market guards textbook, self-recovered
+  by 17:30. 13 open ≤15 (no breach #4; latent bug untested). Churn escalation:
+  DELL+CVX DOUBLE same-day round-trips (≈−$210); 4 Insufficient-cash rejects
+  (Phase 88). Snapshot 19:30: cash $34,770.37, equity $104,804.05, dd 0.95%.
+  Smoke 28/28, alembic head, git clean, env no drift. EA bar 35d (rec: is_active).
+  Tue 9/15: 9/14 bars 483/483 check (Tue silent-partial risk), churn, CVX 1-sh dust.

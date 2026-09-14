@@ -479,3 +479,35 @@ git so memory survives session teardown.
 - Mon 9/14 duties: the 9/12 list PLUS (h) check for another overnight
   reboot/dark window — two dark mornings in a row would make Monday's 7 cycles
   + 5-day bar catch-up fail silently again; uptime check FIRST.
+
+
+
+## Updates 2026-09-14 (deep-dive, Mon) — GREEN
+- **Outage #8/#9 aftermath FULLY recovered, best-case:** no new dark window
+  (containers up 25h, no re-sleep after Sunday's restart), 3/3 probes at normal
+  slots (first full probe weekday since 9/3), 7/7 cycles, signals/rankings on time.
+- **Biggest-ever bar catch-up landed CLEAN:** 9/4 + 9/8–9/11 all 483/483 in one
+  10:00 UTC fetch, NO silent-partial (counter-example to 8/18 and 8/28 — 5-day
+  catch-up CAN work in one pass; silent-partial is not inevitable, just a risk).
+- **Monday-blackout #6 (Aug 3/10/17/24, 9/14):** new flavor — hit mid-afternoon
+  (15:30 + 16:00 cycles), ALL 15 held tickers "possibly delisted"; BOTH guard
+  families fired together for the first time (phase87_cycle_degraded ×2 dropping
+  4 actions/cycle + phantom_equity/mark_to_market ×30); self-recovered by 17:30
+  with normal fills. Guards on genuinely-stale data = GREEN (8/17 precedent).
+- **Churn day 12 — NEW escalation flavor: DOUBLE same-day round-trips.** DELL and
+  CVX each: buy 14:30 → sell 17:30 → rebuy 18:30 → sell 19:30 (≈−$210 net).
+  Plus 4 broker_order_rejected Insufficient-cash (AMGN/PAYC/V×2) — sizing bug
+  evidence continues. Phase 88 rec unchanged.
+- **CVX dust row:** 19:30 sold 54 of 55 sh → 1-share open row (dust now created
+  by plain sells, not just trims). 13 open (first sub-cap day since 9/4); cap
+  bug UNTESTED today (count never crossed 15) — still latent, re-arms at 15.
+- EA (OPEN) bar 8/10 = 35 days. Setting is_active=false on an OPEN position is
+  NOT within autonomous authority (it's not a phantom/dup cleanup) — needs Aaron.
+- Snapshot 9/14 19:30: cash $34,770.37, equity $104,804.05, dd 0.95%.
+- Tooling: nested-quote python one-shots keep failing (cmd AND PS mangle them);
+  reliable pattern = write scan script to outputs/ scratch via write_file, run
+  `powershell -Command "python 'C:\...\outputs\scan.py'"`. PS `docker logs --tail N
+  2>&1 | Out-File -Encoding utf8` works (utf8 flag avoids the UTF-16 gotcha).
+- Tue 9/15 duties: (a) 9/14 bars 483/483 SQL check (Tue silent-partial risk after
+  Monday blackout per 8/18); (b) churn (DELL/CVX continuation); (c) CVX dust;
+  (d) cap watch if back at 15; (e) EA; (f) uptime/dark-window check first.

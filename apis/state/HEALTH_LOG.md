@@ -7726,3 +7726,89 @@ machine stays awake — re-verify run-after-missed status via schtasks XML if
 possible; (f) EA is_active; (g) churn resumption; (h) check for another
 overnight reboot/sleep (this Sunday's 01:46 reboot cause unknown — possibly
 Windows Update; if Monday shows another dark morning, escalate).
+
+
+
+---
+
+## 2026-09-14 22:20 UTC — Daily deep-dive (scheduled, Mon) — VERDICT: GREEN
+
+Best Monday of the quarter: full recovery from outage #8/#9 staleness, biggest-ever
+bar catch-up landed clean, Monday-blackout #6 handled perfectly by guards, no cap
+breach, machine stayed awake all day. All 9/12–9/13 carried duties discharged.
+
+### §0 Uptime first (duty h)
+- No new dark window: containers Up 25h (since Sun ~21:00 UTC restart), host boot
+  still Sun 01:46 CT, no re-sleep — first full awake trading day since 9/3.
+
+### §1 Infra
+- 8/8 containers Up (healthy); /health 22:10 UTC: status ok, 7/7 ok incl
+  paper_cycle:ok, mode=paper ✓; alertmanager [] ✓.
+
+### §2 Phase 87 guards — Monday-blackout #6 CONFIRMED, guards textbook
+- 0 fills @ $1.00 (7d) ✓. Blackout hit 15:30 + 16:00 cycles: ALL 15 held tickers
+  (AAPL/MSFT/JPM/CVX/DELL/…) returned "possibly delisted" → phantom_equity_guard_active
+  ×2, phase87_cycle_degraded_stale_data ×2 (4 actions dropped/cycle),
+  mark_to_market_stale_price_preserved ×30 (prior close preserved). Self-recovered
+  by 17:30 (fills resumed). 6th confirmed Monday blackout (Aug 3/10/17/24, [8/31+9/7
+  unobservable], 9/14). Guards firing on genuinely-stale data = working as designed,
+  not YELLOW. Provider-fallback rec stands.
+
+### §3 Trading integrity
+- 13 open ≤15 ✓ (first sub-cap day since 9/4); 0 dup OPEN, 0 NULL origin_strategy
+  (open, post-4/18), 0 dup idempotency_keys ✓.
+- Snapshot 9/14 19:30: cash $34,770.37 ≥0 ✓, equity $104,804.05, dd 0.95% sane ✓.
+- Cap re-breach watch (duty d): NO breach #4 — 13:35 closed CRL/AMGN (15→13),
+  14:30 opened DELL/CVX (→15), afternoon net-sold to 13. Latent same-cycle
+  counting bug untested today (count never crossed 15 via multi-open); rec #2 stands.
+- CVX dust: bought 55 @14:30 (2nd round), sold 54 @19:30 → 1-share dust row open
+  (known trim/sizing dust pattern).
+
+### §4 Cycles + data — all carried duties discharged
+- (a) BIGGEST-EVER CATCH-UP CLEAN: 9/4 + 9/8/9/10/11 ALL at 483/483 in today's
+  10:00 UTC fetch — NO silent-partial (unlike 8/18 and 8/28 instances). Bars now
+  current through Fri 9/11 ✓.
+- (c) 7/7 snapshots (13:35–19:30) ✓; signals 10:30:00 + rankings 10:45:00 ✓.
+- (g) Churn day 12, NEW ESCALATION FLAVOR: DELL and CVX each did DOUBLE same-day
+  round-trips (buy 14:30 → sell 17:30 → rebuy 18:30 → sell 19:30). Net churn P&L
+  ≈ −$210 (DELL +$38, CVX −$248). 11 fills, zero net accumulation. Phase 88 rec.
+- broker_order_rejected ×4 = known Insufficient-cash sizing bug (AMGN/PAYC @14:30,
+  V @18:30+19:30) — Phase 88 evidence, not an incident.
+- Log scan (1,110 today-lines): 0 CRITICAL/Traceback; 77 errors = 25 HTTP-404 +
+  blackout/watchlist yfinance noise + the 4 rejects; 152 warnings = blackout guard
+  events + delisted-watchlist noise. Heartbeat 24/hr all hours ✓ (no gaps).
+- (f) EA (OPEN) last bar 8/10 = 35 days (all other opens at 9/11). is_active
+  review escalating — not autonomous-authority (open position, not a phantom/dup
+  row); needs Aaron or explicit authorization.
+
+### §5 Code/schema/config
+- Alembic q7r8s9t0u1v2 single head ✓; git clean (outputs/ scratch only),
+  0 unpushed ✓; smoke 28/28 in 4.2s ✓; env zero drift (paper, kill_switch false,
+  caps 15/5/0.75/0.30/0.40/0.20, age 20, loss 0.02/0.05; self-improvement/
+  insider-flow/Step 6-7-8 flags absent = OFF) ✓.
+
+### §6 Auto-probe liveness (duty e)
+- 3/3 probes fired at normal slots ✓ (first 3-probe weekday since 9/3): 10:05
+  YELLOW snapshot_stale_h:236 (expected post-outage artifact, cleared by 13:35
+  snapshot), 15:05/19:05 YELLOW paper_cycle:stale (known-benign in-market timing
+  artifact). All 3 schtasks exist, Ready, next runs 9/15 ✓. Run-after-missed
+  still unverifiable on an awake day — remains folded into rec #1.
+
+### Fixes applied (autonomous)
+- None needed. (Scratch scan scripts written to untracked outputs/, removed after.)
+
+### Recommendations (unchanged order)
+1. OUTAGE-PROOFING (9 outages): powercfg disable-sleep-on-AC + Docker Desktop
+   auto-start + fix "run ASAP after missed start" on probe tasks — Aaron.
+2. Cap validation fix (latent, untested today; will re-arm when count sits at 15).
+3. Phase 88: churn dampener + cash-aware sizing (day-12 evidence: double intraday
+   round-trips, −$210 today; 4 more Insufficient-cash rejects).
+4. yfinance provider fallback (blackout #6) + stale-bar alerting; EA is_active
+   decision (35 days — worst ever; needs Aaron or authorization).
+5. Widen paper_cycle staleness threshold to ~70 min.
+
+### Tue 9/15 duties
+(a) 9/14 bars land ~10:00 UTC — verify 483/483 by SQL (Tuesday silent-partial
+risk after Monday blackout, per 8/18 precedent); (b) churn watch (DELL/CVX
+pattern continuation); (c) CVX 1-share dust row; (d) cap watch if count returns
+to 15; (e) EA is_active; (f) overnight dark-window check first.
