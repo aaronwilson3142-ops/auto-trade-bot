@@ -7812,3 +7812,85 @@ breach, machine stayed awake all day. All 9/12–9/13 carried duties discharged.
 risk after Monday blackout, per 8/18 precedent); (b) churn watch (DELL/CVX
 pattern continuation); (c) CVX 1-share dust row; (d) cap watch if count returns
 to 15; (e) EA is_active; (f) overnight dark-window check first.
+
+
+---
+
+## 2026-09-15 22:25 UTC — Daily deep-dive (scheduled, Tue) — VERDICT: RED
+
+**OUTAGE #10: host rebooted Tue 02:03 CT (07:03 UTC, cause unknown — 2nd
+unexplained overnight reboot in 3 days after Sun 9/13 01:46 CT), Docker did not
+auto-start, machine dark 07:03→~18:55 UTC.** Lost: 10:00 bar ingestion (9/14
+bars = 0 rows), 10:30 signals + 10:45 rankings (last runs still 9/14), cycles
+13:35–18:30 (6/7), probes 0505+1005 (Last Run stuck 9/14). Recovered same day:
+containers up ~18:55 UTC, 19:05 probe fired, **19:30 cycle RAN with 7 fills** —
+first-ever partial same-day trading recovery from an outage.
+
+### §0 Uptime first (duty f)
+- Heartbeat histogram: hours 00–06 normal (24/hr), 07–17 EMPTY, hour 18 = 116-line
+  startup burst, 19+ normal. Boot 02:03:11 CT confirms reboot-then-dark pattern
+  (Docker not auto-started; run-after-missed still absent on 0505/1005).
+
+### §1 Infra
+- 8/8 containers Up (healthy) since ~18:55 UTC; /health 22:09 UTC: status ok,
+  7/7 components ok incl broker:ok + paper_cycle:ok, mode=paper ✓; alertmanager [] ✓;
+  DNS ok (github.com resolves).
+
+### §2 Phase 87 guards
+- 0 fills @ $1.00 (7d) ✓. ZERO phase87/phantom_equity/mark_to_market events today ✓
+  (19:30 cycle had fresh quotes). Log scan: 0 CRITICAL/Traceback, 0 errors,
+  0 warnings in 437 today-lines — fresh container start logs no APScheduler
+  missed-run warnings (consistent w/ 8/28; those only fire on asleep-but-alive wake).
+
+### §3 Trading integrity — big watch-item day
+- **10 open ≤15 ✓** (13→10); 0 dup OPEN, 0 NULL origin_strategy, 0 dup
+  idempotency_keys ✓. NEW origin_strategy value observed: ranking_buy_signal
+  (DELL/V today) — non-NULL, invariant holds.
+- 19:30 fills: sold JNJ 25, IQV 26, **EA 34 (35-day stale-bar poster child CLOSED
+  by the bot — is_active escalation MOOT)**, **TECH 4-sh dust CLOSED**, **PSX 1-sh
+  dust CLOSED**; bought DELL 28 @544.74, V 40 @375.99.
+- Duty (c): CVX 1-share dust STILL open (opened 9/14). Duty (b) churn: DELL
+  rebought (3rd consecutive day of DELL trading), V rebought after yesterday's
+  2 Insufficient-cash rejects — churn continues, mild flavor (single cycle only).
+- Snapshot 9/15 19:30 (only 1/7 today): cash $25,794.39 ≥0 ✓, equity $104,622.72,
+  dd 0.17% sane ✓.
+
+### §4 Cycles + data
+- 1/7 snapshots (19:30 only — rest lost to dark window). Signals/rankings did NOT
+  run today (dark at 10:30/10:45). Duty (a) result: 9/14 bars = **0/483** —
+  ingestion never ran, NOT silent-partial (job never fired). Bars current through
+  9/11; all 10 open positions have 9/11 bars ✓ (no EA-style stragglers left).
+- 19:30 cycle traded on 9/14 signals + 9/11 bars (staleness caveat on DELL/V buys).
+
+### §5 Code/schema/config
+- Alembic q7r8s9t0u1v2 single head ✓; smoke 28/28 in 3.95s ✓; git clean
+  (outputs/ scratch only), 0 unpushed ✓; env ZERO drift (paper, kill_switch false,
+  15/5/0.75/0.30/0.40/0.20, age 20, loss 0.02/0.05, self-improvement/insider-flow/
+  Step 6-7-8 flags absent = OFF) ✓.
+
+### §6 Auto-probe liveness
+- Only 1 probe line in 24h (19:05 YELLOW paper_cycle:stale — honest: last cycle
+  was 9/14 when it fired) → liveness criterion FAILED (needs ≥2). 0505/1005
+  missed (dark); all 3 schtasks exist, Ready, next runs 9/16 ✓.
+
+### Fixes applied (autonomous)
+- None available for root cause (host power/reboot settings + Docker auto-start
+  are outside authority). Scratch scan script written to untracked outputs/,
+  removed after run.
+
+### Recommendations
+1. **OUTAGE-PROOFING NOW CRITICAL (10 outages; 2 unexplained overnight reboots
+   in 3 days — check Windows Update reboot history/active hours):** Docker
+   Desktop auto-start + powercfg sleep-on-AC + schtasks run-after-missed — Aaron.
+2. Cap validation fix (latent; count 10, re-arms at 15).
+3. Phase 88 churn dampener + cash-aware sizing.
+4. yfinance provider fallback + stale-bar alerting. (EA is_active item CLOSED —
+   position sold today.)
+5. Widen paper_cycle staleness threshold to ~70 min.
+
+### Wed 9/16 duties
+(a) 9/14 + 9/15 bars each 483/483 in the ~10:00 UTC fetch (double catch-up;
+silent-partial risk); (b) signals/rankings resume 10:30/10:45; (c) 7/7 cycles +
+3/3 probes IF machine stays up — overnight reboot/dark-window check FIRST (3rd
+reboot in 4 days would confirm a recurring scheduled cause, likely ~2 AM CT);
+(d) churn (DELL/V); (e) CVX dust; (f) cap watch (10 open, room to climb).

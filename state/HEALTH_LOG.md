@@ -2556,3 +2556,14 @@ No fixes needed. Full details in apis/state/HEALTH_LOG.md.
   (Phase 88). Snapshot 19:30: cash $34,770.37, equity $104,804.05, dd 0.95%.
   Smoke 28/28, alembic head, git clean, env no drift. EA bar 35d (rec: is_active).
   Tue 9/15: 9/14 bars 483/483 check (Tue silent-partial risk), churn, CVX 1-sh dust.
+
+
+- 2026-09-15 22:25 UTC | deep-dive (Tue) | RED | OUTAGE #10: host rebooted 02:03
+  CT (cause unknown, 2nd unexplained reboot in 3 days), Docker no auto-start,
+  dark 07:03–18:55 UTC. Lost 6/7 cycles, 9/14 bar ingestion (0 rows), signals/
+  rankings, 0505+1005 probes. First-ever same-day partial recovery: 19:30 cycle
+  ran 7 fills — EA closed (35d stale-bar item MOOT), TECH+PSX dust rows closed,
+  DELL/V rebought (churn; new origin ranking_buy_signal). 10 open ≤15, 0 phantom/
+  dup/NULL, health ok 7/7, smoke 28/28, no drift, git clean. Snapshot 19:30: cash
+  $25,794.39, equity $104,622.72, dd 0.17%. Wed: 9/14+9/15 double bar catch-up,
+  reboot-recurrence check first (~2 AM CT suspected), churn, CVX dust.

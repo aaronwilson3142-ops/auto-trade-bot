@@ -511,3 +511,36 @@ git so memory survives session teardown.
 - Tue 9/15 duties: (a) 9/14 bars 483/483 SQL check (Tue silent-partial risk after
   Monday blackout per 8/18); (b) churn (DELL/CVX continuation); (c) CVX dust;
   (d) cap watch if back at 15; (e) EA; (f) uptime/dark-window check first.
+
+
+
+## Updates 2026-09-15 (deep-dive, Tue) — RED
+- **OUTAGE #10: unexplained host reboot Tue 02:03 CT (07:03 UTC), Docker not
+  auto-started, dark 07:03→~18:55 UTC.** 2nd unexplained overnight reboot in 3
+  days (Sun 01:46, Tue 02:03) — both ~2 AM CT: suspect Windows Update/scheduled
+  cause; if Wed shows a 3rd, treat as recurring and escalate hard. Lost 6/7
+  cycles, 9/14 ingestion (0 rows — job never fired, distinct from silent-partial),
+  signals/rankings, 0505+1005 probes.
+- **FIRST same-day partial trading recovery**: containers up ~18:55 UTC → 19:05
+  probe fired + 19:30 cycle RAN (7 fills) on 9/14 signals + 9/11 bars. An
+  in-market wake DOES recover remaining cycles (contrast 9/1's 21:42 wake = 0).
+- **EA CLOSED by the bot** (sold 34 sh @209.60 at 19:30) — 35-day stale-bar
+  is_active saga ends without intervention. TECH 4-sh and PSX 1-sh dust rows
+  also closed same cycle (dust CAN self-clean). CVX 1-sh dust still open.
+- NEW origin_strategy value: `ranking_buy_signal` (DELL/V opens) — 4th observed
+  value (momentum_v1, rebalance, theme_alignment_v1, ranking_buy_signal).
+- Churn: DELL 3rd consecutive trading day, V rebought after 9/14 rejects.
+- Fresh container start logs ZERO APScheduler missed-run warnings (confirmed
+  again; those only appear on asleep-but-alive process wake) — a quiet log does
+  NOT mean no jobs were missed; heartbeat histogram + schtasks Last Run + SQL
+  are the ground truth.
+- Post-recovery integrity all clean: 10 open, 0 phantom/dup/NULL/dup-idem,
+  health ok 7/7, alembic head, smoke 28/28, env no drift, git clean.
+- Snapshot 9/15 19:30: cash $25,794.39, equity $104,622.72, dd 0.17%.
+- Recs: outage-proofing CRITICAL (10 outages; check Windows Update reboot
+  history + active hours) > cap fix (latent, count 10) > Phase 88 > yfinance
+  fallback (EA item closed) > staleness threshold.
+- Wed 9/16 duties: (a) reboot/dark check FIRST (~2 AM CT recurrence?); (b) 9/14
+  + 9/15 bars 483/483 double catch-up ~10:00 UTC (silent-partial risk); (c)
+  signals/rankings + 7/7 cycles + 3/3 probes; (d) churn DELL/V; (e) CVX dust;
+  (f) cap watch.
